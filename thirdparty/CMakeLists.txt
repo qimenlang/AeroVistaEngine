@@ -1,0 +1,4 @@
+add_subdirectory(vsg)
+add_subdirectory(vsgXchange)
+#add_subdirectory(vsgImGui)
+add_subdirectory(vsgExamples)
