@@ -2,21 +2,10 @@
     "version": 8,
     "configurePresets": [
         {
-            "name": "clang",
-            "displayName": "alienware Clang 20.1.8 - amd64 for MSVC 18.2.11415.280 (VS Community 2026 Release)",
-            "description": "正在使用编译器: C = E:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe, CXX = E:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "CMAKE_C_COMPILER": "E:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin/clang.exe",
-                "CMAKE_CXX_COMPILER": "E:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin/clang.exe",
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
-        },
-        {
-            "name": "clang19",
-            "displayName": "alienware Clang 19.1.0 x86_64-pc-windows-msvc",
+            "name": "clang-Ninja",
+            "displayName": "alienware Clang 19.1.0 x86_64-pc-windows-msvc - Ninja",
             "description": "正在使用编译器: C = C:\\Program Files\\LLVM\\bin\\clang.exe, CXX = C:\\Program Files\\LLVM\\bin\\clang++.exe",
+            "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "cacheVariables": {
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
@@ -24,6 +13,28 @@
                 "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe",
                 "CMAKE_BUILD_TYPE": "Debug"
             }
+        },
+        {
+            "name": "vs2019",
+            "displayName": "Visual Studio Community 2019 Release - amd64",
+            "description": "将编译器用于 Visual Studio 16 2019 (x64 体系结构)",
+            "generator": "Visual Studio 16 2019",
+            "toolset": "host=x64",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "vs2019-debug",
+            "displayName": "Visual Studio Community 2019 Release - amd64 - Debug",
+            "configurePreset": "vs2019",
+            "configuration": "Debug"
         }
     ]
 }
