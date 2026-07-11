@@ -1,10 +1,13 @@
 set(SOURCES
+    RenderingEngine.cpp
     RenderingTests.cpp
 )
 
 add_executable(RenderingTests ${SOURCES})
 
-target_link_libraries(RenderingTests vsg::vsg)
+target_compile_definitions(RenderingTests PRIVATE "RESOURCE_DIR=\"${RESOURCE_DIR}\"")
+
+target_link_libraries(RenderingTests vsg::vsg Catch2::Catch2WithMain)
 
 if (vsgXchange_FOUND)
     target_compile_definitions(RenderingTests PRIVATE vsgXchange_FOUND)
