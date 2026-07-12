@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 4.2)
 project(AeroVistaEngine)
 
+option(AEROVISTA_BUILD_VSG_EXAMPLES "Build vsgExamples thirdparty targets" ON)
+
 enable_testing()
 
 # Clang + Ninja on Windows does not predefine WIN32 (MSVC does).

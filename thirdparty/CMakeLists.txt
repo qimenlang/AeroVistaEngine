@@ -1,5 +1,7 @@
 add_subdirectory(vsg)
 add_subdirectory(vsgXchange)
 #add_subdirectory(vsgImGui)
-add_subdirectory(vsgExamples)
+if(AEROVISTA_BUILD_VSG_EXAMPLES)
+    add_subdirectory(vsgExamples)
+endif()
 add_subdirectory(Catch2)

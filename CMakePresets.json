@@ -27,6 +27,28 @@
                 "CMAKE_C_COMPILER": "cl.exe",
                 "CMAKE_CXX_COMPILER": "cl.exe"
             }
+        },
+        {
+            "name": "ci-debug",
+            "displayName": "CI Windows Debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/ci-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-debug",
+                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF"
+            }
+        },
+        {
+            "name": "ci-release",
+            "displayName": "CI Windows Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/ci-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-release",
+                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF"
+            }
         }
     ],
     "buildPresets": [
@@ -35,6 +57,30 @@
             "displayName": "Visual Studio Community 2019 Release - amd64 - Debug",
             "configurePreset": "vs2019",
             "configuration": "Debug"
+        },
+        {
+            "name": "ci-debug",
+            "configurePreset": "ci-debug"
+        },
+        {
+            "name": "ci-release",
+            "configurePreset": "ci-release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "ci-debug",
+            "configurePreset": "ci-debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "ci-release",
+            "configurePreset": "ci-release",
+            "output": {
+                "outputOnFailure": true
+            }
         }
     ]
 }
