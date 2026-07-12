@@ -16,3 +16,5 @@ if (vsgXchange_FOUND)
 endif()
 
 install(TARGETS RenderingTests RUNTIME DESTINATION bin)
+
+add_test(NAME RenderingTests COMMAND RenderingTests)
