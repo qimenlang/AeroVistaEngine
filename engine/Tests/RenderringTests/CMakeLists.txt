@@ -1,4 +1,5 @@
 set(SOURCES
+    ImageCompare.cpp
     RenderingEngine.cpp
     RenderingTests.cpp
 )
