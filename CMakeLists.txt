@@ -10,5 +10,5 @@ if(WIN32)
     add_compile_definitions(WIN32)
 endif()
 
-add_subdirectory(engine)
 add_subdirectory(thirdparty)
+add_subdirectory(engine)

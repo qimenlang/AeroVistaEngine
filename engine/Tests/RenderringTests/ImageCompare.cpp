@@ -1,8 +1,6 @@
 #include "ImageCompare.h"
 
-#ifdef vsgXchange_FOUND
-#    include <vsgXchange/all.h>
-#endif
+#include <vsgXchange/all.h>
 
 #include <algorithm>
 #include <cmath>
@@ -16,9 +14,7 @@ vsg::ref_ptr<vsg::Options> createIoOptions()
     auto options = vsg::Options::create();
     options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
     options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
-#ifdef vsgXchange_all
     options->add(vsgXchange::all::create());
-#endif
     return options;
 }
 

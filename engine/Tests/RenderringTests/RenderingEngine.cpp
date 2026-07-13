@@ -1,8 +1,6 @@
 #include "RenderingEngine.h"
 
-#ifdef vsgXchange_FOUND
-#    include <vsgXchange/all.h>
-#endif
+#include <vsgXchange/all.h>
 
 #include <cstring>
 #include <iostream>
@@ -351,9 +349,7 @@ bool RenderingEngine::init(const vsg::Path& modelPath)
     options = vsg::Options::create();
     options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
     options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
-#ifdef vsgXchange_all
     options->add(vsgXchange::all::create());
-#endif
 
     scene = vsg::read_cast<vsg::Node>(modelPath, options);
     if (!scene)
