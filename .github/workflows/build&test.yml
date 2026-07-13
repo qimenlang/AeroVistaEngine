@@ -29,12 +29,20 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule update --init --recursive
 
-      - name: Setup Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.1
+      - name: Setup Vulkan SDK and Lavapipe
+        uses: jakoch/install-vulkan-sdk-action@v1
         with:
-          vulkan-query-version: 1.4.321.1
-          vulkan-components: Vulkan-Headers, Vulkan-Loader
-          vulkan-use-cache: true
+          vulkan_version: 1.4.321.1
+          install_runtime: true
+          install_lavapipe: true
+          cache: true
+          stripdown: true
+
+      - name: Verify Vulkan (Lavapipe)
+        shell: pwsh
+        run: |
+          vulkaninfo --summary
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
