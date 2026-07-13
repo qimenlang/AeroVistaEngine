@@ -345,6 +345,7 @@ std::pair<vsg::ref_ptr<vsg::Commands>, vsg::ref_ptr<vsg::Image>> createColorCapt
 bool RenderingEngine::init(const vsg::Path& modelPath)
 {
     currentExtent = extent;
+    std::cout << "RenderingEngine::init: " <<__LINE__  << std::endl;
 
     options = vsg::Options::create();
     options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
@@ -358,19 +359,26 @@ bool RenderingEngine::init(const vsg::Path& modelPath)
         return false;
     }
 
+    std::cout << "RenderingEngine::init: " <<__LINE__  << std::endl;
+
     uint32_t vulkanVersion = VK_API_VERSION_1_0;
     if (samples != VK_SAMPLE_COUNT_1_BIT) vulkanVersion = VK_API_VERSION_1_2;
 
     auto instance = vsg::Instance::create(vsg::Names{}, vsg::Names{}, vulkanVersion);
+    //queueFamily:硬件GPU 图形队列族的索引，包括渲染、计算、传输、显示等队列；
     auto [physicalDevice, queueFamily] = instance->getPhysicalDeviceAndQueueFamily(VK_QUEUE_GRAPHICS_BIT);
     if (!physicalDevice || queueFamily < 0)
     {
         std::cerr << "Could not create PhysicalDevice" << std::endl;
+        vsg::Logger::instance()->error("Could not create PhysicalDevice");
         return false;
     }
 
+    std::cout << "RenderingEngine::init: " <<__LINE__  << std::endl;
+
     vsg::QueueSettings queueSettings{vsg::QueueSetting{queueFamily, {1.0}}};
 
+    //显式开启GPU特性
     auto deviceFeatures = vsg::DeviceFeatures::create();
     deviceFeatures->get().samplerAnisotropy = VK_TRUE;
     deviceFeatures->get().geometryShader = enableGeometryShader;
@@ -397,6 +405,7 @@ bool RenderingEngine::init(const vsg::Path& modelPath)
     }
 
     auto camera = vsg::Camera::create(perspective, lookAt, vsg::ViewportState::create(currentExtent));
+    std::cout << "RenderingEngine::init: " <<__LINE__  << std::endl;
 
     vsg::ref_ptr<vsg::Framebuffer> framebuffer;
     vsg::ref_ptr<vsg::ImageView> colorImageView;
@@ -441,6 +450,8 @@ bool RenderingEngine::init(const vsg::Path& modelPath)
 
         std::tie(colorBufferCapture, copiedColorBuffer) = createColorCapture(device, currentExtent, colorImageView->image, imageFormat);
     }
+    std::cout << "RenderingEngine::init: " <<__LINE__  << std::endl;
+
 
     auto renderGraph = vsg::RenderGraph::create();
     renderGraph->framebuffer = framebuffer;
@@ -460,16 +471,23 @@ bool RenderingEngine::init(const vsg::Path& modelPath)
     viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
     viewer->compile();
 
+    std::cout << "RenderingEngine::init: " <<__LINE__  << std::endl;
+
     return true;
 }
 
 bool RenderingEngine::run(const vsg::Path& outputPngPath)
 {
+    vsg::info("RenderingEngine::run:", __LINE__," line");
+
     if (!viewer || !copiedColorBuffer)
     {
         std::cerr << "Engine not initialized" << std::endl;
         return false;
     }
+
+    vsg::info("RenderingEngine::run:", __LINE__," line");
+
 
     constexpr uint64_t waitTimeout = 1999999999;
 
@@ -478,6 +496,8 @@ bool RenderingEngine::run(const vsg::Path& outputPngPath)
         std::cerr << "Failed to advance to next frame" << std::endl;
         return false;
     }
+
+    vsg::info("RenderingEngine::run:", __LINE__," line");
 
     viewer->handleEvents();
     viewer->update();
@@ -491,6 +511,7 @@ bool RenderingEngine::run(const vsg::Path& outputPngPath)
 
     auto deviceMemory = copiedColorBuffer->getDeviceMemory(device->deviceID);
 
+    
     size_t destRowWidth = currentExtent.width * sizeof(vsg::ubvec4);
     vsg::ref_ptr<vsg::Data> imageData;
     if (destRowWidth == subResourceLayout.rowPitch)
@@ -507,11 +528,15 @@ bool RenderingEngine::run(const vsg::Path& outputPngPath)
         }
     }
 
+    vsg::info("RenderingEngine::run:", __LINE__," line");
+
     if (!vsg::write(imageData, outputPngPath, options))
     {
         std::cerr << "Failed to write PNG: " << outputPngPath << std::endl;
         return false;
     }
+    vsg::info("RenderingEngine::run:", __LINE__," line");
+
 
     return true;
 }
