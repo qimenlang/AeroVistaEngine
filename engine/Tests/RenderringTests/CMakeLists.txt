@@ -1,6 +1,5 @@
-set(SOURCES
+﻿set(SOURCES
     ImageCompare.cpp
-    RenderingEngine.cpp
     RenderingTests.cpp
 )
 
@@ -10,8 +9,7 @@ target_compile_definitions(RenderingTests PRIVATE "RESOURCE_DIR=\"${RESOURCE_DIR
 
 target_link_libraries(RenderingTests
     PRIVATE
-        vsg::vsg
-        vsgXchange::vsgXchange
+        vsgEngineLib
         Catch2::Catch2WithMain
 )
 

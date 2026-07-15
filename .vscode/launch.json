@@ -5,6 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "vsgEngine",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja/engine/vsgEngine.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "vsgviewer",
             "type": "lldb",
             "request": "launch",
