@@ -21,6 +21,24 @@
             "args": ["${workspaceFolder}/engine/resources/models/teapot.vsgt"],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
-        }
+        },
+        {
+            "name": "CigiMiniHost",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja/thirdparty/cigi/bin/CigiMiniHost.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/out/build/clang-Ninja/thirdparty/cigi/bin",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "CigiDummyIG",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja/thirdparty/cigi/bin/CigiDummyIG.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
     ]
 }
