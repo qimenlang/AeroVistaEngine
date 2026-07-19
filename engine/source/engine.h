@@ -23,6 +23,12 @@ private:
     vsg::ref_ptr<vsg::Image> copiedColorBuffer;
     vsg::ref_ptr<vsg::Window> window;
 
+    vsg::ref_ptr<vsg::Text> frameStatsText;
+    vsg::ref_ptr<vsg::stringValue> frameStatsLabel;
+    vsg::ref_ptr<vsg::Switch> frameStatsSwitch;
+
     VkExtent2D currentExtent{};
     bool hasRenderedFrame = false;
+    bool reportFrameStats = false;
+    double lastFrameSeconds = 0.0;
 };

@@ -2,11 +2,88 @@
 
 #include <vsgXchange/all.h>
 
+#include <chrono>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 namespace
 {
+
+class FrameStatsHandler : public vsg::Inherit<vsg::Visitor, FrameStatsHandler>
+{
+public:
+    bool* enabled = nullptr;
+
+    void apply(vsg::KeyPressEvent& keyPress) override
+    {
+        if (!enabled || keyPress.keyBase != vsg::KEY_F2)
+            return;
+
+        *enabled = !*enabled;
+        std::cout << "[FrameStats] " << (*enabled ? "ON" : "OFF") << std::endl;
+    }
+};
+
+struct FrameStatsHud
+{
+    vsg::ref_ptr<vsg::Text> text;
+    vsg::ref_ptr<vsg::stringValue> label;
+    vsg::ref_ptr<vsg::Switch> visibility;
+    vsg::ref_ptr<vsg::Camera> camera;
+};
+
+FrameStatsHud createFrameStatsHud(const VkExtent2D& extent, vsg::ref_ptr<vsg::Options> options)
+{
+    FrameStatsHud hud;
+
+#ifdef VSG_EXAMPLES_DATA_DIR
+    options->paths.push_back(vsg::Path(VSG_EXAMPLES_DATA_DIR));
+#endif
+
+    auto font = vsg::read_cast<vsg::Font>("fonts/times.vsgb", options);
+    if (!font)
+    {
+        std::cerr << "Failed to load fonts/times.vsgb; on-screen frame stats disabled." << std::endl;
+        return hud;
+    }
+
+    // Disable depth testing so HUD text always draws on top.
+    auto shaderSet = options->shaderSets["text"] = vsg::createTextShaderSet(options);
+    auto depthStencilState = vsg::DepthStencilState::create();
+    depthStencilState->depthTestEnable = VK_FALSE;
+    depthStencilState->depthWriteEnable = VK_FALSE;
+    shaderSet->defaultGraphicsPipelineStates.push_back(depthStencilState);
+
+    hud.label = vsg::stringValue::create("FPS: ---\nframe: --- ms");
+    hud.label->properties.dataVariance = vsg::DYNAMIC_DATA;
+
+    auto layout = vsg::StandardLayout::create();
+    layout->horizontalAlignment = vsg::StandardLayout::LEFT_ALIGNMENT;
+    layout->verticalAlignment = vsg::StandardLayout::TOP_ALIGNMENT;
+    layout->position = vsg::vec3(-0.95f, 0.90f, 0.0f);
+    layout->horizontal = vsg::vec3(0.035f, 0.0f, 0.0f);
+    layout->vertical = vsg::vec3(0.0f, 0.055f, 0.0f);
+    layout->color = vsg::vec4(1.0f, 1.0f, 0.2f, 1.0f);
+    layout->outlineWidth = 0.1f;
+
+    hud.text = vsg::Text::create();
+    hud.text->technique = vsg::GpuLayoutTechnique::create();
+    hud.text->font = font;
+    hud.text->layout = layout;
+    hud.text->text = hud.label;
+    hud.text->setup(64, options);
+
+    hud.visibility = vsg::Switch::create();
+    hud.visibility->addChild(false, hud.text);
+
+    auto projection = vsg::Orthographic::create(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+    auto lookAt = vsg::LookAt::create(vsg::dvec3(0.0, 0.0, 1.0), vsg::dvec3(0.0, 0.0, 0.0), vsg::dvec3(0.0, 1.0, 0.0));
+    hud.camera = vsg::Camera::create(projection, lookAt, vsg::ViewportState::create(extent));
+
+    return hud;
+}
 
 vsg::ref_ptr<vsg::Node> createTextureQuad(vsg::ref_ptr<vsg::Data> sourceData, vsg::ref_ptr<vsg::Options> options)
 {
@@ -364,11 +441,21 @@ bool Engine::init(const vsg::Path& modelPath)
         offscreenView->addChild(vsg::createHeadlight());
         offscreenRenderGraph->addChild(offscreenView);
 
+        reportFrameStats = false;
+        frameStatsText = {};
+        frameStatsLabel = {};
+        frameStatsSwitch = {};
+        lastFrameSeconds = 0.0;
+
         vsg::ref_ptr<vsg::CommandGraph> commandGraph;
         if (window)
         {
             viewer->addEventHandler(vsg::CloseHandler::create(viewer));
             viewer->addEventHandler(vsg::Trackball::create(camera, ellipsoidModel));
+
+            auto frameStatsHandler = FrameStatsHandler::create();
+            frameStatsHandler->enabled = &reportFrameStats;
+            viewer->addEventHandler(frameStatsHandler);
 
             auto windowView = vsg::View::create(camera);
             windowView->addChild(vsg::createHeadlight());
@@ -376,6 +463,16 @@ bool Engine::init(const vsg::Path& modelPath)
 
             auto windowRenderGraph = vsg::RenderGraph::create(window, windowView);
             windowRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
+
+            auto hud = createFrameStatsHud(currentExtent, options);
+            if (hud.text && hud.visibility && hud.camera)
+            {
+                frameStatsText = hud.text;
+                frameStatsLabel = hud.label;
+                frameStatsSwitch = hud.visibility;
+                // HUD text pipeline has depth test/write disabled, so no mid-pass depth clear is needed.
+                windowRenderGraph->addChild(vsg::View::create(hud.camera, hud.visibility));
+            }
 
             commandGraph = vsg::CommandGraph::create(window);
             commandGraph->addChild(windowRenderGraph);
@@ -412,17 +509,35 @@ bool Engine::renderOneTick()
     try
     {
         constexpr uint64_t waitTimeout = 1999999999;
+        const auto frameStart = vsg::clock::now();
 
         if (!viewer->advanceToNextFrame())
             return false;
 
         viewer->handleEvents();
+
+        if (frameStatsSwitch)
+            frameStatsSwitch->setAllChildren(reportFrameStats);
+
+        if (reportFrameStats && frameStatsText && frameStatsLabel && lastFrameSeconds > 0.0)
+        {
+            const double frameMs = lastFrameSeconds * 1000.0;
+            const double instantFps = 1.0 / lastFrameSeconds;
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(1)
+                << "FPS: " << instantFps << "\n"
+                << "frame: " << frameMs << " ms";
+            frameStatsLabel->value() = oss.str();
+            frameStatsText->setup(0, options);
+        }
+
         viewer->update();
         viewer->recordAndSubmit();
         if (window)
             viewer->present();
         viewer->waitForFences(0, waitTimeout);
 
+        lastFrameSeconds = std::chrono::duration<double, std::chrono::seconds::period>(vsg::clock::now() - frameStart).count();
         hasRenderedFrame = true;
         return true;
     }

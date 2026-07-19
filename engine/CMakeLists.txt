@@ -8,6 +8,10 @@ add_library(vsgEngineLib STATIC
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
 
+target_compile_definitions(vsgEngineLib PRIVATE
+    "VSG_EXAMPLES_DATA_DIR=\"${CMAKE_SOURCE_DIR}/thirdparty/vsgExamples/data\""
+)
+
 target_link_libraries(vsgEngineLib
     PUBLIC
         vsg::vsg
