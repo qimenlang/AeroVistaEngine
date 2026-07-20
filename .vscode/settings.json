@@ -1,0 +1,20 @@
+{
+    "editor.formatOnSave": true,
+    "C_Cpp.formatting": "clangFormat",
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.clang_format_path": "C:\\Program Files\\LLVM\\bin\\clang-format.exe",
+    "[cpp]": {
+        "editor.defaultFormatter": "anysphere.cpptools",
+        "editor.formatOnSave": true
+    },
+    "[c]": {
+        "editor.defaultFormatter": "anysphere.cpptools",
+        "editor.formatOnSave": true
+    },
+    "files.associations": {
+        "*.h": "cpp",
+        "*.hpp": "cpp"
+    },
+    "notebook.defaultFormatter": "vscode.markdown-language-features",
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+}

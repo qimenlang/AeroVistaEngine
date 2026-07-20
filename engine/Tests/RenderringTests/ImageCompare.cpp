@@ -9,42 +9,43 @@
 namespace
 {
 
-vsg::ref_ptr<vsg::Options> createIoOptions()
-{
-    auto options = vsg::Options::create();
-    options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
-    options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
-    options->add(vsgXchange::all::create());
-    return options;
-}
-
-vsg::ref_ptr<vsg::ubvec4Array2D> loadRGBA8(const vsg::Path& path, vsg::ref_ptr<vsg::Options> options)
-{
-    if (!options) options = createIoOptions();
-    return vsg::read_cast<vsg::ubvec4Array2D>(path, options);
-}
-
-void diffPixel(const vsg::ubvec4& golden,
-               const vsg::ubvec4& actual,
-               uint8_t& outMax,
-               int& outSumAbs,
-               bool& outDiffers,
-               uint8_t tolerance)
-{
-    int maxDiff = 0;
-    int sumAbs = 0;
-
-    for (int channel = 0; channel < 3; ++channel)
+    vsg::ref_ptr<vsg::Options> createIoOptions()
     {
-        const int diff = std::abs(int(golden[channel]) - int(actual[channel]));
-        maxDiff = std::max(maxDiff, diff);
-        sumAbs += diff;
+        auto options = vsg::Options::create();
+        options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
+        options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
+        options->add(vsgXchange::all::create());
+        return options;
     }
 
-    outMax = static_cast<uint8_t>(maxDiff);
-    outSumAbs = sumAbs;
-    outDiffers = maxDiff > tolerance;
-}
+    vsg::ref_ptr<vsg::ubvec4Array2D>
+    loadRGBA8(const vsg::Path& path, vsg::ref_ptr<vsg::Options> options)
+    {
+        if (!options) options = createIoOptions();
+        return vsg::read_cast<vsg::ubvec4Array2D>(path, options);
+    }
+
+    void diffPixel(const vsg::ubvec4& golden,
+                   const vsg::ubvec4& actual,
+                   uint8_t& outMax,
+                   int& outSumAbs,
+                   bool& outDiffers,
+                   uint8_t tolerance)
+    {
+        int maxDiff = 0;
+        int sumAbs = 0;
+
+        for (int channel = 0; channel < 3; ++channel)
+        {
+            const int diff = std::abs(int(golden[channel]) - int(actual[channel]));
+            maxDiff = std::max(maxDiff, diff);
+            sumAbs += diff;
+        }
+
+        outMax = static_cast<uint8_t>(maxDiff);
+        outSumAbs = sumAbs;
+        outDiffers = maxDiff > tolerance;
+    }
 
 } // namespace
 
@@ -133,11 +134,11 @@ CompareResult compareImages(const vsg::Path& golden,
         const auto slashPos = actualStr.find_last_of("/\\");
         const auto dotPos = actualStr.rfind('.');
         const std::string stem = (dotPos != std::string::npos && dotPos > slashPos)
-            ? actualStr.substr(slashPos + 1, dotPos - slashPos - 1)
-            : actualStr.substr(slashPos + 1);
+                                     ? actualStr.substr(slashPos + 1, dotPos - slashPos - 1)
+                                     : actualStr.substr(slashPos + 1);
         const vsg::Path parent = (slashPos != std::string::npos)
-            ? vsg::Path(actualStr.substr(0, slashPos))
-            : vsg::Path(".");
+                                     ? vsg::Path(actualStr.substr(0, slashPos))
+                                     : vsg::Path(".");
 
         result.diffImagePath = parent / (stem + "_diff.png");
         vsg::write(diffImage, result.diffImagePath, ioOptions);

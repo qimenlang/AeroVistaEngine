@@ -27,10 +27,7 @@ struct CompareResult
 
     bool passes(const CompareOptions& options) const
     {
-        return dimensionMatch
-            && differingPercent < options.maxDiffPercent
-            && maxAbsDiff < options.maxAbsDiffLimit
-            && psnrDb > options.minPsnrDb;
+        return dimensionMatch && differingPercent < options.maxDiffPercent && maxAbsDiff < options.maxAbsDiffLimit && psnrDb > options.minPsnrDb;
     }
 };
 

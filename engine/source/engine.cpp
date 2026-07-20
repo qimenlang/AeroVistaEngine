@@ -11,338 +11,338 @@
 namespace
 {
 
-class FrameStatsHandler : public vsg::Inherit<vsg::Visitor, FrameStatsHandler>
-{
-public:
-    bool* enabled = nullptr;
-
-    void apply(vsg::KeyPressEvent& keyPress) override
+    class FrameStatsHandler : public vsg::Inherit<vsg::Visitor, FrameStatsHandler>
     {
-        if (!enabled || keyPress.keyBase != vsg::KEY_F2)
-            return;
+    public:
+        bool* enabled = nullptr;
 
-        *enabled = !*enabled;
-        std::cout << "[FrameStats] " << (*enabled ? "ON" : "OFF") << std::endl;
-    }
-};
+        void apply(vsg::KeyPressEvent& keyPress) override
+        {
+            if (!enabled || keyPress.keyBase != vsg::KEY_F2)
+                return;
 
-struct FrameStatsHud
-{
-    vsg::ref_ptr<vsg::Text> text;
-    vsg::ref_ptr<vsg::stringValue> label;
-    vsg::ref_ptr<vsg::Switch> visibility;
-    vsg::ref_ptr<vsg::Camera> camera;
-};
+            *enabled = !*enabled;
+            std::cout << "[FrameStats] " << (*enabled ? "ON" : "OFF") << std::endl;
+        }
+    };
 
-FrameStatsHud createFrameStatsHud(const VkExtent2D& extent, vsg::ref_ptr<vsg::Options> options)
-{
-    FrameStatsHud hud;
+    struct FrameStatsHud
+    {
+        vsg::ref_ptr<vsg::Text> text;
+        vsg::ref_ptr<vsg::stringValue> label;
+        vsg::ref_ptr<vsg::Switch> visibility;
+        vsg::ref_ptr<vsg::Camera> camera;
+    };
+
+    FrameStatsHud createFrameStatsHud(const VkExtent2D& extent, vsg::ref_ptr<vsg::Options> options)
+    {
+        FrameStatsHud hud;
 
 #ifdef VSG_EXAMPLES_DATA_DIR
-    options->paths.push_back(vsg::Path(VSG_EXAMPLES_DATA_DIR));
+        options->paths.push_back(vsg::Path(VSG_EXAMPLES_DATA_DIR));
 #endif
 
-    auto font = vsg::read_cast<vsg::Font>("fonts/times.vsgb", options);
-    if (!font)
-    {
-        std::cerr << "Failed to load fonts/times.vsgb; on-screen frame stats disabled." << std::endl;
+        auto font = vsg::read_cast<vsg::Font>("fonts/times.vsgb", options);
+        if (!font)
+        {
+            std::cerr << "Failed to load fonts/times.vsgb; on-screen frame stats disabled." << std::endl;
+            return hud;
+        }
+
+        // Disable depth testing so HUD text always draws on top.
+        auto shaderSet = options->shaderSets["text"] = vsg::createTextShaderSet(options);
+        auto depthStencilState = vsg::DepthStencilState::create();
+        depthStencilState->depthTestEnable = VK_FALSE;
+        depthStencilState->depthWriteEnable = VK_FALSE;
+        shaderSet->defaultGraphicsPipelineStates.push_back(depthStencilState);
+
+        hud.label = vsg::stringValue::create("FPS: ---\nframe: --- ms");
+        hud.label->properties.dataVariance = vsg::DYNAMIC_DATA;
+
+        auto layout = vsg::StandardLayout::create();
+        layout->horizontalAlignment = vsg::StandardLayout::LEFT_ALIGNMENT;
+        layout->verticalAlignment = vsg::StandardLayout::TOP_ALIGNMENT;
+        layout->position = vsg::vec3(-0.95f, 0.90f, 0.0f);
+        layout->horizontal = vsg::vec3(0.035f, 0.0f, 0.0f);
+        layout->vertical = vsg::vec3(0.0f, 0.055f, 0.0f);
+        layout->color = vsg::vec4(1.0f, 1.0f, 0.2f, 1.0f);
+        layout->outlineWidth = 0.1f;
+
+        hud.text = vsg::Text::create();
+        hud.text->technique = vsg::GpuLayoutTechnique::create();
+        hud.text->font = font;
+        hud.text->layout = layout;
+        hud.text->text = hud.label;
+        hud.text->setup(64, options);
+
+        hud.visibility = vsg::Switch::create();
+        hud.visibility->addChild(false, hud.text);
+
+        auto projection = vsg::Orthographic::create(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+        auto lookAt = vsg::LookAt::create(vsg::dvec3(0.0, 0.0, 1.0), vsg::dvec3(0.0, 0.0, 0.0), vsg::dvec3(0.0, 1.0, 0.0));
+        hud.camera = vsg::Camera::create(projection, lookAt, vsg::ViewportState::create(extent));
+
         return hud;
     }
 
-    // Disable depth testing so HUD text always draws on top.
-    auto shaderSet = options->shaderSets["text"] = vsg::createTextShaderSet(options);
-    auto depthStencilState = vsg::DepthStencilState::create();
-    depthStencilState->depthTestEnable = VK_FALSE;
-    depthStencilState->depthWriteEnable = VK_FALSE;
-    shaderSet->defaultGraphicsPipelineStates.push_back(depthStencilState);
-
-    hud.label = vsg::stringValue::create("FPS: ---\nframe: --- ms");
-    hud.label->properties.dataVariance = vsg::DYNAMIC_DATA;
-
-    auto layout = vsg::StandardLayout::create();
-    layout->horizontalAlignment = vsg::StandardLayout::LEFT_ALIGNMENT;
-    layout->verticalAlignment = vsg::StandardLayout::TOP_ALIGNMENT;
-    layout->position = vsg::vec3(-0.95f, 0.90f, 0.0f);
-    layout->horizontal = vsg::vec3(0.035f, 0.0f, 0.0f);
-    layout->vertical = vsg::vec3(0.0f, 0.055f, 0.0f);
-    layout->color = vsg::vec4(1.0f, 1.0f, 0.2f, 1.0f);
-    layout->outlineWidth = 0.1f;
-
-    hud.text = vsg::Text::create();
-    hud.text->technique = vsg::GpuLayoutTechnique::create();
-    hud.text->font = font;
-    hud.text->layout = layout;
-    hud.text->text = hud.label;
-    hud.text->setup(64, options);
-
-    hud.visibility = vsg::Switch::create();
-    hud.visibility->addChild(false, hud.text);
-
-    auto projection = vsg::Orthographic::create(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
-    auto lookAt = vsg::LookAt::create(vsg::dvec3(0.0, 0.0, 1.0), vsg::dvec3(0.0, 0.0, 0.0), vsg::dvec3(0.0, 1.0, 0.0));
-    hud.camera = vsg::Camera::create(projection, lookAt, vsg::ViewportState::create(extent));
-
-    return hud;
-}
-
-vsg::ref_ptr<vsg::Node> createTextureQuad(vsg::ref_ptr<vsg::Data> sourceData, vsg::ref_ptr<vsg::Options> options)
-{
-    auto builder = vsg::Builder::create();
-    builder->options = options;
-
-    vsg::StateInfo state;
-    state.image = sourceData;
-    state.lighting = false;
-
-    vsg::GeometryInfo geom;
-    geom.dx.set(static_cast<float>(sourceData->width()), 0.0f, 0.0f);
-    geom.dy.set(0.0f, 0.0f, static_cast<float>(sourceData->height()));
-    geom.dz.set(0.0f, -1.0f, 0.0f);
-
-    return builder->createQuad(geom, state);
-}
-
-vsg::ref_ptr<vsg::RenderPass> createOffscreenRenderPass(vsg::Device* device, VkFormat imageFormat, VkFormat depthFormat)
-{
-    auto colorAttachment = vsg::defaultColorAttachment(imageFormat);
-    auto depthAttachment = vsg::defaultDepthAttachment(depthFormat);
-
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-    vsg::RenderPass::Attachments attachments{colorAttachment, depthAttachment};
-
-    vsg::AttachmentReference colorAttachmentRef = {};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    vsg::AttachmentReference depthAttachmentRef = {};
-    depthAttachmentRef.attachment = 1;
-    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    vsg::SubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachments.emplace_back(colorAttachmentRef);
-    subpass.depthStencilAttachments.emplace_back(depthAttachmentRef);
-
-    vsg::RenderPass::Subpasses subpasses{subpass};
-
-    vsg::SubpassDependency colorDependency = {};
-    colorDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    colorDependency.dstSubpass = 0;
-    colorDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    colorDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    colorDependency.srcAccessMask = 0;
-    colorDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    colorDependency.dependencyFlags = 0;
-
-    vsg::SubpassDependency depthDependency = {};
-    depthDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    depthDependency.dstSubpass = 0;
-    depthDependency.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    depthDependency.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    depthDependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    depthDependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    depthDependency.dependencyFlags = 0;
-
-    vsg::RenderPass::Dependencies dependencies{colorDependency, depthDependency};
-
-    return vsg::RenderPass::create(device, attachments, subpasses, dependencies);
-}
-
-vsg::ref_ptr<vsg::ImageView> createColorImageView(vsg::ref_ptr<vsg::Device> device, const VkExtent2D& renderExtent, VkFormat format)
-{
-    auto colorImage = vsg::Image::create();
-    colorImage->imageType = VK_IMAGE_TYPE_2D;
-    colorImage->format = format;
-    colorImage->extent = VkExtent3D{renderExtent.width, renderExtent.height, 1};
-    colorImage->mipLevels = 1;
-    colorImage->arrayLayers = 1;
-    colorImage->samples = VK_SAMPLE_COUNT_1_BIT;
-    colorImage->tiling = VK_IMAGE_TILING_OPTIMAL;
-    colorImage->usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    colorImage->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorImage->flags = 0;
-    colorImage->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    return vsg::createImageView(device, colorImage, VK_IMAGE_ASPECT_COLOR_BIT);
-}
-
-vsg::ref_ptr<vsg::ImageView> createDepthImageView(vsg::ref_ptr<vsg::Device> device, const VkExtent2D& renderExtent, VkFormat format)
-{
-    auto depthImage = vsg::Image::create();
-    depthImage->imageType = VK_IMAGE_TYPE_2D;
-    depthImage->extent = VkExtent3D{renderExtent.width, renderExtent.height, 1};
-    depthImage->mipLevels = 1;
-    depthImage->arrayLayers = 1;
-    depthImage->samples = VK_SAMPLE_COUNT_1_BIT;
-    depthImage->format = format;
-    depthImage->tiling = VK_IMAGE_TILING_OPTIMAL;
-    depthImage->usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    depthImage->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depthImage->flags = 0;
-    depthImage->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    return vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(format));
-}
-
-std::pair<vsg::ref_ptr<vsg::Commands>, vsg::ref_ptr<vsg::Image>> createColorCapture(vsg::ref_ptr<vsg::Device> device, const VkExtent2D& renderExtent, vsg::ref_ptr<vsg::Image> sourceImage, VkFormat sourceImageFormat)
-{
-    auto width = renderExtent.width;
-    auto height = renderExtent.height;
-
-    auto physicalDevice = device->getPhysicalDevice();
-
-    VkFormat targetImageFormat = sourceImageFormat;
-
-    VkFormatProperties srcFormatProperties;
-    vkGetPhysicalDeviceFormatProperties(*(physicalDevice), sourceImageFormat, &srcFormatProperties);
-
-    VkFormatProperties destFormatProperties;
-    vkGetPhysicalDeviceFormatProperties(*(physicalDevice), VK_FORMAT_R8G8B8A8_UNORM, &destFormatProperties);
-
-    bool supportsBlit = ((srcFormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0) &&
-                        ((destFormatProperties.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0);
-
-    if (supportsBlit)
+    vsg::ref_ptr<vsg::Node> createTextureQuad(vsg::ref_ptr<vsg::Data> sourceData, vsg::ref_ptr<vsg::Options> options)
     {
-        targetImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+        auto builder = vsg::Builder::create();
+        builder->options = options;
+
+        vsg::StateInfo state;
+        state.image = sourceData;
+        state.lighting = false;
+
+        vsg::GeometryInfo geom;
+        geom.dx.set(static_cast<float>(sourceData->width()), 0.0f, 0.0f);
+        geom.dy.set(0.0f, 0.0f, static_cast<float>(sourceData->height()));
+        geom.dz.set(0.0f, -1.0f, 0.0f);
+
+        return builder->createQuad(geom, state);
     }
 
-    auto destinationImage = vsg::Image::create();
-    destinationImage->imageType = VK_IMAGE_TYPE_2D;
-    destinationImage->format = targetImageFormat;
-    destinationImage->extent.width = width;
-    destinationImage->extent.height = height;
-    destinationImage->extent.depth = 1;
-    destinationImage->arrayLayers = 1;
-    destinationImage->mipLevels = 1;
-    destinationImage->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    destinationImage->samples = VK_SAMPLE_COUNT_1_BIT;
-    destinationImage->tiling = VK_IMAGE_TILING_LINEAR;
-    destinationImage->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-
-    destinationImage->compile(device);
-
-    auto deviceMemory = vsg::DeviceMemory::create(device, destinationImage->getMemoryRequirements(device->deviceID), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    destinationImage->bind(deviceMemory, 0);
-
-    auto commands = vsg::Commands::create();
-
-    auto transitionDestinationImageToDestinationLayoutBarrier = vsg::ImageMemoryBarrier::create(
-        0,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        destinationImage,
-        VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
-
-    auto transitionSourceImageToTransferSourceLayoutBarrier = vsg::ImageMemoryBarrier::create(
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_ACCESS_TRANSFER_READ_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        sourceImage,
-        VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
-
-    auto cmd_transitionForTransferBarrier = vsg::PipelineBarrier::create(
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0,
-        transitionDestinationImageToDestinationLayoutBarrier,
-        transitionSourceImageToTransferSourceLayoutBarrier);
-
-    commands->addChild(cmd_transitionForTransferBarrier);
-
-    if (supportsBlit)
+    vsg::ref_ptr<vsg::RenderPass> createOffscreenRenderPass(vsg::Device* device, VkFormat imageFormat, VkFormat depthFormat)
     {
-        VkImageBlit region{};
-        region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.srcSubresource.layerCount = 1;
-        region.srcOffsets[0] = VkOffset3D{0, 0, 0};
-        region.srcOffsets[1] = VkOffset3D{static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
-        region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.dstSubresource.layerCount = 1;
-        region.dstOffsets[0] = VkOffset3D{0, 0, 0};
-        region.dstOffsets[1] = VkOffset3D{static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
+        auto colorAttachment = vsg::defaultColorAttachment(imageFormat);
+        auto depthAttachment = vsg::defaultDepthAttachment(depthFormat);
 
-        auto blitImage = vsg::BlitImage::create();
-        blitImage->srcImage = sourceImage;
-        blitImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        blitImage->dstImage = destinationImage;
-        blitImage->dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        blitImage->regions.push_back(region);
-        blitImage->filter = VK_FILTER_NEAREST;
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
-        commands->addChild(blitImage);
-    }
-    else
-    {
-        VkImageCopy region{};
-        region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.srcSubresource.layerCount = 1;
-        region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.dstSubresource.layerCount = 1;
-        region.extent.width = width;
-        region.extent.height = height;
-        region.extent.depth = 1;
+        vsg::RenderPass::Attachments attachments{colorAttachment, depthAttachment};
 
-        auto copyImage = vsg::CopyImage::create();
-        copyImage->srcImage = sourceImage;
-        copyImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        copyImage->dstImage = destinationImage;
-        copyImage->dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        copyImage->regions.push_back(region);
+        vsg::AttachmentReference colorAttachmentRef = {};
+        colorAttachmentRef.attachment = 0;
+        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        commands->addChild(copyImage);
+        vsg::AttachmentReference depthAttachmentRef = {};
+        depthAttachmentRef.attachment = 1;
+        depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        vsg::SubpassDescription subpass = {};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachments.emplace_back(colorAttachmentRef);
+        subpass.depthStencilAttachments.emplace_back(depthAttachmentRef);
+
+        vsg::RenderPass::Subpasses subpasses{subpass};
+
+        vsg::SubpassDependency colorDependency = {};
+        colorDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        colorDependency.dstSubpass = 0;
+        colorDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        colorDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        colorDependency.srcAccessMask = 0;
+        colorDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        colorDependency.dependencyFlags = 0;
+
+        vsg::SubpassDependency depthDependency = {};
+        depthDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+        depthDependency.dstSubpass = 0;
+        depthDependency.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        depthDependency.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        depthDependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        depthDependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        depthDependency.dependencyFlags = 0;
+
+        vsg::RenderPass::Dependencies dependencies{colorDependency, depthDependency};
+
+        return vsg::RenderPass::create(device, attachments, subpasses, dependencies);
     }
 
-    auto transitionDestinationImageToMemoryReadBarrier = vsg::ImageMemoryBarrier::create(
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        destinationImage,
-        VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
-
-    auto cmd_transitionFromTransferBarrier = vsg::PipelineBarrier::create(
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0,
-        transitionDestinationImageToMemoryReadBarrier);
-
-    commands->addChild(cmd_transitionFromTransferBarrier);
-
-    return {commands, destinationImage};
-}
-
-bool loadScene(const vsg::Path& modelPath, vsg::ref_ptr<vsg::Options> options, vsg::ref_ptr<vsg::Node>& outScene)
-{
-    auto object = vsg::read(modelPath, options);
-    if (auto node = object.cast<vsg::Node>())
+    vsg::ref_ptr<vsg::ImageView> createColorImageView(vsg::ref_ptr<vsg::Device> device, const VkExtent2D& renderExtent, VkFormat format)
     {
-        outScene = node;
-        return true;
+        auto colorImage = vsg::Image::create();
+        colorImage->imageType = VK_IMAGE_TYPE_2D;
+        colorImage->format = format;
+        colorImage->extent = VkExtent3D{renderExtent.width, renderExtent.height, 1};
+        colorImage->mipLevels = 1;
+        colorImage->arrayLayers = 1;
+        colorImage->samples = VK_SAMPLE_COUNT_1_BIT;
+        colorImage->tiling = VK_IMAGE_TILING_OPTIMAL;
+        colorImage->usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        colorImage->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorImage->flags = 0;
+        colorImage->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        return vsg::createImageView(device, colorImage, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
-    if (auto data = object.cast<vsg::Data>())
+    vsg::ref_ptr<vsg::ImageView> createDepthImageView(vsg::ref_ptr<vsg::Device> device, const VkExtent2D& renderExtent, VkFormat format)
     {
-        outScene = createTextureQuad(data, options);
-        return static_cast<bool>(outScene);
+        auto depthImage = vsg::Image::create();
+        depthImage->imageType = VK_IMAGE_TYPE_2D;
+        depthImage->extent = VkExtent3D{renderExtent.width, renderExtent.height, 1};
+        depthImage->mipLevels = 1;
+        depthImage->arrayLayers = 1;
+        depthImage->samples = VK_SAMPLE_COUNT_1_BIT;
+        depthImage->format = format;
+        depthImage->tiling = VK_IMAGE_TILING_OPTIMAL;
+        depthImage->usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        depthImage->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthImage->flags = 0;
+        depthImage->sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        return vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(format));
     }
 
-    if (object)
-        std::cerr << "Unable to view object of type " << object->className() << std::endl;
-    else
-        std::cerr << "Unable to load file " << modelPath << std::endl;
+    std::pair<vsg::ref_ptr<vsg::Commands>, vsg::ref_ptr<vsg::Image>> createColorCapture(vsg::ref_ptr<vsg::Device> device, const VkExtent2D& renderExtent, vsg::ref_ptr<vsg::Image> sourceImage, VkFormat sourceImageFormat)
+    {
+        auto width = renderExtent.width;
+        auto height = renderExtent.height;
 
-    return false;
-}
+        auto physicalDevice = device->getPhysicalDevice();
+
+        VkFormat targetImageFormat = sourceImageFormat;
+
+        VkFormatProperties srcFormatProperties;
+        vkGetPhysicalDeviceFormatProperties(*(physicalDevice), sourceImageFormat, &srcFormatProperties);
+
+        VkFormatProperties destFormatProperties;
+        vkGetPhysicalDeviceFormatProperties(*(physicalDevice), VK_FORMAT_R8G8B8A8_UNORM, &destFormatProperties);
+
+        bool supportsBlit = ((srcFormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0) &&
+                            ((destFormatProperties.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0);
+
+        if (supportsBlit)
+        {
+            targetImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+        }
+
+        auto destinationImage = vsg::Image::create();
+        destinationImage->imageType = VK_IMAGE_TYPE_2D;
+        destinationImage->format = targetImageFormat;
+        destinationImage->extent.width = width;
+        destinationImage->extent.height = height;
+        destinationImage->extent.depth = 1;
+        destinationImage->arrayLayers = 1;
+        destinationImage->mipLevels = 1;
+        destinationImage->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        destinationImage->samples = VK_SAMPLE_COUNT_1_BIT;
+        destinationImage->tiling = VK_IMAGE_TILING_LINEAR;
+        destinationImage->usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+        destinationImage->compile(device);
+
+        auto deviceMemory = vsg::DeviceMemory::create(device, destinationImage->getMemoryRequirements(device->deviceID), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        destinationImage->bind(deviceMemory, 0);
+
+        auto commands = vsg::Commands::create();
+
+        auto transitionDestinationImageToDestinationLayoutBarrier = vsg::ImageMemoryBarrier::create(
+            0,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            destinationImage,
+            VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
+
+        auto transitionSourceImageToTransferSourceLayoutBarrier = vsg::ImageMemoryBarrier::create(
+            VK_ACCESS_MEMORY_READ_BIT,
+            VK_ACCESS_TRANSFER_READ_BIT,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            sourceImage,
+            VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
+
+        auto cmd_transitionForTransferBarrier = vsg::PipelineBarrier::create(
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            transitionDestinationImageToDestinationLayoutBarrier,
+            transitionSourceImageToTransferSourceLayoutBarrier);
+
+        commands->addChild(cmd_transitionForTransferBarrier);
+
+        if (supportsBlit)
+        {
+            VkImageBlit region{};
+            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.srcSubresource.layerCount = 1;
+            region.srcOffsets[0] = VkOffset3D{0, 0, 0};
+            region.srcOffsets[1] = VkOffset3D{static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
+            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.dstSubresource.layerCount = 1;
+            region.dstOffsets[0] = VkOffset3D{0, 0, 0};
+            region.dstOffsets[1] = VkOffset3D{static_cast<int32_t>(width), static_cast<int32_t>(height), 1};
+
+            auto blitImage = vsg::BlitImage::create();
+            blitImage->srcImage = sourceImage;
+            blitImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            blitImage->dstImage = destinationImage;
+            blitImage->dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            blitImage->regions.push_back(region);
+            blitImage->filter = VK_FILTER_NEAREST;
+
+            commands->addChild(blitImage);
+        }
+        else
+        {
+            VkImageCopy region{};
+            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.srcSubresource.layerCount = 1;
+            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.dstSubresource.layerCount = 1;
+            region.extent.width = width;
+            region.extent.height = height;
+            region.extent.depth = 1;
+
+            auto copyImage = vsg::CopyImage::create();
+            copyImage->srcImage = sourceImage;
+            copyImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            copyImage->dstImage = destinationImage;
+            copyImage->dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            copyImage->regions.push_back(region);
+
+            commands->addChild(copyImage);
+        }
+
+        auto transitionDestinationImageToMemoryReadBarrier = vsg::ImageMemoryBarrier::create(
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_ACCESS_MEMORY_READ_BIT,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            destinationImage,
+            VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
+
+        auto cmd_transitionFromTransferBarrier = vsg::PipelineBarrier::create(
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            transitionDestinationImageToMemoryReadBarrier);
+
+        commands->addChild(cmd_transitionFromTransferBarrier);
+
+        return {commands, destinationImage};
+    }
+
+    bool loadScene(const vsg::Path& modelPath, vsg::ref_ptr<vsg::Options> options, vsg::ref_ptr<vsg::Node>& outScene)
+    {
+        auto object = vsg::read(modelPath, options);
+        if (auto node = object.cast<vsg::Node>())
+        {
+            outScene = node;
+            return true;
+        }
+
+        if (auto data = object.cast<vsg::Data>())
+        {
+            outScene = createTextureQuad(data, options);
+            return static_cast<bool>(outScene);
+        }
+
+        if (object)
+            std::cerr << "Unable to view object of type " << object->className() << std::endl;
+        else
+            std::cerr << "Unable to load file " << modelPath << std::endl;
+
+        return false;
+    }
 
 } // namespace
 
@@ -411,8 +411,8 @@ bool Engine::init(const vsg::Path& modelPath)
         if (ellipsoidModel)
         {
             perspective = vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, 30.0,
-                                                           static_cast<double>(currentExtent.width) / static_cast<double>(currentExtent.height),
-                                                           nearFarRatio, 0.0);
+                                                            static_cast<double>(currentExtent.width) / static_cast<double>(currentExtent.height),
+                                                            nearFarRatio, 0.0);
         }
         else
         {
