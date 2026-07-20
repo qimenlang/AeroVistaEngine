@@ -18,8 +18,7 @@ namespace
         return options;
     }
 
-    vsg::ref_ptr<vsg::ubvec4Array2D>
-    loadRGBA8(const vsg::Path& path, vsg::ref_ptr<vsg::Options> options)
+    vsg::ref_ptr<vsg::ubvec4Array2D> loadRGBA8(const vsg::Path& path, vsg::ref_ptr<vsg::Options> options)
     {
         if (!options) options = createIoOptions();
         return vsg::read_cast<vsg::ubvec4Array2D>(path, options);
