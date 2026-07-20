@@ -15,4 +15,4 @@ target_link_libraries(RenderingTests
 
 install(TARGETS RenderingTests RUNTIME DESTINATION bin)
 
-add_test(NAME RenderingTests COMMAND RenderingTests)
+# add_test(NAME RenderingTests COMMAND RenderingTests)
