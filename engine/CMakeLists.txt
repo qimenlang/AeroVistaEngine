@@ -17,11 +17,9 @@ target_link_libraries(vsgEngineLib
     PUBLIC
         vsg::vsg
         vsgXchange::vsgXchange
+        ws2_32
+        cigicl-static
 )
-
-if(WIN32)
-    target_link_libraries(vsgEngineLib PRIVATE ws2_32)
-endif()
 
 add_executable(${TARGET_NAME}
     source/main.cpp

@@ -2,7 +2,8 @@
 
 #include <vsg/all.h>
 
-#include "function/sync/Network.h"
+#include "function/sync/SynchronSystem.h"
+#include "vsg/core/ref_ptr.h"
 
 class Engine
 {
@@ -34,5 +35,5 @@ private:
     bool reportFrameStats = false;
     double lastFrameSeconds = 0.0;
 
-    Network network;
+    vsg::ref_ptr<SynchronSystem> m_syncSystem;
 };
