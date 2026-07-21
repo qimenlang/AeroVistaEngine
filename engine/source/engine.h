@@ -2,6 +2,8 @@
 
 #include <vsg/all.h>
 
+#include "function/sync/Network.h"
+
 class Engine
 {
 public:
@@ -31,4 +33,6 @@ private:
     bool hasRenderedFrame = false;
     bool reportFrameStats = false;
     double lastFrameSeconds = 0.0;
+
+    Network network;
 };

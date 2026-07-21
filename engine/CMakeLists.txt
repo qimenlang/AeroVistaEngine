@@ -4,6 +4,7 @@ set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
 add_library(vsgEngineLib STATIC
     source/engine.cpp
+    source/function/sync/Network.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
@@ -17,6 +18,10 @@ target_link_libraries(vsgEngineLib
         vsg::vsg
         vsgXchange::vsgXchange
 )
+
+if(WIN32)
+    target_link_libraries(vsgEngineLib PRIVATE ws2_32)
+endif()
 
 add_executable(${TARGET_NAME}
     source/main.cpp
