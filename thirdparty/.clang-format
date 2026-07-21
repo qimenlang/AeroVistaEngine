@@ -1,0 +1,4 @@
+﻿# Prevent project-root .clang-format from reformatting vendored code
+# when Format Document / format-on-save still runs (e.g. cigi).
+# Submodules that ship their own .clang-format keep using that file.
+DisableFormat: true
