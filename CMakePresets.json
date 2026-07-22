@@ -81,6 +81,12 @@
             "output": {
                 "outputOnFailure": true
             }
+        },
+        {
+            "name": "clang-ninja-CI",
+            "description": "",
+            "displayName": "",
+            "configurePreset": "clang-Ninja"
         }
     ]
 }
