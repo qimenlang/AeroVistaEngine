@@ -1,4 +1,4 @@
-name: Build and Test
+﻿name: Build and Test
 
 on:
   push:
@@ -60,7 +60,8 @@ jobs:
       - name: Verify Vulkan (Lavapipe)
         shell: pwsh
         run: |
-          vulkaninfo --summary
+          # Windows SDK ships vulkaninfoSDK.exe (not vulkaninfo).
+          vulkaninfoSDK.exe --summary
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Setup MSVC
