@@ -43,6 +43,10 @@
 #ifndef _MPV_NETWORK_INTERFACE_INCLUDED_
 #define _MPV_NETWORK_INTERFACE_INCLUDED_
 
+#ifndef NOMINMAX
+#    define NOMINMAX
+#endif
+
 #ifdef WIN32
 #    include <winsock2.h>
 #else

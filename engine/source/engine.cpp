@@ -346,10 +346,17 @@ namespace
 
 } // namespace
 
+Engine::Engine()
+{
+    _synchronSystem = SynchronSystem::create();
+}
+
 bool Engine::init(const vsg::Path& modelPath)
 {
     try
     {
+        _synchronSystem->Initialize();
+
         currentExtent = extent;
         hasRenderedFrame = false;
         window = {};
@@ -603,7 +610,13 @@ bool Engine::CaptureToFile(const vsg::Path& outputPngPath)
 
 void Engine::run()
 {
-    while (renderOneTick())
+    while (true)
     {
+        _synchronSystem->Update();
+
+        if (!renderOneTick())
+        {
+            break;
+        }
     }
 }

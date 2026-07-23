@@ -8,6 +8,8 @@
 class Engine
 {
 public:
+    Engine();
+    ~Engine() { _synchronSystem->Shutdown(); }
     VkExtent2D extent{1920, 1080};
     VkFormat imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
@@ -35,5 +37,5 @@ private:
     bool reportFrameStats = false;
     double lastFrameSeconds = 0.0;
 
-    vsg::ref_ptr<SynchronSystem> m_syncSystem;
+    vsg::ref_ptr<SynchronSystem> _synchronSystem;
 };

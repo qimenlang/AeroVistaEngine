@@ -5,6 +5,8 @@ set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 add_library(vsgEngineLib STATIC
     source/engine.cpp
     source/function/sync/Network.cpp
+    source/function/sync/SynchronSystem.cpp
+    source/function/sync/EventProcess.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
