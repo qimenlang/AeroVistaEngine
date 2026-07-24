@@ -16,3 +16,9 @@
 [submodule "thirdparty/cigi"]
 	path = thirdparty/cigi
 	url = git@github.com:qimenlang/cigi.git
+[submodule "thirdparty/vsgCs"]
+	path = thirdparty/vsgCs
+	url = git@github.com:timoore/vsgCs.git
+[submodule "thirdparty/rocky"]
+	path = thirdparty/rocky
+	url = git@github.com:pelicanmapping/rocky.git
