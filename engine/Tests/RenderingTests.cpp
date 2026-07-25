@@ -35,6 +35,38 @@ SCENARIO("Engine loads a model and renders one frame", "[bdd][engine][load]")
     }
 }
 
+SCENARIO("Engine loads a model and renders one frame 2", "[bdd][engine][load2]")
+{
+    GIVEN("an offscreen engine and a valid teapot model path")
+    {
+        Engine engine;
+        engine.extent = {1920, 1080};
+        engine.showWindow = false;
+
+        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
+
+        WHEN("the model is loaded")
+        {
+            const bool loaded = engine.init(modelPath);
+
+            THEN("initialization succeeds")
+            {
+                REQUIRE(loaded);
+
+                AND_WHEN("one frame is rendered")
+                {
+                    const bool rendered = engine.renderOneTick();
+
+                    THEN("the frame completes successfully")
+                    {
+                        REQUIRE(rendered);
+                    }
+                }
+            }
+        }
+    }
+}
+
 SCENARIO("Engine fails to load a missing model", "[bdd][engine][load][failure]")
 {
     GIVEN("an offscreen engine and a model path that does not exist")

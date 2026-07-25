@@ -18,7 +18,9 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja/engine/Tests/vsgEngineTests.exe",
-            "args": [],
+            "args": [
+                "-s"
+            ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         },

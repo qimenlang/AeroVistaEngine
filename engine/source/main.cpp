@@ -10,7 +10,7 @@ int main()
 {
     Engine engine;
 
-    const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models/lz.vsgt";
+    const vsg::Path modelPath = vsg::Path("models/lz.vsgt");
 
     if (!engine.init(modelPath))
     {
