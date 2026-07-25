@@ -30,4 +30,8 @@ target_link_libraries(${TARGET_NAME}
         vsgEngineLib
 )
 
-add_subdirectory(Tests)
+if(vsgXchange_FOUND)
+    add_subdirectory(Tests)
+else()
+    message(STATUS "Skipping Tests: vsgXchange not found (PNG I/O required)")
+endif()

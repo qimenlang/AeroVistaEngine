@@ -14,11 +14,22 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "vsgEngine Tests",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja/engine/Tests/vsgEngineTests.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "vsgviewer",
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja/thirdparty/vsgExamples/bin/vsgviewer.exe",
-            "args": ["${workspaceFolder}/engine/resources/models/teapot.vsgt"],
+            "args": [
+                "${workspaceFolder}/engine/resources/models/teapot.vsgt"
+            ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         },

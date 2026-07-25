@@ -1,7 +1,20 @@
-add_subdirectory(UnitTests)
+﻿set(TARGET_NAME vsgEngineTests)
 
-if(vsgXchange_FOUND)
-    add_subdirectory(RenderringTests)
-else()
-    message(STATUS "Skipping RenderringTests: vsgXchange not found (PNG I/O required)")
-endif()
+set(SOURCES
+    ImageCompare.cpp
+    RenderingTests.cpp
+)
+
+add_executable(${TARGET_NAME} ${SOURCES})
+
+target_compile_definitions(${TARGET_NAME} PRIVATE "RESOURCE_DIR=\"${RESOURCE_DIR}\"")
+
+target_link_libraries(${TARGET_NAME}
+    PRIVATE
+        vsgEngineLib
+        Catch2::Catch2WithMain
+)
+
+install(TARGETS ${TARGET_NAME} RUNTIME DESTINATION bin)
+
+add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
