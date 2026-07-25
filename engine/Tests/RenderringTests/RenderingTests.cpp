@@ -11,7 +11,7 @@ SCENARIO("Engine loads a model and renders one frame", "[bdd][engine][load]")
         engine.extent = {1920, 1080};
         engine.showWindow = false;
 
-        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
+        const vsg::Path modelPath = vsg::Path("models/teapot.vsgt");
 
         WHEN("the model is loaded")
         {

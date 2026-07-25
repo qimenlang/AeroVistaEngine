@@ -38,10 +38,6 @@ namespace
     {
         FrameStatsHud hud;
 
-#ifdef VSG_EXAMPLES_DATA_DIR
-        options->paths.push_back(vsg::Path(VSG_EXAMPLES_DATA_DIR));
-#endif
-
         auto font = vsg::read_cast<vsg::Font>("fonts/times.vsgb", options);
         if (!font)
         {
@@ -366,6 +362,9 @@ bool Engine::init(const vsg::Path& modelPath)
         options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
         options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
         options->add(vsgXchange::all::create());
+#ifdef RESOURCE_DIR
+        options->paths.push_back(vsg::Path(RESOURCE_DIR));
+#endif
 
         if (!loadScene(modelPath, options, scene))
             return false;
@@ -612,7 +611,7 @@ void Engine::run()
 {
     while (true)
     {
-        _synchronSystem->Update();
+        // _synchronSystem->Update();
 
         if (!renderOneTick())
         {
