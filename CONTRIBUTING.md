@@ -10,20 +10,22 @@
 
 ## 命名一览
 
-| 类别 | 风格 | 示例 |
-|------|------|------|
-| 命名空间 | 全小写 | `aerovista`, `vsg` |
-| 类 / 结构体 / 枚举类型 | PascalCase | `Engine`, `SynchronSystem` |
-| 方法 / 自由函数 | camelCase | `renderOneTick`, `addChild` |
-| 公有数据成员 | camelCase，无前缀 | `extent`, `children` |
-| 私有 / 保护成员 | `_camelCase` | `_viewer`, `_syncSystem` |
-| 局部变量 / 参数 | camelCase | `frameStart`, `modelPath` |
-| 与成员同名的构造参数 | `in_` + camelCase | `in_matrix`, `in_width` |
-| 类型别名（容器等） | PascalCase | `Children`, `Windows` |
-| 数学 / GLSL 风格别名 | 小写 | `vec3`, `dmat4`（优先用 VSG 已有别名） |
-| 智能指针模板 | snake_case（VSG） | `vsg::ref_ptr<T>` |
-| 枚举常量 / 宏 | `SCREAMING_SNAKE` | `LOGGER_INFO`, `AEROVISTA_…` |
-| 主类对应的源文件 | 与类名一致 | `SynchronSystem.h` / `.cpp` |
+
+| 类别                   | 风格              | 示例                                   |
+| ---------------------- | ----------------- | -------------------------------------- |
+| 命名空间               | 全小写            | `aerovista`, `vsg`                     |
+| 类 / 结构体 / 枚举类型 | PascalCase        | `Engine`, `SynchronSystem`             |
+| 方法 / 自由函数        | camelCase         | `renderOneTick`, `addChild`            |
+| 公有数据成员           | camelCase，无前缀 | `extent`, `children`                   |
+| 私有 / 保护成员        | `_camelCase`      | `_viewer`, `_syncSystem`               |
+| 局部变量 / 参数        | camelCase         | `frameStart`, `modelPath`              |
+| 与成员同名的构造参数   | `in_` + camelCase | `in_matrix`, `in_width`                |
+| 类型别名（容器等）     | PascalCase        | `Children`, `Windows`                  |
+| 数学 / GLSL 风格别名   | 小写              | `vec3`, `dmat4`（优先用 VSG 已有别名） |
+| 智能指针模板           | snake_case（VSG） | `vsg::ref_ptr<T>`                      |
+| 枚举常量 / 宏          | `SCREAMING_SNAKE` | `LOGGER_INFO`, `AEROVISTA_…`           |
+| 主类对应的源文件       | 与类名一致        | `SynchronSystem.h` / `.cpp`            |
+
 
 术语说明：
 
@@ -33,6 +35,8 @@
 - **SCREAMING_SNAKE（全大写蛇形）**：大写的 snake_case，如 `ONE_TIME`。
 
 ---
+
+
 
 ## 命名空间
 
@@ -53,6 +57,8 @@ vsg::ref_ptr<vsg::Viewer> viewer;
 在 `.cpp` 中，文件内辅助函数可用匿名命名空间。
 
 ---
+
+
 
 ## 类型（类、结构体、枚举）
 
@@ -84,6 +90,8 @@ enum RunBehavior
 
 ---
 
+
+
 ## 函数与方法
 
 - 几乎所有成员方法与自由函数使用 **camelCase** 动词或动词短语。
@@ -103,19 +111,25 @@ void Initialize();
 
 与 VSG 对齐的常见模式：
 
-| 模式 | 示例 |
-|------|------|
-| 修改 / 动作 | `addWindow`, `pollEvents`, `close` |
-| 访问器 | `getFrameStamp`, `windows()` |
-| 工厂 | 通过 `Inherit` 提供的静态 `create(...)` |
-| 访问者 | `accept`, `traverse`, `apply` |
-| 读写 | `read`, `write`, `compare` |
+
+| 模式        | 示例                                    |
+| ----------- | --------------------------------------- |
+| 修改 / 动作 | `addWindow`, `pollEvents`, `close`      |
+| 访问器      | `getFrameStamp`, `windows()`            |
+| 工厂        | 通过 `Inherit` 提供的静态 `create(...)` |
+| 访问者      | `accept`, `traverse`, `apply`           |
+| 读写        | `read`, `write`, `compare`              |
+
 
 引擎命名空间中的自由函数同样使用 camelCase；若镜像 VSG 辅助 API，也可沿用 VSG 中的 snake_case 一族（如 `compare_value`、`read_cast`）。
 
 ---
 
+
+
 ## 变量
+
+
 
 ### 公有数据成员
 
@@ -131,6 +145,8 @@ public:
 };
 ```
 
+
+
 ### 私有 / 保护成员
 
 - 前导下划线 + camelCase：`_viewer`、`_syncSystem`。
@@ -142,6 +158,8 @@ private:
     vsg::ref_ptr<SynchronSystem> _syncSystem;
 ```
 
+
+
 ### 局部变量与参数
 
 - camelCase：`frameStart`、`modelPath`、`nearFarRatio`。
@@ -152,12 +170,16 @@ explicit MatrixTransform(const dmat4& in_matrix) :
     matrix(in_matrix) {}
 ```
 
+
+
 ### 缩写
 
 - 引擎自有 API 优先用可读全称，避免晦涩缩写（用 `address`、`outgoingMessage`，而不是 `addr`、`OmsgPtr`）。
 - **第三方**类型名保持库本身的写法（如 `CigiIGSession`、`VkExtent2D`）；封装侧的成员仍应使用清晰的引擎命名。
 
 ---
+
+
 
 ## 类型别名与智能指针
 
@@ -174,6 +196,8 @@ auto group = vsg::Group::create();
 
 ---
 
+
+
 ## 常量与宏
 
 - 枚举值与编译期特性宏：`SCREAMING_SNAKE`。
@@ -188,18 +212,24 @@ static constexpr double nearFarRatio = 0.001;
 
 ---
 
+
+
 ## 文件与目录
 
-| 项目 | 约定 | 示例 |
-|------|------|------|
-| 一个主类对应一对文件 | 文件名与类名一致 | `SynchronSystem.h`、`SynchronSystem.cpp` |
-| 小型工具 / 自由函数头文件 | 小写或 snake_case（VSG 风格） | `read.h`、`compare.h`、`ref_ptr.h` |
-| 目录 | 小写，按功能划分 | `engine/source/function/sync/` |
-| 头文件 | `#pragma once`；包含 VSG 用 `<vsg/...>` | `#include <vsg/nodes/Group.h>` |
+
+| 项目                      | 约定                                    | 示例                                     |
+| ------------------------- | --------------------------------------- | ---------------------------------------- |
+| 一个主类对应一对文件      | 文件名与类名一致                        | `SynchronSystem.h`、`SynchronSystem.cpp` |
+| 小型工具 / 自由函数头文件 | 小写或 snake_case（VSG 风格）           | `read.h`、`compare.h`、`ref_ptr.h`       |
+| 目录                      | 小写，按功能划分                        | `engine/source/function/sync/`           |
+| 头文件                    | `#pragma once`；包含 VSG 用 `<vsg/...>` | `#include <vsg/nodes/Group.h>`           |
+
 
 在引入独立的公开 include 树之前，头文件与源文件一并放在 `engine/source/` 下。
 
 ---
+
+
 
 ## 格式化
 
@@ -208,13 +238,17 @@ static constexpr double nearFarRatio = 0.001;
 
 ---
 
+
+
 ## 遗留代码与第三方代码
 
 - `thirdparty/` 下的**厂商代码**保持上游风格；不要为迁就本文档而重排或重命名。
-- **引擎遗留文件**（例如仍带 snake_case 参数或 `m_` 前缀的旧网络代码）不应继续扩散该风格。优先用符合 VSG 命名的薄适配层；在对该文件做实质性修改时再重命名。
+- **引擎遗留文件**（例如仍带 snake_case 参数或 `m`_ 前缀的旧网络代码）不应继续扩散该风格。优先用符合 VSG 命名的薄适配层；在对该文件做实质性修改时再重命名。
 - 不要另发明第三套内部风格。拿不准时，对照 `thirdparty/vsg/include/vsg/` 中邻近头文件的命名即可。
 
 ---
+
+
 
 ## 速查（推荐 vs 避免）
 
@@ -246,8 +280,11 @@ namespace aerovista
 
 ---
 
+
+
 ## 拉取请求（PR）
 
 - 改动保持聚焦；除非为表达清晰所必需，不要把无关重命名与功能开发混在同一提交中。
 - 若顺带对齐了遗留符号命名，请在 PR 说明中写明。
 - 测试与黄金图资源使用清晰、一致的命名（如 `renderingTests`，避免拼写错误）。
+
