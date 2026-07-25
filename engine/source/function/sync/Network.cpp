@@ -42,9 +42,32 @@
 
 #include "Network.h"
 
+#include <atomic>
 #include <fcntl.h>
 #include <memory.h>
 #include <stdio.h>
+
+namespace
+{
+#ifdef WIN32
+    std::atomic<int> g_wsaRefCount{0};
+
+    void acquireWsa()
+    {
+        if (g_wsaRefCount.fetch_add(1) == 0)
+        {
+            WSADATA wsainfo;
+            WSAStartup(MAKEWORD(2, 2), &wsainfo);
+        }
+    }
+
+    void releaseWsa()
+    {
+        if (g_wsaRefCount.fetch_sub(1) == 1)
+            WSACleanup();
+    }
+#endif
+} // namespace
 
 // ================================================
 // Network
@@ -98,18 +121,12 @@ void Network::closeSocket()
     if (!valid) return;
 
 #ifdef WIN32
-    // Clean up the sockets.
     closesocket(sndsock);
     closesocket(rcvsock);
-
-    // Clean up WinSock.  Again, this is not needed for non-Windows platforms.
-    WSACleanup();
+    releaseWsa();
 #else
-
-    // Clean up the sockets.
     close(sndsock);
     close(rcvsock);
-
 #endif
 
     valid = false;
@@ -150,10 +167,7 @@ void Network::InitializeComm(const char* ipaddr, const int sndport, const int rc
     int status;
 
 #ifdef WIN32
-    // Initialize winsock.  If you are using Berkeley sockets on a
-    // non-Win32 platform, you can leave out these first two lines.
-    WSADATA wsainfo;
-    WSAStartup(MAKEWORD(1, 1), &wsainfo);
+    acquireWsa();
 #endif
 
     // Open the connection for sending.
@@ -166,8 +180,10 @@ void Network::InitializeComm(const char* ipaddr, const int sndport, const int rc
     sndsock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sndsock < 0)
     {
-        // socket could not be created
         valid = false;
+#    ifdef WIN32
+        releaseWsa();
+#    endif
         return;
     }
 #else
@@ -197,6 +213,9 @@ void Network::InitializeComm(const char* ipaddr, const int sndport, const int rc
             freeaddrinfo(saddr);
             saddr = NULL;
         }
+#    ifdef WIN32
+        releaseWsa();
+#    endif
         return;
     }
     sndsock = socket(saddr->ai_family, saddr->ai_socktype,
@@ -212,8 +231,11 @@ void Network::InitializeComm(const char* ipaddr, const int sndport, const int rc
     rcvsock = socket(AF_INET, SOCK_DGRAM, 0);
     if (rcvsock < 0)
     {
-        // socket could not be created
         valid = false;
+#ifdef WIN32
+        closesocket(sndsock);
+        releaseWsa();
+#endif
         return;
     }
 
@@ -236,8 +258,15 @@ void Network::InitializeComm(const char* ipaddr, const int sndport, const int rc
         bind(rcvsock, (struct sockaddr*)&raddr, sizeof(raddr));
     if (status != 0)
     {
-        // socket could not be bound
         valid = false;
+#ifdef WIN32
+        closesocket(sndsock);
+        closesocket(rcvsock);
+        releaseWsa();
+#else
+        close(sndsock);
+        close(rcvsock);
+#endif
         return;
     }
 
@@ -253,17 +282,16 @@ void Network::InitializeComm(const int rcvport)
     int status;
 
 #ifdef WIN32
-    // Initialize winsock.  If you are using Berkeley sockets on a
-    // non-Win32 platform, you can leave out these first two lines.
-    WSADATA wsainfo;
-    WSAStartup(MAKEWORD(1, 1), &wsainfo);
+    acquireWsa();
 #endif
 
     sndsock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sndsock < 0)
     {
-        // socket could not be created
         valid = false;
+#ifdef WIN32
+        releaseWsa();
+#endif
         return;
     }
 
@@ -287,8 +315,11 @@ void Network::InitializeComm(const int rcvport)
     rcvsock = socket(AF_INET, SOCK_DGRAM, 0);
     if (rcvsock < 0)
     {
-        // socket could not be created
         valid = false;
+#ifdef WIN32
+        closesocket(sndsock);
+        releaseWsa();
+#endif
         return;
     }
 
@@ -311,8 +342,15 @@ void Network::InitializeComm(const int rcvport)
         bind(rcvsock, (struct sockaddr*)&raddr, sizeof(raddr));
     if (status != 0)
     {
-        // socket could not be bound
         valid = false;
+#ifdef WIN32
+        closesocket(sndsock);
+        closesocket(rcvsock);
+        releaseWsa();
+#else
+        close(sndsock);
+        close(rcvsock);
+#endif
         return;
     }
 

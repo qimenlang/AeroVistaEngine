@@ -1,48 +1,87 @@
 ﻿#pragma once
+
 #include "EventProcess.h"
 #include "Network.h"
+
+#include <CigiHostSession.h>
+#include <CigiIGCtrlV4.h>
 #include <CigiIGSession.h>
 #include <CigiIncomingMsg.h>
 #include <CigiOutgoingMsg.h>
 #include <CigiSOFV4.h>
+#include <CigiSession.h>
+
+#include <atomic>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vsg/all.h>
 
-class SynchronSystem : public vsg::Inherit<vsg::Object, SynchronSystem>
+enum class HostIGType
 {
-private:
-    Network _network;
-    CigiIGSession* _igSession;
-    CigiOutgoingMsg* _outgoingMsg;
-    CigiIncomingMsg* _incomingMsg;
+    HOST,
+    IG
+};
 
-    CigiSOFV4* _sof;
-
+struct HostIGConfig
+{
+    HostIGType type;
     std::string addr;
     int portSend;
     int portRecv;
+};
 
-#define RECV_BUFFER_SIZE 32768
-    unsigned char _incomingBuffer[RECV_BUFFER_SIZE];
-    unsigned char* _outgoingBuffer;
+class SynchronSystem : public vsg::Inherit<vsg::Object, SynchronSystem>
+{
+public:
+    SynchronSystem();
+    ~SynchronSystem() override;
 
-    int _incomingBufferSize;
-    int _outgoingBufferSize;
+    bool Initialize(const HostIGConfig& config);
+    bool Connect();
+    void Update();
+    void Shutdown();
 
-    IGCtrl _igCtrl;
+private:
+    static constexpr int RECV_BUFFER_SIZE = 32768;
+    static constexpr int ConnectTimeoutMs = 500;
 
-    LARGE_INTEGER _timerFreq;
-    LARGE_INTEGER _timeStampStart;
-    LARGE_INTEGER _timeStampEnd;
+    bool initializeHost();
+    bool initializeIG();
+    void startHostBeacon();
+    void stopHostBeacon();
+    void hostBeaconLoop();
+    bool sendHostIgCtrl();
+    bool waitForHostPacket(int timeoutMs);
+
+    Network _network;
+    HostIGConfig _config{};
+    CigiSession* _session = nullptr;
+    CigiOutgoingMsg* _outgoingMsg = nullptr;
+    CigiIncomingMsg* _incomingMsg = nullptr;
+
+    CigiIGCtrlV4 _igCtrlPacket;
+    CigiSOFV4 _sofPacket;
+
+    unsigned char _incomingBuffer[RECV_BUFFER_SIZE]{};
+    unsigned char* _outgoingBuffer = nullptr;
+    int _incomingBufferSize = 0;
+    int _outgoingBufferSize = 0;
+
+    IGCtrl _igCtrlProcessor;
+    SofProcessor _sofProcessor;
+
+    LARGE_INTEGER _timerFreq{};
+    LARGE_INTEGER _timeStampStart{};
+    LARGE_INTEGER _timeStampEnd{};
 
     unsigned long _frameCounter = 0;
     float _timeDelayLimit = 0.0167f;
 
-    void waitUntilBeginningOfFrame();
+    std::atomic<bool> _initialized{false};
+    std::atomic<bool> _connected{false};
+    std::atomic<bool> _stopHostBeacon{false};
+    std::thread _hostBeaconThread;
 
-public:
-    void Initialize();
-    void Update();
-    void Shutdown();
+    void waitUntilBeginningOfFrame();
 };

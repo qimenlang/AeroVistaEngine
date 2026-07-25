@@ -1,17 +1,33 @@
 ﻿#pragma once
+
 #include "CigiBaseEventProcessor.h"
 #include "CigiIGCtrlV4.h"
+#include "CigiSOFV4.h"
 
 class IGCtrl : public CigiBaseEventProcessor
 {
 public:
-    IGCtrl() {};
-    virtual ~IGCtrl() {};
+    IGCtrl() = default;
+    ~IGCtrl() override = default;
 
-    virtual void OnPacketReceived(CigiBasePacket* packet);
+    void OnPacketReceived(CigiBasePacket* packet) override;
 
     void SetOrigPckt(CigiIGCtrlV4* packetIn) { _packet = packetIn; }
 
 protected:
-    CigiIGCtrlV4* _packet;
+    CigiIGCtrlV4* _packet = nullptr;
+};
+
+class SofProcessor : public CigiBaseEventProcessor
+{
+public:
+    SofProcessor() = default;
+    ~SofProcessor() override = default;
+
+    void OnPacketReceived(CigiBasePacket* packet) override;
+
+    void SetOrigPckt(CigiSOFV4* packetIn) { _packet = packetIn; }
+
+protected:
+    CigiSOFV4* _packet = nullptr;
 };

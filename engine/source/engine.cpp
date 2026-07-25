@@ -351,7 +351,8 @@ bool Engine::init(const vsg::Path& modelPath)
 {
     try
     {
-        _synchronSystem->Initialize();
+        HostIGConfig syncConfig{HostIGType::IG, "127.0.0.1", 8001, 8000};
+        _synchronSystem->Initialize(syncConfig);
 
         currentExtent = extent;
         hasRenderedFrame = false;
