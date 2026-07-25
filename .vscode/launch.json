@@ -19,7 +19,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja/engine/Tests/vsgEngineTests.exe",
             "args": [
-                "-s"
+                "-s",
+                "-d yes"
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
