@@ -326,6 +326,48 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
     }
 }
 
+// 验证 IG 可查询最新收到的 IGCtrl.FrameCntr；每成功收一包则与本轮 Host 下发帧号一致。
+// 红灯 API：IgSync::lastIgCtrlFrameCntr()（待实现对外暴露）。
+SCENARIO("IgSync exposes last received IGCtrl frame counter correctly", "[bdd][sync][status][frame]")
+{
+    GIVEN("a HostSync and an IgSync that have been initialized and connected")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(host.Initialize(makeHostLocal()));
+        REQUIRE(ig.Initialize(makeIgLocal()));
+        REQUIRE(ig.Connect(makeHostEndpoint()));
+
+        WHEN("host sends IGCtrl frames 0..N-1 and IG updates each frame")
+        {
+            host.Run();
+            constexpr int kFrames = 10;
+            std::uint32_t prevReceived = 0;
+            int matchedFrames = 0;
+
+            for (int i = 0; i < kFrames; ++i)
+            {
+                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0)); // Host 本轮 frameCntr == i
+                ig.Update();
+
+                if (ig.igCtrlReceivedCount() > prevReceived)
+                {
+                    REQUIRE(ig.lastIgCtrlFrameCntr() == static_cast<std::uint32_t>(i));
+                    prevReceived = ig.igCtrlReceivedCount();
+                    ++matchedFrames;
+                }
+            }
+
+            THEN("at least one IGCtrl was received and lastIgCtrlFrameCntr matched Host frameCntr")
+            {
+                REQUIRE(matchedFrames >= 1);
+                REQUIRE(ig.igCtrlReceivedCount() == static_cast<std::uint32_t>(matchedFrames));
+                REQUIRE(ig.lastIgCtrlFrameCntr() < static_cast<std::uint32_t>(kFrames));
+            }
+        }
+    }
+}
+
 // =============================================================================
 // 3. Engine + SynchronSystem 集成
 // =============================================================================

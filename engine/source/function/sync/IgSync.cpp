@@ -1,4 +1,4 @@
-﻿#include "IgSync.h"
+#include "IgSync.h"
 #include "SyncProtocol.h"
 
 #include <chrono>
@@ -115,6 +115,11 @@ std::uint32_t IgSync::igCtrlReceivedCount() const
 std::uint32_t IgSync::sofSentCount() const
 {
     return _sofSentCount.load();
+}
+
+std::uint32_t IgSync::lastIgCtrlFrameCntr() const
+{
+    return _lastFrameCntr;
 }
 
 void IgSync::sendSofPacket(std::uint32_t frameCntr)

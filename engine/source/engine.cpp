@@ -52,7 +52,7 @@ namespace
         depthStencilState->depthWriteEnable = VK_FALSE;
         shaderSet->defaultGraphicsPipelineStates.push_back(depthStencilState);
 
-        hud.label = vsg::stringValue::create("FPS: ---\nframe: --- ms");
+        hud.label = vsg::stringValue::create("IGCtrl: ---\nFPS: ---\nframe: --- ms");
         hud.label->properties.dataVariance = vsg::DYNAMIC_DATA;
 
         auto layout = vsg::StandardLayout::create();
@@ -69,7 +69,7 @@ namespace
         hud.text->font = font;
         hud.text->layout = layout;
         hud.text->text = hud.label;
-        hud.text->setup(64, options);
+        hud.text->setup(128, options);
 
         hud.visibility = vsg::Switch::create();
         hud.visibility->addChild(false, hud.text);
@@ -641,10 +641,16 @@ bool Engine::update()
     {
         const double frameMs = lastFrameSeconds * 1000.0;
         const double instantFps = 1.0 / lastFrameSeconds;
+
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(1)
-            << "FPS: " << instantFps << "\n"
+        oss << std::fixed << std::setprecision(1);
+        if (_synchronSystem && _synchronSystem->hasIg() && _synchronSystem->igSync().igCtrlReceivedCount() > 0)
+            oss << "IGCtrl: " << _synchronSystem->igSync().lastIgCtrlFrameCntr() << "\n";
+        else
+            oss << "IGCtrl: ---\n";
+        oss << "FPS: " << instantFps << "\n"
             << "frame: " << frameMs << " ms";
+
         frameStatsLabel->value() = oss.str();
         frameStatsText->setup(0, options);
     }

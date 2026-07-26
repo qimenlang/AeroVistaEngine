@@ -41,6 +41,8 @@ public:
 
     std::uint32_t igCtrlReceivedCount() const;
     std::uint32_t sofSentCount() const;
+    /// FrameCntr from the most recently processed Host IGCtrl (0 if none yet).
+    std::uint32_t lastIgCtrlFrameCntr() const;
 
 private:
     static constexpr int TcpConnectTimeoutMs = 200;

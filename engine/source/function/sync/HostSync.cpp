@@ -1,4 +1,4 @@
-﻿#include "HostSync.h"
+#include "HostSync.h"
 #include "SyncProtocol.h"
 
 #include <chrono>
