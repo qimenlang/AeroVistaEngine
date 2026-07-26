@@ -4,6 +4,7 @@ set(SOURCES
     ImageCompare.cpp
     RenderingTests.cpp
     HostIGTests.cpp
+    EngineConfigTests.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})

@@ -1,9 +1,10 @@
-set(TARGET_NAME vsgEngine)
+﻿set(TARGET_NAME vsgEngine)
 
 set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
 add_library(vsgEngineLib STATIC
     source/engine.cpp
+    source/function/config/EngineConfig.cpp
     source/function/sync/Network.cpp
     source/function/sync/SynchronSystem.cpp
     source/function/sync/HostSync.cpp
@@ -12,6 +13,8 @@ add_library(vsgEngineLib STATIC
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
+
+target_compile_definitions(vsgEngineLib PUBLIC "RESOURCE_DIR=\"${RESOURCE_DIR}\"")
 
 target_link_libraries(vsgEngineLib
     PUBLIC
@@ -24,8 +27,6 @@ target_link_libraries(vsgEngineLib
 add_executable(${TARGET_NAME}
     source/main.cpp
 )
-
-target_compile_definitions(${TARGET_NAME} PRIVATE "RESOURCE_DIR=\"${RESOURCE_DIR}\"")
 
 target_link_libraries(${TARGET_NAME}
     PRIVATE

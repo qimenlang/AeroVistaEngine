@@ -2,9 +2,12 @@
 
 #include <vsg/all.h>
 
+#include "function/config/EngineConfig.h"
 #include "function/sync/SyncConfig.h"
 #include "function/sync/SynchronSystem.h"
 #include "vsg/core/ref_ptr.h"
+
+#include <string>
 
 class Engine
 {
@@ -12,16 +15,25 @@ public:
     Engine();
     ~Engine();
 
+    EngineChannelConfig config{};
+
     VkExtent2D extent{1920, 1080};
     VkFormat imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
     bool showWindow = true;
 
+    /// Resolve config path from argv: `-c path` or default `RESOURCE_DIR/config/main.json`.
+    static std::string resolveConfigPath(int argc, char** argv);
+
+    bool loadConfig(const std::string& path);
+
+    /// Initialize from current `config` (sync + graphics).
+    bool init();
     bool init(const vsg::Path& modelPath);
     bool init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole);
 
     /// Sync plane only (no Vulkan). For multi-IG tests when device count is limited.
-    bool initSync(const SyncRoleConfig& syncRole);
+    bool initSync(const SyncRoleConfig& syncRole, bool requireIgConnect = true);
     bool initGraphics(const vsg::Path& modelPath);
 
     /// One frame: preFrame → update → render → postFrame.
@@ -40,6 +52,8 @@ public:
     bool setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg);
 
 private:
+    void applyConfigToEngine();
+
     /// Frame phases: orchestrate subsystems and viewer in fixed order.
     void preFrame();
     bool update();

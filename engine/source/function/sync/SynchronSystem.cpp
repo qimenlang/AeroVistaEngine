@@ -9,7 +9,7 @@ SynchronSystem::~SynchronSystem()
     Shutdown();
 }
 
-bool SynchronSystem::Initialize(const SyncRoleConfig& role)
+bool SynchronSystem::Initialize(const SyncRoleConfig& role, bool requireIgConnect)
 {
     Shutdown();
     _role = role;
@@ -39,9 +39,12 @@ bool SynchronSystem::Initialize(const SyncRoleConfig& role)
 
         if (!_ig->Connect(role.hostEndpoint))
         {
-            std::cerr << "SynchronSystem: IgSync Connect failed\n";
-            Shutdown();
-            return false;
+            if (requireIgConnect)
+            {
+                std::cerr << "SynchronSystem: IgSync Connect failed\n";
+                Shutdown();
+                return false;
+            }
         }
     }
 

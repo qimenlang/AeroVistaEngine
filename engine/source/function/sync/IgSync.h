@@ -33,6 +33,8 @@ public:
 
     void Update(bool sendSof = true);
 
+    const AddressConfig& addressConfig() const { return _local; }
+
     bool tcpConnected() const;
     bool udpSynced() const;
     IgStatus status() const;

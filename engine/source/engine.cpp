@@ -342,15 +342,60 @@ namespace
 
 } // namespace
 
+#ifndef RESOURCE_DIR
+#    define RESOURCE_DIR "."
+#endif
+
+namespace
+{
+    std::string defaultMainConfigPath()
+    {
+        return std::string(RESOURCE_DIR) + "/config/main.json";
+    }
+} // namespace
+
 Engine::Engine()
 {
     _synchronSystem = SynchronSystem::create();
+    // Defaults match main.json (no -c).
+    loadConfig(defaultMainConfigPath());
 }
 
 Engine::~Engine()
 {
     if (_synchronSystem)
         _synchronSystem->Shutdown();
+}
+
+std::string Engine::resolveConfigPath(int argc, char** argv)
+{
+    for (int i = 1; i + 1 < argc; ++i)
+    {
+        if (argv[i] && std::string(argv[i]) == "-c" && argv[i + 1])
+            return std::string(argv[i + 1]);
+    }
+    return defaultMainConfigPath();
+}
+
+bool Engine::loadConfig(const std::string& path)
+{
+    EngineChannelConfig loaded;
+    std::string error;
+    if (!loadEngineChannelConfig(path, loaded, &error))
+    {
+        std::cerr << "Engine::loadConfig failed: " << error << std::endl;
+        return false;
+    }
+    config = std::move(loaded);
+    applyConfigToEngine();
+    return true;
+}
+
+void Engine::applyConfigToEngine()
+{
+    extent.width = static_cast<uint32_t>(config.window.width);
+    extent.height = static_cast<uint32_t>(config.window.height);
+    // Window visibility is always Engine::showWindow (default true); not from config.
 }
 
 SynchronSystem& Engine::synchronSystem()
@@ -388,15 +433,27 @@ bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYP
     return true;
 }
 
+bool Engine::init()
+{
+    applyConfigToEngine();
+    // channelId==0 starts Host; require IG Connect only when Host is local (so handshake can succeed).
+    if (!initSync(config.toSyncRole(), /*requireIgConnect=*/config.enableHost()))
+        return false;
+
+    // model paths in JSON are relative to resources/
+    const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
+    return initGraphics(modelPath);
+}
+
 bool Engine::init(const vsg::Path& modelPath)
 {
     return init(modelPath, SyncRoleConfig{});
 }
 
-bool Engine::initSync(const SyncRoleConfig& syncRole)
+bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
 {
     _syncSimTimeMs = 0.0;
-    return _synchronSystem->Initialize(syncRole);
+    return _synchronSystem->Initialize(syncRole, requireIgConnect);
 }
 
 bool Engine::init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole)

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "HostSync.h"
 #include "IgSync.h"
@@ -15,7 +15,8 @@ public:
     SynchronSystem();
     ~SynchronSystem() override;
 
-    bool Initialize(const SyncRoleConfig& role);
+    /// If requireIgConnect is false, IgSync is initialized locally even when Connect fails.
+    bool Initialize(const SyncRoleConfig& role, bool requireIgConnect = true);
     void Shutdown();
 
     void preFrame();

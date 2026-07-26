@@ -2,19 +2,20 @@
 
 #include <iostream>
 
-#ifndef RESOURCE_DIR
-#    define RESOURCE_DIR "."
-#endif
-
-int main()
+int main(int argc, char** argv)
 {
     Engine engine;
 
-    const vsg::Path modelPath = vsg::Path("models/lz.vsgt");
-
-    if (!engine.init(modelPath))
+    const std::string configPath = Engine::resolveConfigPath(argc, argv);
+    if (!engine.loadConfig(configPath))
     {
-        std::cerr << "Engine init failed for " << modelPath << std::endl;
+        std::cerr << "Engine loadConfig failed for " << configPath << std::endl;
+        return 1;
+    }
+
+    if (!engine.init())
+    {
+        std::cerr << "Engine init failed (config=" << configPath << ", model=" << engine.config.model << ")\n";
         return 1;
     }
 

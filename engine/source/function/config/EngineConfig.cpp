@@ -1,0 +1,387 @@
+﻿#include "function/config/EngineConfig.h"
+
+#include <cctype>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <variant>
+#include <vector>
+
+namespace
+{
+    struct JsonNull
+    {
+    };
+
+    struct JsonValue;
+    using JsonObject = std::unordered_map<std::string, JsonValue>;
+    using JsonArray = std::vector<JsonValue>;
+
+    struct JsonValue
+    {
+        using Storage = std::variant<JsonNull, bool, double, std::string, JsonArray, JsonObject>;
+        Storage data;
+
+        bool isObject() const { return std::holds_alternative<JsonObject>(data); }
+        bool isString() const { return std::holds_alternative<std::string>(data); }
+        bool isNumber() const { return std::holds_alternative<double>(data); }
+        bool isBool() const { return std::holds_alternative<bool>(data); }
+
+        const JsonObject& asObject() const { return std::get<JsonObject>(data); }
+        const std::string& asString() const { return std::get<std::string>(data); }
+        double asNumber() const { return std::get<double>(data); }
+        bool asBool() const { return std::get<bool>(data); }
+    };
+
+    class JsonParser
+    {
+    public:
+        explicit JsonParser(std::string text) :
+            _text(std::move(text)) {}
+
+        JsonValue parse()
+        {
+            skipWs();
+            auto value = parseValue();
+            skipWs();
+            if (_pos != _text.size())
+                throw std::runtime_error("trailing data after JSON value");
+            return value;
+        }
+
+    private:
+        std::string _text;
+        std::size_t _pos = 0;
+
+        void skipWs()
+        {
+            while (_pos < _text.size() && std::isspace(static_cast<unsigned char>(_text[_pos])))
+                ++_pos;
+        }
+
+        char peek() const
+        {
+            if (_pos >= _text.size())
+                throw std::runtime_error("unexpected end of JSON");
+            return _text[_pos];
+        }
+
+        char get()
+        {
+            const char c = peek();
+            ++_pos;
+            return c;
+        }
+
+        bool match(char expected)
+        {
+            skipWs();
+            if (_pos < _text.size() && _text[_pos] == expected)
+            {
+                ++_pos;
+                return true;
+            }
+            return false;
+        }
+
+        void expect(char expected)
+        {
+            skipWs();
+            if (!match(expected))
+                throw std::runtime_error(std::string("expected '") + expected + "'");
+        }
+
+        JsonValue parseValue()
+        {
+            skipWs();
+            const char c = peek();
+            if (c == '{')
+                return JsonValue{parseObject()};
+            if (c == '[')
+                return JsonValue{parseArray()};
+            if (c == '"')
+                return JsonValue{parseString()};
+            if (c == 't' || c == 'f')
+                return JsonValue{parseBool()};
+            if (c == 'n')
+            {
+                parseLiteral("null");
+                return JsonValue{JsonNull{}};
+            }
+            if (c == '-' || std::isdigit(static_cast<unsigned char>(c)))
+                return JsonValue{parseNumber()};
+            throw std::runtime_error("invalid JSON value");
+        }
+
+        JsonObject parseObject()
+        {
+            expect('{');
+            JsonObject obj;
+            skipWs();
+            if (match('}'))
+                return obj;
+
+            while (true)
+            {
+                skipWs();
+                const std::string key = parseString();
+                expect(':');
+                obj.emplace(key, parseValue());
+                skipWs();
+                if (match('}'))
+                    break;
+                expect(',');
+            }
+            return obj;
+        }
+
+        JsonArray parseArray()
+        {
+            expect('[');
+            JsonArray arr;
+            skipWs();
+            if (match(']'))
+                return arr;
+
+            while (true)
+            {
+                arr.push_back(parseValue());
+                skipWs();
+                if (match(']'))
+                    break;
+                expect(',');
+            }
+            return arr;
+        }
+
+        std::string parseString()
+        {
+            expect('"');
+            std::string out;
+            while (true)
+            {
+                if (_pos >= _text.size())
+                    throw std::runtime_error("unterminated string");
+                const char c = get();
+                if (c == '"')
+                    break;
+                if (c == '\\')
+                {
+                    if (_pos >= _text.size())
+                        throw std::runtime_error("unterminated escape");
+                    const char e = get();
+                    switch (e)
+                    {
+                    case '"':
+                    case '\\':
+                    case '/':
+                        out.push_back(e);
+                        break;
+                    case 'b':
+                        out.push_back('\b');
+                        break;
+                    case 'f':
+                        out.push_back('\f');
+                        break;
+                    case 'n':
+                        out.push_back('\n');
+                        break;
+                    case 'r':
+                        out.push_back('\r');
+                        break;
+                    case 't':
+                        out.push_back('\t');
+                        break;
+                    default:
+                        throw std::runtime_error("unsupported escape");
+                    }
+                }
+                else
+                {
+                    out.push_back(c);
+                }
+            }
+            return out;
+        }
+
+        double parseNumber()
+        {
+            skipWs();
+            const std::size_t begin = _pos;
+            if (_pos < _text.size() && _text[_pos] == '-')
+                ++_pos;
+            while (_pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos])))
+                ++_pos;
+            if (_pos < _text.size() && _text[_pos] == '.')
+            {
+                ++_pos;
+                while (_pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos])))
+                    ++_pos;
+            }
+            if (_pos < _text.size() && (_text[_pos] == 'e' || _text[_pos] == 'E'))
+            {
+                ++_pos;
+                if (_pos < _text.size() && (_text[_pos] == '+' || _text[_pos] == '-'))
+                    ++_pos;
+                while (_pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos])))
+                    ++_pos;
+            }
+            if (begin == _pos)
+                throw std::runtime_error("invalid number");
+            return std::stod(_text.substr(begin, _pos - begin));
+        }
+
+        bool parseBool()
+        {
+            if (_text.compare(_pos, 4, "true") == 0)
+            {
+                _pos += 4;
+                return true;
+            }
+            if (_text.compare(_pos, 5, "false") == 0)
+            {
+                _pos += 5;
+                return false;
+            }
+            throw std::runtime_error("invalid boolean");
+        }
+
+        void parseLiteral(const char* lit)
+        {
+            const std::size_t n = std::char_traits<char>::length(lit);
+            if (_text.compare(_pos, n, lit) != 0)
+                throw std::runtime_error(std::string("expected ") + lit);
+            _pos += n;
+        }
+    };
+
+    const JsonValue* find(const JsonObject& obj, const char* key)
+    {
+        const auto it = obj.find(key);
+        return it == obj.end() ? nullptr : &it->second;
+    }
+
+    double requireNumber(const JsonObject& obj, const char* key)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v || !v->isNumber())
+            throw std::runtime_error(std::string("missing/invalid number: ") + key);
+        return v->asNumber();
+    }
+
+    int requireInt(const JsonObject& obj, const char* key)
+    {
+        return static_cast<int>(requireNumber(obj, key));
+    }
+
+    std::string requireString(const JsonObject& obj, const char* key)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v || !v->isString())
+            throw std::runtime_error(std::string("missing/invalid string: ") + key);
+        return v->asString();
+    }
+
+    const JsonObject& requireObject(const JsonObject& obj, const char* key)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v || !v->isObject())
+            throw std::runtime_error(std::string("missing/invalid object: ") + key);
+        return v->asObject();
+    }
+
+    AddressConfig parseAddress(const JsonObject& obj)
+    {
+        AddressConfig cfg;
+        cfg.addr = requireString(obj, "addr");
+        cfg.udpPortSend = requireInt(obj, "udpPortSend");
+        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
+        cfg.tcpPort = requireInt(obj, "tcpPort");
+        return cfg;
+    }
+
+    HostEyeStalePolicy parseStalePolicy(const std::string& text)
+    {
+        if (text == "ReuseLast")
+            return HostEyeStalePolicy::ReuseLast;
+        if (text == "Freeze")
+            return HostEyeStalePolicy::Freeze;
+        throw std::runtime_error("invalid hostEyeStalePolicy: " + text);
+    }
+
+    EngineChannelConfig parseConfig(const JsonObject& root)
+    {
+        EngineChannelConfig cfg;
+        cfg.channelId = requireInt(root, "channelId");
+
+        const JsonObject& offset = requireObject(root, "offsetDeg");
+        cfg.offsetDeg.yaw = requireNumber(offset, "yaw");
+        cfg.offsetDeg.pitch = requireNumber(offset, "pitch");
+        cfg.offsetDeg.roll = requireNumber(offset, "roll");
+
+        cfg.igLocal = parseAddress(requireObject(root, "igLocal"));
+        cfg.hostEndpoint = parseAddress(requireObject(root, "hostEndpoint"));
+        cfg.hostLocal = parseAddress(requireObject(root, "hostLocal"));
+
+        cfg.model = requireString(root, "model");
+
+        const JsonObject& window = requireObject(root, "window");
+        cfg.window.width = requireInt(window, "width");
+        cfg.window.height = requireInt(window, "height");
+
+        cfg.hostEyeStalePolicy = parseStalePolicy(requireString(root, "hostEyeStalePolicy"));
+        return cfg;
+    }
+} // namespace
+
+SyncRoleConfig EngineChannelConfig::toSyncRole() const
+{
+    SyncRoleConfig role;
+    role.enableHost = enableHost();
+    role.enableIg = enableIg();
+    role.hostLocal = hostLocal;
+    role.igLocal = igLocal;
+    role.hostEndpoint = hostEndpoint;
+    return role;
+}
+
+bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error)
+{
+    try
+    {
+        std::ifstream in(path);
+        if (!in)
+        {
+            if (error)
+                *error = "failed to open config: " + path;
+            return false;
+        }
+
+        std::ostringstream oss;
+        oss << in.rdbuf();
+        std::string text = oss.str();
+        if (text.size() >= 3 &&
+            static_cast<unsigned char>(text[0]) == 0xEF &&
+            static_cast<unsigned char>(text[1]) == 0xBB &&
+            static_cast<unsigned char>(text[2]) == 0xBF)
+        {
+            text.erase(0, 3);
+        }
+
+        JsonParser parser(std::move(text));
+        const JsonValue rootValue = parser.parse();
+        if (!rootValue.isObject())
+            throw std::runtime_error("root must be a JSON object");
+
+        out = parseConfig(rootValue.asObject());
+        return true;
+    }
+    catch (const std::exception& ex)
+    {
+        if (error)
+            *error = ex.what();
+        return false;
+    }
+}

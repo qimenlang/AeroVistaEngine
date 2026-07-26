@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "Network.h"
 #include "SyncConfig.h"
@@ -37,6 +37,8 @@ public:
     void Run();
     void Update(double simTimeMs = 0.0);
     void SetPaceConfig(const SyncPaceConfig& pace);
+
+    const AddressConfig& addressConfig() const { return _local; }
 
     HostStatus status() const;
     bool hasReadyIg() const;
