@@ -6,16 +6,9 @@
 
 #include <cstdint>
 
-// 1.HostSync和IgSync的初始化、连接测试
 namespace
 {
-    // Defaults from doc/多通道同步模块设计.md:
-    //   HostSync UDP: send → 8001, recv ← 8000
-    //   IgSync   UDP: send → 8000, recv ← 8001
-    //   TCP command: 8100
-    // Initialize(local) = local bind / listen identity
-    // IgSync::Connect(hostEndpoint) only
-
+    // 默认端口见 doc/多通道同步模块设计.md
     AddressConfig makeHostLocal(const std::string& addr = "127.0.0.1")
     {
         return AddressConfig{addr, 8001, 8000, 8100};
@@ -23,7 +16,6 @@ namespace
 
     AddressConfig makeIgLocal(const std::string& localAddr = "127.0.0.1", int udpRecvPort = 8001)
     {
-        // udpPortSend=8000 → Host recv; udpPortRecv = local bind (unique per co-located IG)
         return AddressConfig{localAddr, 8000, udpRecvPort, 8100};
     }
 
@@ -32,7 +24,7 @@ namespace
         return AddressConfig{addr, 8001, 8000, 8100};
     }
 
-    // UDP may drop: expect `expected`, allow missing up to `slack` (not over-count).
+    // UDP 可丢：actual 落在 [expected-slack, expected]
     bool approxAtMost(std::uint32_t actual, int expected, int slack)
     {
         const auto exp = static_cast<std::uint32_t>(expected);
@@ -41,6 +33,11 @@ namespace
     }
 } // namespace
 
+// =============================================================================
+// 1. 连接面：Initialize / Connect / 多 IG
+// =============================================================================
+
+// 验证 HostSync、IgSync 单独 Initialize 成功，且初始未就绪/未连接。
 SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]")
 {
     GIVEN("a new HostSync")
@@ -78,6 +75,7 @@ SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]
     }
 }
 
+// 验证 Host 未启动时 IgSync::Connect 失败，TCP/UDP 状态均为未连接。
 SCENARIO("IgSync connect fails when Host is not running", "[bdd][sync][connect][failure]")
 {
     GIVEN("an IgSync initialized without a running HostSync")
@@ -99,6 +97,7 @@ SCENARIO("IgSync connect fails when Host is not running", "[bdd][sync][connect][
     }
 }
 
+// 验证先连失败、Host 起来后再连可成功（重连路径）。
 SCENARIO("IgSync connect fails then succeeds after HostSync starts", "[bdd][sync][connect][reconnect]")
 {
     GIVEN("an IgSync initialized without a running HostSync")
@@ -132,6 +131,7 @@ SCENARIO("IgSync connect fails then succeeds after HostSync starts", "[bdd][sync
     }
 }
 
+// 验证 Host 已监听时，IgSync Connect 成功且 readyIgCount==1。
 SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync][connect]")
 {
     GIVEN("a HostSync that has been initialized and is waiting for IGs")
@@ -147,7 +147,6 @@ SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync]
 
             WHEN("the IG connects to the Host endpoint")
             {
-                // HostSync does not call Connect; only IgSync initiates.
                 const bool connected = ig.Connect(makeHostEndpoint());
 
                 THEN("IG reports TCP and UDP sync, and Host has one ready IG")
@@ -163,6 +162,7 @@ SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync]
     }
 }
 
+// 验证 TCP 端口正确但 UDP 对端端口错误时，整体 Connect 失败且 Host 无就绪 IG。
 SCENARIO("IgSync connect fails when UDP peer ports are wrong but TCP port is valid", "[bdd][sync][connect][failure]")
 {
     GIVEN("a HostSync waiting for IGs")
@@ -177,13 +177,12 @@ SCENARIO("IgSync connect fails when UDP peer ports are wrong but TCP port is val
 
             WHEN("the IG connects using a Host endpoint with wrong UDP ports")
             {
-                // TCP 8100 still matches Host; UDP recv port 9999 will not sync.
+                // Connect 使用 hostEndpoint.udpPortRecv 作为 Host UDP 收端口。
                 AddressConfig badUdpEndpoint{"127.0.0.1", 8001, 9999, 8100};
                 const bool connected = ig.Connect(badUdpEndpoint);
 
                 THEN("overall connect fails and neither plane is ready")
                 {
-                    // Connect uses hostEndpoint.udpPortRecv as Host UDP bind port (see IgSync::connectOnce).
                     REQUIRE_FALSE(connected);
                     REQUIRE_FALSE(ig.tcpConnected());
                     REQUIRE_FALSE(ig.udpSynced());
@@ -194,6 +193,7 @@ SCENARIO("IgSync connect fails when UDP peer ports are wrong but TCP port is val
     }
 }
 
+// 验证同机多 IG 使用不同 udpRecv 端口时可同时接入，Host readyIgCount==2。
 SCENARIO("HostSync accepts multiple IgSync connections", "[bdd][sync][connect][multi-ig]")
 {
     GIVEN("a HostSync waiting for IGs")
@@ -203,8 +203,6 @@ SCENARIO("HostSync accepts multiple IgSync connections", "[bdd][sync][connect][m
 
         WHEN("two co-located IGs initialize on distinct UDP recv ports and connect")
         {
-            // Same machine cannot bind two IGs to UDP 8001; use 8001 and 8003.
-            // Host learns each IG recv port when the IG connects (e.g. via TCP handshake).
             IgSync ig1;
             IgSync ig2;
             REQUIRE(ig1.Initialize(makeIgLocal("127.0.0.1", 8001)));
@@ -225,11 +223,11 @@ SCENARIO("HostSync accepts multiple IgSync connections", "[bdd][sync][connect][m
     }
 }
 
-// 2.host ig 状态同步测试
+// =============================================================================
+// 2. 帧节拍：IGCtrl / SOF / FreeRun
+// =============================================================================
 
-// HostSync::Run + Update(simTime): one Update => one IGCtrl (60fps = caller pace)
-// IgSync::Update: recv IGCtrl (+ reply one SOF); Host counts SOF (sofReceivedCount)
-
+// 验证 Host::Update×N 发送 N 轮 IGCtrl，IG 能收到（允许少量 UDP 丢包），双方进入 Running。
 SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bdd][sync][status]")
 {
     GIVEN("a HostSync and an IgSync that have been initialized and connected")
@@ -246,7 +244,6 @@ SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bd
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                // Monotonic sim time at 60 Hz (ms)
                 host.Update(/*simTimeMs=*/i * (1000.0 / 60.0));
                 ig.Update();
             }
@@ -254,17 +251,15 @@ SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bd
             THEN("both are RUNNING and Host sent one IGCtrl per Update")
             {
                 REQUIRE(host.status() == HostStatus::Running);
-                // Ig enters Running after Connect (or first Update); no separate Ig.Run().
                 REQUIRE(ig.status() == IgStatus::Running);
                 REQUIRE(host.igCtrlSentCount() == kFrames);
-                // Same-loop host.Update then ig.Update can deliver all; UDP may drop some.
                 REQUIRE(approxAtMost(ig.igCtrlReceivedCount(), kFrames, 3));
             }
         }
     }
 }
 
-// App contract: one SOF reply per IGCtrl actually received (UDP may drop either direction).
+// 验证应用层契约：每成功收到 1 条 IGCtrl 回 1 条 SOF；Host 收到数不超过 IG 发出数。
 SCENARIO("IG replies with one SOF per received IGCtrl", "[bdd][sync][status][sof]")
 {
     GIVEN("a HostSync and an IgSync that have been initialized and connected")
@@ -295,7 +290,7 @@ SCENARIO("IG replies with one SOF per received IGCtrl", "[bdd][sync][status][sof
     }
 }
 
-// FreeRun send: Host must keep sending IGCtrl even when IG never replies SOF.
+// 验证 FreeRun：IG 不回 SOF 时 Host 仍能发齐 N 轮 IGCtrl，发送不门控在 SOF 上。
 SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][freerun]")
 {
     GIVEN("a connected HostSync/IgSync with FreeRun IGCtrl send pace")
@@ -317,13 +312,12 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0)); // must not block on SOF
-                ig.Update(/*sendSof=*/false);                   // recv IGCtrl only
+                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                ig.Update(/*sendSof=*/false);
             }
 
             THEN("Host sent all IGCtrl without any SOF, independent of UDP delivery")
             {
-                // Send-side contract (not gated on SOF). Recv count may be < sent on UDP loss.
                 REQUIRE(host.igCtrlSentCount() == kFrames);
                 REQUIRE(host.sofReceivedCount() == 0);
                 REQUIRE(ig.igCtrlReceivedCount() <= kFrames);
@@ -332,9 +326,11 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
     }
 }
 
-// 3. Engine + SynchronSystem integration (HostSync + IgSync as SynchronSystem members)
-// Loop: preFrame IgSync recv/reply SOF → render → HostSync send IGCtrl (FreeRun).
+// =============================================================================
+// 3. Engine + SynchronSystem 集成
+// =============================================================================
 
+// 验证单 Engine（Host+IG）经 tickOnFrame×N 完成 IGCtrl/SOF 收发契约。
 SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 10 ticks",
          "[bdd][sync][engine]")
 {
@@ -344,7 +340,6 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
         engine.extent = {1920, 1080};
         engine.showWindow = false;
 
-        // Main-window dual role: temporary HostSync + IgSync under SynchronSystem.
         SyncRoleConfig syncRole{};
         syncRole.enableHost = true;
         syncRole.enableIg = true;
@@ -368,8 +363,6 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
                 HostSync& host = sync.hostSync();
                 IgSync& ig = sync.igSync();
 
-                // Loop phase (design): preFrame recv → … → end-of-frame send ⇒ often ~N-1.
-                // If an impl sends before recv in the same tick, recv may reach N. Cap at N.
                 REQUIRE(host.igCtrlSentCount() == kTicks);
                 REQUIRE(approxAtMost(ig.igCtrlReceivedCount(), kTicks, 3));
                 REQUIRE(ig.sofSentCount() == ig.igCtrlReceivedCount());
@@ -380,6 +373,8 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
     }
 }
 
+// 验证三通道：A=Host+IG，B/C=仅 IG；先全员 initSync，A 再 initGraphics；
+// 各 IG 约收到 N 条 IGCtrl，A.Host 约收到 N×3 条 SOF（B/C 用 tickSync 避免多 Vulkan Device）。
 SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 ticks",
          "[bdd][sync][engine][multi-ig]")
 {
@@ -391,7 +386,6 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
         engineA.extent = engineB.extent = engineC.extent = {1920, 1080};
         engineA.showWindow = engineB.showWindow = engineC.showWindow = false;
 
-        // Co-located IGs need distinct udpRecv ports (see multi-ig connect scenario).
         SyncRoleConfig roleA{};
         roleA.enableHost = true;
         roleA.enableIg = true;
@@ -415,7 +409,6 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
 
         WHEN("all three engines sync-connect, A loads graphics, then A leads 10 ticks")
         {
-            // Connect all sync peers before any Vulkan device (device count is limited).
             REQUIRE(engineA.initSync(roleA));
             REQUIRE(engineB.initSync(roleB));
             REQUIRE(engineC.initSync(roleC));
@@ -426,8 +419,8 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
             constexpr int kIgCount = 3;
             for (int i = 0; i < kTicks; ++i)
             {
-                REQUIRE(engineA.tickOnFrame()); // Host fans out IGCtrl; local IG may recv/reply
-                engineB.tickSync();             // IG-only: no second/third Vulkan device
+                REQUIRE(engineA.tickOnFrame());
+                engineB.tickSync();
                 engineC.tickSync();
             }
 
@@ -438,20 +431,82 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
                 IgSync& igB = engineB.synchronSystem().igSync();
                 IgSync& igC = engineC.synchronSystem().igSync();
 
-                REQUIRE(host.igCtrlSentCount() == kTicks); // send rounds (fan-out per tick)
-
-                // Tick order A→B→C with end-of-frame send: B/C often ~N, local A often ~N-1.
-                // Still require Host fan-out to local IG for this count (camera may ignore self-loop).
-                // If Host skips local IG, igA≈0 and sof≈2N — that policy would need different expects.
+                REQUIRE(host.igCtrlSentCount() == kTicks);
                 REQUIRE(approxAtMost(igA.igCtrlReceivedCount(), kTicks, 3));
                 REQUIRE(approxAtMost(igB.igCtrlReceivedCount(), kTicks, 3));
                 REQUIRE(approxAtMost(igC.igCtrlReceivedCount(), kTicks, 3));
-
                 REQUIRE(igA.sofSentCount() == igA.igCtrlReceivedCount());
                 REQUIRE(igB.sofSentCount() == igB.igCtrlReceivedCount());
                 REQUIRE(igC.sofSentCount() == igC.igCtrlReceivedCount());
-
                 REQUIRE(approxAtMost(host.sofReceivedCount(), kTicks * kIgCount, 9));
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 4. Host 控制 IG 相机位姿（mainCamera / setCameraPose(pos,euler) / SynchronSystem::update）
+// 约定：ABC 同为 IG，已连接时最终位姿来自 Host 回灌；本节目测 update 门控（queue 注入，非端到端报文）。
+// =============================================================================
+
+namespace
+{
+    vsg::dquat quatFromEulerYPR_deg(const vsg::dvec3& eulerYPR_deg)
+    {
+        return vsg::dquat(vsg::radians(eulerYPR_deg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
+               vsg::dquat(vsg::radians(eulerYPR_deg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
+               vsg::dquat(vsg::radians(eulerYPR_deg.z), vsg::dvec3(0.0, 1.0, 0.0));
+    }
+
+    void requireLookAtMatchesPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg)
+    {
+        auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+        REQUIRE(lookAt);
+
+        const vsg::dquat rotation = quatFromEulerYPR_deg(eulerYPR_deg);
+        const vsg::dvec3 expectedForward = rotation * vsg::dvec3(0.0, 1.0, 0.0);
+        const vsg::dvec3 expectedUp = rotation * vsg::dvec3(0.0, 0.0, 1.0);
+        const vsg::dvec3 expectedCenter = position + expectedForward;
+
+        REQUIRE(vsg::length(lookAt->eye - position) < 1e-9);
+        REQUIRE(vsg::length(lookAt->center - expectedCenter) < 1e-9);
+        REQUIRE(vsg::length(vsg::normalize(lookAt->up) - vsg::normalize(expectedUp)) < 1e-9);
+    }
+} // namespace
+
+// 验证 mainCamera 可用，且 setCameraPose(pos, eulerYPR°) 正确写入 LookAt（Y-forward、Z-up）。
+SCENARIO("Engine get camera and set camera pose from position and euler YPR", "[bdd][sync][hostctrl]")
+{
+    GIVEN("an offscreen Engine with graphics initialized")
+    {
+        Engine engine;
+        engine.extent = {1920, 1080};
+        engine.showWindow = false;
+
+        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
+        REQUIRE(engine.init(modelPath));
+
+        WHEN("the main camera is obtained")
+        {
+            auto camera = engine.mainCamera();
+
+            THEN("main camera and LookAt are available")
+            {
+                REQUIRE(camera);
+                REQUIRE(camera->viewMatrix.cast<vsg::LookAt>());
+            }
+
+            AND_WHEN("camera pose is set from position and euler YPR degrees")
+            {
+                const vsg::dvec3 position{10.0, -20.0, 5.0};
+                const vsg::dvec3 eulerYPR_deg{90.0, 0.0, 0.0}; // yaw 90° about Z
+
+                REQUIRE(engine.setCameraPose(position, eulerYPR_deg));
+
+                THEN("LookAt eye/center/up match position and euler (Y-forward, Z-up)")
+                {
+                    requireLookAtMatchesPose(engine, position, eulerYPR_deg);
+                }
             }
         }
     }

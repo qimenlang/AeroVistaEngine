@@ -358,6 +358,36 @@ SynchronSystem& Engine::synchronSystem()
     return *_synchronSystem;
 }
 
+vsg::ref_ptr<vsg::Camera> Engine::mainCamera() const
+{
+    return _mainCamera;
+}
+
+bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg)
+{
+    if (!_mainCamera)
+        return false;
+
+    auto lookAt = _mainCamera->viewMatrix.cast<vsg::LookAt>();
+    if (!lookAt)
+        return false;
+
+    // YPR degrees → quat: Rz(yaw) * Rx(pitch) * Ry(roll). Forward=+Y, up=+Z.
+    const vsg::dquat rotation =
+        vsg::dquat(vsg::radians(eulerYPR_deg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
+        vsg::dquat(vsg::radians(eulerYPR_deg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
+        vsg::dquat(vsg::radians(eulerYPR_deg.z), vsg::dvec3(0.0, 1.0, 0.0));
+
+    constexpr double kLookDistance = 1.0;
+    const vsg::dvec3 forward = rotation * vsg::dvec3(0.0, 1.0, 0.0);
+    const vsg::dvec3 up = rotation * vsg::dvec3(0.0, 0.0, 1.0);
+
+    lookAt->eye = position;
+    lookAt->center = position + forward * kLookDistance;
+    lookAt->up = up;
+    return true;
+}
+
 bool Engine::init(const vsg::Path& modelPath)
 {
     return init(modelPath, SyncRoleConfig{});
@@ -383,6 +413,7 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
         currentExtent = extent;
         hasRenderedFrame = false;
         window = {};
+        _mainCamera = {};
 
         options = vsg::Options::create();
         options->sharedObjects = vsg::SharedObjects::create();
@@ -455,6 +486,7 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
         }
 
         auto camera = vsg::Camera::create(perspective, lookAt, vsg::ViewportState::create(currentExtent));
+        _mainCamera = camera;
 
         auto colorImageView = createColorImageView(device, currentExtent, imageFormat);
         auto depthImageView = createDepthImageView(device, currentExtent, depthFormat);

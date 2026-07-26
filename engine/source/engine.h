@@ -34,6 +34,11 @@ public:
     SynchronSystem& synchronSystem();
     bool hasGraphics() const { return static_cast<bool>(viewer); }
 
+    /// World / channel camera used by Trackball and Host→IG pose sync (not HUD).
+    vsg::ref_ptr<vsg::Camera> mainCamera() const;
+    /// Set LookAt from world position + Euler YPR in degrees (yaw,pitch,roll; Y-forward, Z-up).
+    bool setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg);
+
 private:
     /// Frame phases: orchestrate subsystems and viewer in fixed order.
     void preFrame();
@@ -47,6 +52,7 @@ private:
     vsg::ref_ptr<vsg::Viewer> viewer;
     vsg::ref_ptr<vsg::Image> copiedColorBuffer;
     vsg::ref_ptr<vsg::Window> window;
+    vsg::ref_ptr<vsg::Camera> _mainCamera;
 
     vsg::ref_ptr<vsg::Text> frameStatsText;
     vsg::ref_ptr<vsg::stringValue> frameStatsLabel;
