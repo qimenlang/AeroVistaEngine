@@ -403,6 +403,11 @@ SynchronSystem& Engine::synchronSystem()
     return *_synchronSystem;
 }
 
+vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
+{
+    return window;
+}
+
 vsg::ref_ptr<vsg::Camera> Engine::mainCamera() const
 {
     return _mainCamera;
@@ -489,8 +494,14 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
         int queueFamily = -1;
         if (showWindow)
         {
-            auto windowTraits = vsg::WindowTraits::create(extent.width, extent.height, "AeroVistaEngine");
+            auto windowTraits = vsg::WindowTraits::create(
+                config.window.x,
+                config.window.y,
+                static_cast<uint32_t>(config.window.width),
+                static_cast<uint32_t>(config.window.height),
+                "AeroVistaEngine");
             windowTraits->hdpi = false;
+            windowTraits->decoration = false; // borderless client area
             window = vsg::Window::create(windowTraits);
             if (!window)
             {

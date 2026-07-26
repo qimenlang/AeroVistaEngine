@@ -328,6 +328,8 @@ namespace
         cfg.model = requireString(root, "model");
 
         const JsonObject& window = requireObject(root, "window");
+        cfg.window.x = requireInt(window, "x");
+        cfg.window.y = requireInt(window, "y");
         cfg.window.width = requireInt(window, "width");
         cfg.window.height = requireInt(window, "height");
 

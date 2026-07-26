@@ -62,7 +62,9 @@ SCENARIO("Engine init with defaults matches main.json and starts Host", "[bdd][c
                 requireAddressEquals(cfg.hostLocal, "127.0.0.1", 8001, 8000, 8100);
 
                 REQUIRE(cfg.model == "models/lz.vsgt");
-                REQUIRE(cfg.window.width == 1920);
+                REQUIRE(cfg.window.x == 640);
+                REQUIRE(cfg.window.y == 0);
+                REQUIRE(cfg.window.width == 640);
                 REQUIRE(cfg.window.height == 1080);
                 REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::ReuseLast);
             }
@@ -124,7 +126,9 @@ SCENARIO("Engine loadConfig(main.json) fills engine.config to match file", "[bdd
                 requireAddressEquals(cfg.hostLocal, "127.0.0.1", 8001, 8000, 8100);
 
                 REQUIRE(cfg.model == "models/lz.vsgt");
-                REQUIRE(cfg.window.width == 1920);
+                REQUIRE(cfg.window.x == 640);
+                REQUIRE(cfg.window.y == 0);
+                REQUIRE(cfg.window.width == 640);
                 REQUIRE(cfg.window.height == 1080);
                 REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::ReuseLast);
             }
@@ -251,6 +255,63 @@ SCENARIO("command line -c selects config path; omit -c defaults to main.json", "
             THEN("config path is the -c argument")
             {
                 REQUIRE(path == leftPath);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// init 后窗口 Traits / extent2D 与配置一致（需创建真实 window）
+// =============================================================================
+
+SCENARIO("after init, window traits x/y/width/height match config", "[bdd][config][window]")
+{
+    GIVEN("an Engine loaded from main.json with showWindow enabled")
+    {
+        Engine engine;
+        REQUIRE(engine.loadConfig(configPath("main.json")));
+        engine.showWindow = true;
+
+        WHEN("Engine initializes and creates a window")
+        {
+            REQUIRE(engine.init());
+
+            THEN("WindowTraits match config.window")
+            {
+                auto win = engine.mainWindow();
+                REQUIRE(win);
+                auto traits = win->traits();
+                REQUIRE(traits);
+
+                REQUIRE(traits->x == engine.config.window.x);
+                REQUIRE(traits->y == engine.config.window.y);
+                REQUIRE(traits->width == static_cast<uint32_t>(engine.config.window.width));
+                REQUIRE(traits->height == static_cast<uint32_t>(engine.config.window.height));
+            }
+        }
+    }
+}
+
+SCENARIO("after init, window extent2D width/height match config", "[bdd][config][window]")
+{
+    GIVEN("an Engine loaded from main.json with showWindow enabled")
+    {
+        Engine engine;
+        REQUIRE(engine.loadConfig(configPath("main.json")));
+        engine.showWindow = true;
+
+        WHEN("Engine initializes and creates a window")
+        {
+            REQUIRE(engine.init());
+
+            THEN("extent2D matches config.window width and height")
+            {
+                auto win = engine.mainWindow();
+                REQUIRE(win);
+
+                const VkExtent2D extent = win->extent2D();
+                REQUIRE(extent.width == static_cast<uint32_t>(engine.config.window.width));
+                REQUIRE(extent.height == static_cast<uint32_t>(engine.config.window.height));
             }
         }
     }

@@ -46,6 +46,9 @@ public:
     SynchronSystem& synchronSystem();
     bool hasGraphics() const { return static_cast<bool>(viewer); }
 
+    /// On-screen vsg window (null when showWindow=false / offscreen).
+    vsg::ref_ptr<vsg::Window> mainWindow() const;
+
     /// World / channel camera used by Trackball and Host→IG pose sync (not HUD).
     vsg::ref_ptr<vsg::Camera> mainCamera() const;
     /// Set LookAt from world position + Euler YPR in degrees (yaw,pitch,roll; Y-forward, Z-up).

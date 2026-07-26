@@ -13,6 +13,8 @@ struct OffsetDeg
 
 struct WindowConfig
 {
+    int x = 0;
+    int y = 0;
     int width = 1920;
     int height = 1080;
 };
