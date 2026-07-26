@@ -127,6 +127,15 @@ public:
     //!
     int recv(unsigned char* rcvbuff, int recvsize);
 
+    //! Send to an explicit IPv4 destination (does not change the default peer).
+    int sendTo(const char* ip, int port, const unsigned char* sendbuff, int sendsize);
+
+    //! Receive and report the IPv4 source address/port (non-blocking recv socket).
+    //! \return bytes received, or -1 on error / no data.
+    int recvFrom(unsigned char* rcvbuff, int recvsize, char* fromIp, int fromIpLen, int* fromPort);
+
+    bool isValid() const { return valid; }
+
 private:
     //=========================================================
     //! Initializes the communication

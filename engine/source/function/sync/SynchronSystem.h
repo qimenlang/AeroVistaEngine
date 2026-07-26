@@ -1,7 +1,8 @@
-﻿#pragma once
+#pragma once
 
 #include "EventProcess.h"
 #include "Network.h"
+#include "SyncConfig.h"
 
 #include <CigiHostSession.h>
 #include <CigiIGCtrlV4.h>
@@ -17,6 +18,7 @@
 #include <thread>
 #include <vsg/all.h>
 
+// Legacy role tag used by older Initialize paths; new code uses HostSync / IgSync.
 enum class HostIGType
 {
     HOST,
@@ -27,10 +29,12 @@ struct HostIGConfig
 {
     HostIGType type;
     std::string addr;
-    int portSend;
-    int portRecv;
+    int portSend = 0;
+    int portRecv = 0;
 };
 
+/// Engine-facing sync facade (loop preFrame/update). Owns IgSync; may temporarily own
+/// HostSync for feeding broadcast data. See doc/多通道同步模块设计.md.
 class SynchronSystem : public vsg::Inherit<vsg::Object, SynchronSystem>
 {
 public:

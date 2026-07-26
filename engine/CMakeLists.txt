@@ -1,4 +1,4 @@
-﻿set(TARGET_NAME vsgEngine)
+set(TARGET_NAME vsgEngine)
 
 set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
@@ -6,6 +6,8 @@ add_library(vsgEngineLib STATIC
     source/engine.cpp
     source/function/sync/Network.cpp
     source/function/sync/SynchronSystem.cpp
+    source/function/sync/HostSync.cpp
+    source/function/sync/IgSync.cpp
     source/function/sync/EventProcess.cpp
 )
 

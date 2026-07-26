@@ -43,6 +43,7 @@
 #include "Network.h"
 
 #include <atomic>
+#include <cstring>
 #include <fcntl.h>
 #include <memory.h>
 #include <stdio.h>
@@ -159,6 +160,51 @@ int Network::recv(unsigned char* rcvbuff, int recvsize)
     return recvfrom(rcvsock, (char*)rcvbuff, recvsize, 0, NULL, 0);
 }
 
+int Network::sendTo(const char* ip, int port, const unsigned char* sendbuff, int sendsize)
+{
+    if (!valid || !ip || sendsize <= 0)
+        return -1;
+
+    sockaddr_in dest{};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(static_cast<u_short>(port));
+    dest.sin_addr.s_addr = inet_addr(ip);
+    if (dest.sin_addr.s_addr == INADDR_NONE)
+        return -1;
+
+    return sendto(sndsock, reinterpret_cast<const char*>(sendbuff), sendsize, 0,
+                  reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+}
+
+int Network::recvFrom(unsigned char* rcvbuff, int recvsize, char* fromIp, int fromIpLen, int* fromPort)
+{
+    if (!valid)
+        return -1;
+
+    sockaddr_in from{};
+#ifdef WIN32
+    int fromLen = sizeof(from);
+#else
+    socklen_t fromLen = sizeof(from);
+#endif
+    const int n = recvfrom(rcvsock, reinterpret_cast<char*>(rcvbuff), recvsize, 0,
+                           reinterpret_cast<sockaddr*>(&from), &fromLen);
+    if (n <= 0)
+        return n;
+
+    if (fromPort)
+        *fromPort = ntohs(from.sin_port);
+    if (fromIp && fromIpLen > 0)
+    {
+#ifdef WIN32
+        strncpy_s(fromIp, static_cast<size_t>(fromIpLen), inet_ntoa(from.sin_addr), _TRUNCATE);
+#else
+        std::snprintf(fromIp, static_cast<size_t>(fromIpLen), "%s", inet_ntoa(from.sin_addr));
+#endif
+    }
+    return n;
+}
+
 // ================================================
 // InitializeComm
 // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
@@ -239,9 +285,8 @@ void Network::InitializeComm(const char* ipaddr, const int sndport, const int rc
         return;
     }
 
-    // Make the address reusable.
-    int sockparam = 1; /* TRUE; */
-    setsockopt(rcvsock, SOL_SOCKET, SO_REUSEADDR, (const char*)&sockparam, sizeof(int));
+    // Do not set SO_REUSEADDR on UDP: on Windows it can deliver datagrams to the
+    // wrong socket when a previous bind has not fully released the port.
 
     // Make the socket non-blocking.
 #ifdef WIN32
@@ -322,10 +367,6 @@ void Network::InitializeComm(const int rcvport)
 #endif
         return;
     }
-
-    // Make the address reusable.
-    int sockparam = 1; /* TRUE; */
-    setsockopt(rcvsock, SOL_SOCKET, SO_REUSEADDR, (const char*)&sockparam, sizeof(int));
 
     // Make the socket non-blocking.
 #ifdef WIN32
