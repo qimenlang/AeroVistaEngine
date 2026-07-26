@@ -2,6 +2,7 @@
 
 #include <vsg/all.h>
 
+#include "function/sync/SyncConfig.h"
 #include "function/sync/SynchronSystem.h"
 #include "vsg/core/ref_ptr.h"
 
@@ -9,16 +10,28 @@ class Engine
 {
 public:
     Engine();
-    ~Engine() { _synchronSystem->Shutdown(); }
+    ~Engine();
+
     VkExtent2D extent{1920, 1080};
     VkFormat imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
     bool showWindow = true;
 
     bool init(const vsg::Path& modelPath);
+    bool init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole);
+
+    /// Sync plane only (no Vulkan). For multi-IG tests when device count is limited.
+    bool initSync(const SyncRoleConfig& syncRole);
+    bool initGraphics(const vsg::Path& modelPath);
+
     bool renderOneTick();
+    /// preFrame + postFrame without rendering (sync-only engines).
+    void tickSync();
     bool CaptureToFile(const vsg::Path& outputPngPath);
     void run();
+
+    SynchronSystem& synchronSystem();
+    bool hasGraphics() const { return static_cast<bool>(viewer); }
 
 private:
     vsg::ref_ptr<vsg::Options> options;
@@ -36,6 +49,7 @@ private:
     bool hasRenderedFrame = false;
     bool reportFrameStats = false;
     double lastFrameSeconds = 0.0;
+    double _syncSimTimeMs = 0.0;
 
     vsg::ref_ptr<SynchronSystem> _synchronSystem;
 };

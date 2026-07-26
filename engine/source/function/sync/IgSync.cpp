@@ -75,6 +75,11 @@ bool IgSync::Initialize(const AddressConfig& local)
     _local = local;
     _tcpConnected = false;
     _udpSynced = false;
+    _status = IgStatus::Idle;
+    _igCtrlReceivedCount = 0;
+    _sofSentCount = 0;
+    _lastFrameCntr = 0;
+    _hostEndpoint = {};
 
     if (!_udp.openSocket(_local.addr.c_str(), _local.udpPortSend, _local.udpPortRecv))
     {
@@ -91,9 +96,76 @@ void IgSync::Shutdown()
     closeTcp();
     _tcpConnected = false;
     _udpSynced = false;
+    _status = IgStatus::Idle;
     if (_udp.isValid())
         _udp.closeSocket();
     _initialized = false;
+}
+
+IgStatus IgSync::status() const
+{
+    return _status.load();
+}
+
+std::uint32_t IgSync::igCtrlReceivedCount() const
+{
+    return _igCtrlReceivedCount.load();
+}
+
+std::uint32_t IgSync::sofSentCount() const
+{
+    return _sofSentCount.load();
+}
+
+void IgSync::sendSofPacket(std::uint32_t frameCntr)
+{
+    if (_hostEndpoint.addr.empty())
+        return;
+
+    sync_proto::SofMsg sof{};
+    sof.magic = sync_proto::kMagic;
+    sof.type = static_cast<uint32_t>(sync_proto::MsgType::Sof);
+    sof.frameCntr = frameCntr;
+    _udp.sendTo(_hostEndpoint.addr.c_str(), _hostEndpoint.udpPortRecv,
+                reinterpret_cast<const unsigned char*>(&sof), sizeof(sof));
+    _sofSentCount.fetch_add(1);
+}
+
+void IgSync::Update(bool sendSof)
+{
+    if (!_initialized || !_udpSynced)
+        return;
+
+    if (_tcpConnected && _udpSynced)
+        _status = IgStatus::Running;
+
+    unsigned char buf[64]{};
+    for (;;)
+    {
+        const int n = _udp.recv(buf, sizeof(buf));
+        if (n < static_cast<int>(sizeof(sync_proto::WireMsg)))
+            break;
+
+        sync_proto::WireMsg header{};
+        std::memcpy(&header, buf, sizeof(header));
+        if (header.magic != sync_proto::kMagic)
+            continue;
+
+        if (header.type == static_cast<uint32_t>(sync_proto::MsgType::IgCtrl))
+        {
+            if (n < static_cast<int>(sizeof(sync_proto::IgCtrlMsg)))
+                continue;
+
+            sync_proto::IgCtrlMsg igCtrl{};
+            std::memcpy(&igCtrl, buf, sizeof(igCtrl));
+            _lastFrameCntr = igCtrl.frameCntr;
+            _igCtrlReceivedCount.fetch_add(1);
+
+            if (sendSof)
+                sendSofPacket(_lastFrameCntr);
+        }
+        // Ignore handshake acks / other traffic during Update.
+    }
 }
 
 bool IgSync::sendAll(IgSocketHandle s, const void* data, int len)
@@ -311,8 +383,10 @@ bool IgSync::Connect(const AddressConfig& hostEndpoint)
 
         if (connectOnce(hostEndpoint))
         {
+            _hostEndpoint = hostEndpoint;
             _tcpConnected = true;
             _udpSynced = true;
+            _status = IgStatus::Running;
             return true;
         }
 

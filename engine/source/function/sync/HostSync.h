@@ -34,8 +34,16 @@ public:
     bool Initialize(const AddressConfig& local);
     void Shutdown();
 
+    void Run();
+    void Update(double simTimeMs = 0.0);
+    void SetPaceConfig(const SyncPaceConfig& pace);
+
+    HostStatus status() const;
     bool hasReadyIg() const;
     int readyIgCount() const;
+
+    std::uint32_t igCtrlSentCount() const;
+    std::uint32_t sofReceivedCount() const;
 
 private:
     struct IgPeer
@@ -53,12 +61,16 @@ private:
     void closeSocket(SocketHandle& s);
     void joinClientThreads();
     int countReadyUnlocked() const;
+    void processUdpDatagram(const unsigned char* buf, int n, const char* fromIp);
+    void pollUdp();
 
     AddressConfig _local{};
+    SyncPaceConfig _pace{};
     Network _udp;
     SocketHandle _listenSocket = static_cast<SocketHandle>(-1);
 
-    std::atomic<bool> _running{false};
+    std::atomic<bool> _threadsRunning{false};
+    std::atomic<HostStatus> _status{HostStatus::Idle};
     std::thread _acceptThread;
     std::thread _udpThread;
 
@@ -68,4 +80,10 @@ private:
 
     std::mutex _clientThreadsMutex;
     std::vector<std::thread> _clientThreads;
+
+    mutable std::mutex _udpMutex;
+
+    std::atomic<std::uint32_t> _igCtrlSentCount{0};
+    std::atomic<std::uint32_t> _sofReceivedCount{0};
+    std::uint32_t _frameCounter = 0;
 };

@@ -31,14 +31,20 @@ public:
     bool Connect(const AddressConfig& hostEndpoint);
     void Shutdown();
 
+    void Update(bool sendSof = true);
+
     bool tcpConnected() const;
     bool udpSynced() const;
+    IgStatus status() const;
+
+    std::uint32_t igCtrlReceivedCount() const;
+    std::uint32_t sofSentCount() const;
 
 private:
     static constexpr int TcpConnectTimeoutMs = 200;
-    static constexpr int HandshakeTimeoutMs = 400;
-    static constexpr int TcpRetryAttempts = 8;
-    static constexpr int HandshakeRetryAttempts = 2;
+    static constexpr int HandshakeTimeoutMs = 1000;
+    static constexpr int TcpRetryAttempts = 16;
+    static constexpr int HandshakeRetryAttempts = 8;
 
     void closeTcp();
     void drainUdp();
@@ -47,12 +53,19 @@ private:
     bool recvAll(IgSocketHandle s, void* data, int len, int timeoutMs);
     bool waitUdpAck(int timeoutMs);
     bool connectOnce(const AddressConfig& hostEndpoint);
+    void sendSofPacket(std::uint32_t frameCntr);
 
     AddressConfig _local{};
+    AddressConfig _hostEndpoint{};
     Network _udp;
     IgSocketHandle _tcp = static_cast<IgSocketHandle>(-1);
 
     std::atomic<bool> _initialized{false};
     std::atomic<bool> _tcpConnected{false};
     std::atomic<bool> _udpSynced{false};
+    std::atomic<IgStatus> _status{IgStatus::Idle};
+
+    std::atomic<std::uint32_t> _igCtrlReceivedCount{0};
+    std::atomic<std::uint32_t> _sofSentCount{0};
+    std::uint32_t _lastFrameCntr = 0;
 };

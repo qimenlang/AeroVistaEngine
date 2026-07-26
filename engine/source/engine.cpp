@@ -347,13 +347,39 @@ Engine::Engine()
     _synchronSystem = SynchronSystem::create();
 }
 
+Engine::~Engine()
+{
+    if (_synchronSystem)
+        _synchronSystem->Shutdown();
+}
+
+SynchronSystem& Engine::synchronSystem()
+{
+    return *_synchronSystem;
+}
+
 bool Engine::init(const vsg::Path& modelPath)
+{
+    return init(modelPath, SyncRoleConfig{});
+}
+
+bool Engine::initSync(const SyncRoleConfig& syncRole)
+{
+    _syncSimTimeMs = 0.0;
+    return _synchronSystem->Initialize(syncRole);
+}
+
+bool Engine::init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole)
+{
+    if (!initSync(syncRole))
+        return false;
+    return initGraphics(modelPath);
+}
+
+bool Engine::initGraphics(const vsg::Path& modelPath)
 {
     try
     {
-        HostIGConfig syncConfig{HostIGType::IG, "127.0.0.1", 8001, 8000};
-        _synchronSystem->Initialize(syncConfig);
-
         currentExtent = extent;
         hasRenderedFrame = false;
         window = {};
@@ -505,6 +531,15 @@ bool Engine::init(const vsg::Path& modelPath)
     }
 }
 
+void Engine::tickSync()
+{
+    if (!_synchronSystem)
+        return;
+    _synchronSystem->preFrame();
+    _synchronSystem->postFrame(_syncSimTimeMs);
+    _syncSimTimeMs += 1000.0 / 60.0;
+}
+
 bool Engine::renderOneTick()
 {
     if (!viewer)
@@ -517,6 +552,10 @@ bool Engine::renderOneTick()
     {
         constexpr uint64_t waitTimeout = 1999999999;
         const auto frameStart = vsg::clock::now();
+
+        // Sync plane: recv IGCtrl / reply SOF before scene update.
+        if (_synchronSystem)
+            _synchronSystem->preFrame();
 
         if (!viewer->advanceToNextFrame())
             return false;
@@ -543,6 +582,13 @@ bool Engine::renderOneTick()
         if (window)
             viewer->present();
         viewer->waitForFences(0, waitTimeout);
+
+        // Sync plane: Host fans out IGCtrl after local eye/input for this tick.
+        if (_synchronSystem)
+        {
+            _synchronSystem->postFrame(_syncSimTimeMs);
+            _syncSimTimeMs += 1000.0 / 60.0;
+        }
 
         lastFrameSeconds = std::chrono::duration<double, std::chrono::seconds::period>(vsg::clock::now() - frameStart).count();
         hasRenderedFrame = true;
@@ -612,8 +658,6 @@ void Engine::run()
 {
     while (true)
     {
-        // _synchronSystem->Update();
-
         if (!renderOneTick())
         {
             break;

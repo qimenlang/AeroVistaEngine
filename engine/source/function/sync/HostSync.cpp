@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <vector>
 
 #ifdef WIN32
 #    include <ws2tcpip.h>
@@ -87,10 +88,109 @@ int HostSync::readyIgCount() const
     return countReadyUnlocked();
 }
 
+HostStatus HostSync::status() const
+{
+    return _status.load();
+}
+
+std::uint32_t HostSync::igCtrlSentCount() const
+{
+    return _igCtrlSentCount.load();
+}
+
+std::uint32_t HostSync::sofReceivedCount() const
+{
+    const_cast<HostSync*>(this)->pollUdp();
+    return _sofReceivedCount.load();
+}
+
+void HostSync::SetPaceConfig(const SyncPaceConfig& pace)
+{
+    _pace = pace;
+}
+
+void HostSync::Run()
+{
+    _status = HostStatus::Running;
+}
+
+void HostSync::pollUdp()
+{
+    struct Packet
+    {
+        unsigned char buf[64]{};
+        char fromIp[64]{};
+        int n = 0;
+    };
+    std::vector<Packet> packets;
+
+    {
+        std::lock_guard lock(_udpMutex);
+        if (!_udp.isValid())
+            return;
+
+        for (;;)
+        {
+            Packet p{};
+            int fromPort = 0;
+            p.n = _udp.recvFrom(p.buf, sizeof(p.buf), p.fromIp, sizeof(p.fromIp), &fromPort);
+            if (p.n <= 0)
+                break;
+            packets.push_back(p);
+        }
+    }
+
+    for (const auto& p : packets)
+        processUdpDatagram(p.buf, p.n, p.fromIp);
+}
+
+void HostSync::Update(double simTimeMs)
+{
+    if (_status.load() != HostStatus::Running)
+        return;
+
+    // FreeRun: never block on SOF. Barrier reserved for later.
+    (void)_pace;
+
+    pollUdp();
+
+    sync_proto::IgCtrlMsg msg{};
+    msg.magic = sync_proto::kMagic;
+    msg.type = static_cast<uint32_t>(sync_proto::MsgType::IgCtrl);
+    msg.frameCntr = _frameCounter++;
+    msg.simTimeMs = simTimeMs;
+
+    std::vector<std::pair<std::string, uint32_t>> targets;
+    {
+        std::lock_guard lock(_peersMutex);
+        targets.reserve(_peers.size());
+        for (const auto& p : _peers)
+        {
+            if (p.tcpReady && p.udpReady)
+                targets.emplace_back(p.ip, p.udpRecvPort);
+        }
+    }
+
+    {
+        std::lock_guard lock(_udpMutex);
+        for (const auto& t : targets)
+        {
+            _udp.sendTo(t.first.c_str(), static_cast<int>(t.second),
+                        reinterpret_cast<const unsigned char*>(&msg), sizeof(msg));
+        }
+    }
+
+    _igCtrlSentCount.fetch_add(1);
+}
+
 bool HostSync::Initialize(const AddressConfig& local)
 {
     Shutdown();
     _local = local;
+    _status = HostStatus::Idle;
+    _igCtrlSentCount = 0;
+    _sofReceivedCount = 0;
+    _frameCounter = 0;
 
     if (!_udp.openSocket(_local.addr.c_str(), _local.udpPortSend, _local.udpPortRecv))
     {
@@ -143,7 +243,7 @@ bool HostSync::Initialize(const AddressConfig& local)
     fcntl(_listenSocket, F_SETFL, O_NONBLOCK);
 #endif
 
-    _running = true;
+    _threadsRunning = true;
     _acceptThread = std::thread(&HostSync::acceptLoop, this);
     _udpThread = std::thread(&HostSync::udpLoop, this);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -152,8 +252,8 @@ bool HostSync::Initialize(const AddressConfig& local)
 
 void HostSync::Shutdown()
 {
-    _running = false;
-    // Close listen first so acceptLoop wakes from accept/spin quickly.
+    _threadsRunning = false;
+    _status = HostStatus::Idle;
     closeSocket(_listenSocket);
 
     if (_acceptThread.joinable())
@@ -176,7 +276,7 @@ void HostSync::Shutdown()
 
 void HostSync::acceptLoop()
 {
-    while (_running)
+    while (_threadsRunning)
     {
         sockaddr_in clientAddr{};
 #ifdef WIN32
@@ -260,57 +360,68 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
         udpAck.magic = sync_proto::kMagic;
         udpAck.type = static_cast<uint32_t>(sync_proto::MsgType::UdpSyncAck);
         udpAck.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
+        std::lock_guard lock(_udpMutex);
         _udp.sendTo(peerIp.c_str(), static_cast<int>(hello.udpRecvPort),
                     reinterpret_cast<const unsigned char*>(&udpAck), sizeof(udpAck));
     }
 }
 
-void HostSync::udpLoop()
+void HostSync::processUdpDatagram(const unsigned char* buf, int n, const char* fromIp)
 {
-    unsigned char buf[64]{};
-    char fromIp[64]{};
-    int fromPort = 0;
+    if (n < static_cast<int>(sizeof(sync_proto::WireMsg)))
+        return;
 
-    while (_running)
+    sync_proto::WireMsg header{};
+    std::memcpy(&header, buf, sizeof(header));
+    if (header.magic != sync_proto::kMagic)
+        return;
+
+    if (header.type == static_cast<uint32_t>(sync_proto::MsgType::Sof))
     {
-        const int n = _udp.recvFrom(buf, sizeof(buf), fromIp, sizeof(fromIp), &fromPort);
-        if (n < static_cast<int>(sizeof(sync_proto::WireMsg)))
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            continue;
-        }
+        if (n >= static_cast<int>(sizeof(sync_proto::SofMsg)))
+            _sofReceivedCount.fetch_add(1);
+        return;
+    }
 
-        sync_proto::WireMsg msg{};
-        std::memcpy(&msg, buf, sizeof(msg));
-        if (msg.magic != sync_proto::kMagic ||
-            msg.type != static_cast<uint32_t>(sync_proto::MsgType::UdpSync))
-            continue;
+    if (header.type != static_cast<uint32_t>(sync_proto::MsgType::UdpSync))
+        return;
 
-        const uint32_t replyPort = msg.udpRecvPort;
-        std::string replyIp = fromIp;
+    const uint32_t replyPort = header.udpRecvPort;
+    std::string replyIp = fromIp;
+    {
+        std::lock_guard lock(_peersMutex);
+        bool matched = false;
+        for (auto& p : _peers)
         {
-            std::lock_guard lock(_peersMutex);
-            bool matched = false;
-            for (auto& p : _peers)
+            if (p.tcpReady && p.udpRecvPort == header.udpRecvPort)
             {
-                if (p.tcpReady && p.udpRecvPort == msg.udpRecvPort)
-                {
-                    p.udpReady = true;
-                    if (!p.ip.empty())
-                        replyIp = p.ip;
-                    matched = true;
-                    break;
-                }
+                p.udpReady = true;
+                if (!p.ip.empty())
+                    replyIp = p.ip;
+                matched = true;
+                break;
             }
-            if (!matched)
-                _earlyUdpSyncByPort[msg.udpRecvPort] = replyIp;
         }
+        if (!matched)
+            _earlyUdpSyncByPort[header.udpRecvPort] = replyIp;
+    }
 
-        sync_proto::WireMsg ack{};
-        ack.magic = sync_proto::kMagic;
-        ack.type = static_cast<uint32_t>(sync_proto::MsgType::UdpSyncAck);
-        ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
+    sync_proto::WireMsg ack{};
+    ack.magic = sync_proto::kMagic;
+    ack.type = static_cast<uint32_t>(sync_proto::MsgType::UdpSyncAck);
+    ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
+    {
+        std::lock_guard lock(_udpMutex);
         _udp.sendTo(replyIp.c_str(), static_cast<int>(replyPort),
                     reinterpret_cast<const unsigned char*>(&ack), sizeof(ack));
+    }
+}
+
+void HostSync::udpLoop()
+{
+    while (_threadsRunning)
+    {
+        pollUdp();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 }
