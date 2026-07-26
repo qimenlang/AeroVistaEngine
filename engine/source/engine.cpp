@@ -531,16 +531,64 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
     }
 }
 
-void Engine::tickSync()
+void Engine::preFrame()
 {
-    if (!_synchronSystem)
-        return;
-    _synchronSystem->preFrame();
-    _synchronSystem->postFrame(_syncSimTimeMs);
+    // Subsystems: recv / apply state before scene update.
+    if (_synchronSystem)
+        _synchronSystem->preFrame();
+}
+
+bool Engine::update()
+{
+    if (!viewer->advanceToNextFrame())
+        return false;
+
+    viewer->handleEvents();
+
+    if (frameStatsSwitch)
+        frameStatsSwitch->setAllChildren(reportFrameStats);
+
+    if (reportFrameStats && frameStatsText && frameStatsLabel && lastFrameSeconds > 0.0)
+    {
+        const double frameMs = lastFrameSeconds * 1000.0;
+        const double instantFps = 1.0 / lastFrameSeconds;
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(1)
+            << "FPS: " << instantFps << "\n"
+            << "frame: " << frameMs << " ms";
+        frameStatsLabel->value() = oss.str();
+        frameStatsText->setup(0, options);
+    }
+
+    viewer->update();
+    return true;
+}
+
+void Engine::render()
+{
+    constexpr uint64_t waitTimeout = 1999999999;
+    viewer->recordAndSubmit();
+    if (window)
+        viewer->present();
+    viewer->waitForFences(0, waitTimeout);
+}
+
+void Engine::postFrame()
+{
+    // Subsystems: read final state / fan-out after update+render.
+    if (_synchronSystem)
+        _synchronSystem->postFrame(_syncSimTimeMs);
+
     _syncSimTimeMs += 1000.0 / 60.0;
 }
 
-bool Engine::renderOneTick()
+void Engine::tickSync()
+{
+    preFrame();
+    postFrame();
+}
+
+bool Engine::tickOnFrame()
 {
     if (!viewer)
     {
@@ -550,45 +598,13 @@ bool Engine::renderOneTick()
 
     try
     {
-        constexpr uint64_t waitTimeout = 1999999999;
         const auto frameStart = vsg::clock::now();
 
-        // Sync plane: recv IGCtrl / reply SOF before scene update.
-        if (_synchronSystem)
-            _synchronSystem->preFrame();
-
-        if (!viewer->advanceToNextFrame())
+        preFrame();
+        if (!update())
             return false;
-
-        viewer->handleEvents();
-
-        if (frameStatsSwitch)
-            frameStatsSwitch->setAllChildren(reportFrameStats);
-
-        if (reportFrameStats && frameStatsText && frameStatsLabel && lastFrameSeconds > 0.0)
-        {
-            const double frameMs = lastFrameSeconds * 1000.0;
-            const double instantFps = 1.0 / lastFrameSeconds;
-            std::ostringstream oss;
-            oss << std::fixed << std::setprecision(1)
-                << "FPS: " << instantFps << "\n"
-                << "frame: " << frameMs << " ms";
-            frameStatsLabel->value() = oss.str();
-            frameStatsText->setup(0, options);
-        }
-
-        viewer->update();
-        viewer->recordAndSubmit();
-        if (window)
-            viewer->present();
-        viewer->waitForFences(0, waitTimeout);
-
-        // Sync plane: Host fans out IGCtrl after local eye/input for this tick.
-        if (_synchronSystem)
-        {
-            _synchronSystem->postFrame(_syncSimTimeMs);
-            _syncSimTimeMs += 1000.0 / 60.0;
-        }
+        render();
+        postFrame();
 
         lastFrameSeconds = std::chrono::duration<double, std::chrono::seconds::period>(vsg::clock::now() - frameStart).count();
         hasRenderedFrame = true;
@@ -611,7 +627,7 @@ bool Engine::CaptureToFile(const vsg::Path& outputPngPath)
 
     if (!hasRenderedFrame)
     {
-        std::cerr << "No frame rendered yet; call renderOneTick() before CaptureToFile()." << std::endl;
+        std::cerr << "No frame rendered yet; call tickOnFrame() before CaptureToFile()." << std::endl;
         return false;
     }
 
@@ -658,7 +674,7 @@ void Engine::run()
 {
     while (true)
     {
-        if (!renderOneTick())
+        if (!tickOnFrame())
         {
             break;
         }

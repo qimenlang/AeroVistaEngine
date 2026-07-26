@@ -23,7 +23,7 @@ SCENARIO("Engine loads a model and renders one frame", "[bdd][engine][load]")
 
                 AND_WHEN("one frame is rendered")
                 {
-                    const bool rendered = engine.renderOneTick();
+                    const bool rendered = engine.tickOnFrame();
 
                     THEN("the frame completes successfully")
                     {
@@ -72,7 +72,7 @@ SCENARIO("teapot default camera matches the golden image", "[bdd][render][golden
         WHEN("one frame is rendered and captured")
         {
             REQUIRE(engine.init(modelPath));
-            REQUIRE(engine.renderOneTick());
+            REQUIRE(engine.tickOnFrame());
             REQUIRE(engine.CaptureToFile(actualPath));
 
             const auto result = compareImages(goldenPath, actualPath);

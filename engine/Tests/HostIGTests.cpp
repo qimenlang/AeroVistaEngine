@@ -354,13 +354,13 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
-        WHEN("the engine is initialized and renderOneTick runs 10 times")
+        WHEN("the engine is initialized and tickOnFrame runs 10 times")
         {
             REQUIRE(engine.init(modelPath, syncRole));
 
             constexpr int kTicks = 10;
             for (int i = 0; i < kTicks; ++i)
-                REQUIRE(engine.renderOneTick());
+                REQUIRE(engine.tickOnFrame());
 
             THEN("HostSync and IgSync exchanged IGCtrl/SOF via the engine loop")
             {
@@ -426,8 +426,8 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
             constexpr int kIgCount = 3;
             for (int i = 0; i < kTicks; ++i)
             {
-                REQUIRE(engineA.renderOneTick()); // Host fans out IGCtrl; local IG may recv/reply
-                engineB.tickSync();               // IG-only: no second/third Vulkan device
+                REQUIRE(engineA.tickOnFrame()); // Host fans out IGCtrl; local IG may recv/reply
+                engineB.tickSync();             // IG-only: no second/third Vulkan device
                 engineC.tickSync();
             }
 

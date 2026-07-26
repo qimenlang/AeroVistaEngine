@@ -24,7 +24,8 @@ public:
     bool initSync(const SyncRoleConfig& syncRole);
     bool initGraphics(const vsg::Path& modelPath);
 
-    bool renderOneTick();
+    /// One frame: preFrame → update → render → postFrame.
+    bool tickOnFrame();
     /// preFrame + postFrame without rendering (sync-only engines).
     void tickSync();
     bool CaptureToFile(const vsg::Path& outputPngPath);
@@ -34,6 +35,12 @@ public:
     bool hasGraphics() const { return static_cast<bool>(viewer); }
 
 private:
+    /// Frame phases: orchestrate subsystems and viewer in fixed order.
+    void preFrame();
+    bool update();
+    void render();
+    void postFrame();
+
     vsg::ref_ptr<vsg::Options> options;
     vsg::ref_ptr<vsg::Node> scene;
     vsg::ref_ptr<vsg::Device> device;
