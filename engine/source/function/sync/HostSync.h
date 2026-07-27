@@ -35,7 +35,13 @@ public:
     void Shutdown();
 
     void Run();
-    void Update(double simTimeMs = 0.0);
+    struct EyePose
+    {
+        double x = 0, y = 0, z = 0;
+        double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+    };
+    /// Fan-out IGCtrl (+ optional Host eye) to all ready IGs.
+    void Update(double simTimeMs = 0.0, const EyePose* eye = nullptr);
     void SetPaceConfig(const SyncPaceConfig& pace);
 
     const AddressConfig& addressConfig() const { return _local; }

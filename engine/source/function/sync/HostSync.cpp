@@ -118,7 +118,7 @@ void HostSync::pollUdp()
 {
     struct Packet
     {
-        unsigned char buf[64]{};
+        unsigned char buf[128]{};
         char fromIp[64]{};
         int n = 0;
     };
@@ -144,7 +144,7 @@ void HostSync::pollUdp()
         processUdpDatagram(p.buf, p.n, p.fromIp);
 }
 
-void HostSync::Update(double simTimeMs)
+void HostSync::Update(double simTimeMs, const EyePose* eye)
 {
     if (_status.load() != HostStatus::Running)
         return;
@@ -159,6 +159,16 @@ void HostSync::Update(double simTimeMs)
     msg.type = static_cast<uint32_t>(sync_proto::MsgType::IgCtrl);
     msg.frameCntr = _frameCounter++;
     msg.simTimeMs = simTimeMs;
+    if (eye)
+    {
+        msg.hasEye = 1;
+        msg.posX = eye->x;
+        msg.posY = eye->y;
+        msg.posZ = eye->z;
+        msg.yawDeg = eye->yawDeg;
+        msg.pitchDeg = eye->pitchDeg;
+        msg.rollDeg = eye->rollDeg;
+    }
 
     std::vector<std::pair<std::string, uint32_t>> targets;
     {

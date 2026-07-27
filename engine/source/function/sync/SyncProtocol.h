@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstdint>
 
@@ -24,12 +24,20 @@ namespace sync_proto
         uint32_t udpRecvPort = 0;
     };
 
+    /// IGCtrl + optional Host eye (EntityPosition semantics) in one datagram.
     struct IgCtrlMsg
     {
         uint32_t magic = kMagic;
         uint32_t type = static_cast<uint32_t>(MsgType::IgCtrl);
         uint32_t frameCntr = 0;
         double simTimeMs = 0.0;
+        uint32_t hasEye = 0; // 1 → pos/euler valid (world XYZ + YPR degrees)
+        double posX = 0.0;
+        double posY = 0.0;
+        double posZ = 0.0;
+        double yawDeg = 0.0;
+        double pitchDeg = 0.0;
+        double rollDeg = 0.0;
     };
 
     struct SofMsg
@@ -41,6 +49,6 @@ namespace sync_proto
 #pragma pack(pop)
 
     static_assert(sizeof(WireMsg) == 12, "WireMsg size");
-    static_assert(sizeof(IgCtrlMsg) == 20, "IgCtrlMsg size");
+    static_assert(sizeof(IgCtrlMsg) == 72, "IgCtrlMsg size");
     static_assert(sizeof(SofMsg) == 12, "SofMsg size");
 } // namespace sync_proto

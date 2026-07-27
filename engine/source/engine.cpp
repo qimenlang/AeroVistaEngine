@@ -645,6 +645,14 @@ bool Engine::update()
 
     viewer->handleEvents();
 
+    // Host→IG: sample authority eye before overwrite, then apply Host eye ⊕ offset.
+    if (_synchronSystem)
+    {
+        if (_synchronSystem->hasHost())
+            _synchronSystem->captureAuthorityEye(*this);
+        _synchronSystem->update(*this);
+    }
+
     if (frameStatsSwitch)
         frameStatsSwitch->setAllChildren(reportFrameStats);
 
@@ -691,6 +699,8 @@ void Engine::postFrame()
 void Engine::tickSync()
 {
     preFrame();
+    if (_synchronSystem)
+        _synchronSystem->update(*this);
     postFrame();
 }
 

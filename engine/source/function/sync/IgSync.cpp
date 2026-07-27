@@ -1,9 +1,10 @@
-#include "IgSync.h"
+﻿#include "IgSync.h"
 #include "SyncProtocol.h"
 
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <thread>
 
 #ifdef WIN32
@@ -79,6 +80,8 @@ bool IgSync::Initialize(const AddressConfig& local)
     _igCtrlReceivedCount = 0;
     _sofSentCount = 0;
     _lastFrameCntr = 0;
+    _hasReceivedEye = false;
+    _receivedEye = {};
     _hostEndpoint = {};
 
     if (!_udp.openSocket(_local.addr.c_str(), _local.udpPortSend, _local.udpPortRecv))
@@ -122,6 +125,14 @@ std::uint32_t IgSync::lastIgCtrlFrameCntr() const
     return _lastFrameCntr;
 }
 
+std::optional<IgSync::HostEye> IgSync::takeReceivedHostEye()
+{
+    if (!_hasReceivedEye)
+        return std::nullopt;
+    _hasReceivedEye = false;
+    return _receivedEye;
+}
+
 void IgSync::sendSofPacket(std::uint32_t frameCntr)
 {
     if (_hostEndpoint.addr.empty())
@@ -144,7 +155,7 @@ void IgSync::Update(bool sendSof)
     if (_tcpConnected && _udpSynced)
         _status = IgStatus::Running;
 
-    unsigned char buf[64]{};
+    unsigned char buf[128]{};
     for (;;)
     {
         const int n = _udp.recv(buf, sizeof(buf));
@@ -158,13 +169,31 @@ void IgSync::Update(bool sendSof)
 
         if (header.type == static_cast<uint32_t>(sync_proto::MsgType::IgCtrl))
         {
-            if (n < static_cast<int>(sizeof(sync_proto::IgCtrlMsg)))
+            // Accept full IgCtrlMsg (with optional eye) or legacy 20-byte header-only layout.
+            if (n < 20)
                 continue;
 
             sync_proto::IgCtrlMsg igCtrl{};
-            std::memcpy(&igCtrl, buf, sizeof(igCtrl));
+            const int copyN = n < static_cast<int>(sizeof(igCtrl)) ? n : static_cast<int>(sizeof(igCtrl));
+            std::memcpy(&igCtrl, buf, static_cast<size_t>(copyN));
+
+            // Drop whole older bundles (FrameCntr strictly less than last processed).
+            if (_igCtrlReceivedCount.load() > 0 && igCtrl.frameCntr < _lastFrameCntr)
+                continue;
+
             _lastFrameCntr = igCtrl.frameCntr;
             _igCtrlReceivedCount.fetch_add(1);
+
+            if (n >= static_cast<int>(sizeof(sync_proto::IgCtrlMsg)) && igCtrl.hasEye != 0)
+            {
+                _receivedEye.x = igCtrl.posX;
+                _receivedEye.y = igCtrl.posY;
+                _receivedEye.z = igCtrl.posZ;
+                _receivedEye.yawDeg = igCtrl.yawDeg;
+                _receivedEye.pitchDeg = igCtrl.pitchDeg;
+                _receivedEye.rollDeg = igCtrl.rollDeg;
+                _hasReceivedEye = true;
+            }
 
             if (sendSof)
                 sendSofPacket(_lastFrameCntr);

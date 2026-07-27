@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #ifdef WIN32
@@ -27,11 +28,20 @@ public:
     IgSync(const IgSync&) = delete;
     IgSync& operator=(const IgSync&) = delete;
 
+    struct HostEye
+    {
+        double x = 0, y = 0, z = 0;
+        double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+    };
+
     bool Initialize(const AddressConfig& local);
     bool Connect(const AddressConfig& hostEndpoint);
     void Shutdown();
 
     void Update(bool sendSof = true);
+
+    /// Consume Host eye received during the last Update (if any).
+    std::optional<HostEye> takeReceivedHostEye();
 
     const AddressConfig& addressConfig() const { return _local; }
 
@@ -72,4 +82,6 @@ private:
     std::atomic<std::uint32_t> _igCtrlReceivedCount{0};
     std::atomic<std::uint32_t> _sofSentCount{0};
     std::uint32_t _lastFrameCntr = 0;
+    bool _hasReceivedEye = false;
+    HostEye _receivedEye{};
 };
