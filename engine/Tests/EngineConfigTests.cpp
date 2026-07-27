@@ -211,6 +211,14 @@ SCENARIO("after loadConfig and init with non-zero port, IgSync matches config an
             {
                 REQUIRE_FALSE(engine.synchronSystem().hasHost());
             }
+
+            AND_THEN("SynchronSystem uses config offsetDeg and hostEyeStalePolicy")
+            {
+                REQUIRE(nearlyEqual(engine.synchronSystem().offsetDeg().yaw, engine.config.offsetDeg.yaw));
+                REQUIRE(nearlyEqual(engine.synchronSystem().offsetDeg().pitch, engine.config.offsetDeg.pitch));
+                REQUIRE(nearlyEqual(engine.synchronSystem().offsetDeg().roll, engine.config.offsetDeg.roll));
+                REQUIRE(engine.synchronSystem().hostEyeStalePolicy() == engine.config.hostEyeStalePolicy);
+            }
         }
     }
 }

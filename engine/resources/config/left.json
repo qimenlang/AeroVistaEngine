@@ -1,6 +1,6 @@
 ﻿{
   "channelId": 1,
-  "offsetDeg": { "yaw": -60.0, "pitch": 0.0, "roll": 0.0 },
+  "offsetDeg": { "yaw": 18.05, "pitch": 0.0, "roll": 0.0 },
   "igLocal": {
     "addr": "127.0.0.1",
     "udpPortSend": 8000,

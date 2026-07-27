@@ -445,6 +445,10 @@ bool Engine::init()
     if (!initSync(config.toSyncRole(), /*requireIgConnect=*/config.enableHost()))
         return false;
 
+    // Channel frustum offset + stale policy come from JSON (not SyncRoleConfig).
+    _synchronSystem->setOffsetDeg(config.offsetDeg);
+    _synchronSystem->setHostEyeStalePolicy(config.hostEyeStalePolicy);
+
     // model paths in JSON are relative to resources/
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
     return initGraphics(modelPath);
