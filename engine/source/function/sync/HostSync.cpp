@@ -1,4 +1,4 @@
-#include "HostSync.h"
+﻿#include "HostSync.h"
 #include "SyncProtocol.h"
 
 #include <chrono>
@@ -36,7 +36,7 @@ namespace
 
 HostSync::~HostSync()
 {
-    Shutdown();
+    shutdown();
 }
 
 void HostSync::closeSocket(SocketHandle& s)
@@ -104,12 +104,12 @@ std::uint32_t HostSync::sofReceivedCount() const
     return _sofReceivedCount.load();
 }
 
-void HostSync::SetPaceConfig(const SyncPaceConfig& pace)
+void HostSync::setPaceConfig(const SyncPaceConfig& pace)
 {
     _pace = pace;
 }
 
-void HostSync::Run()
+void HostSync::run()
 {
     _status = HostStatus::Running;
 }
@@ -144,7 +144,7 @@ void HostSync::pollUdp()
         processUdpDatagram(p.buf, p.n, p.fromIp);
 }
 
-void HostSync::Update(double simTimeMs, const EyePose* eye)
+void HostSync::update(double simTimeMs, const EyePose* eye)
 {
     if (_status.load() != HostStatus::Running)
         return;
@@ -193,9 +193,9 @@ void HostSync::Update(double simTimeMs, const EyePose* eye)
     _igCtrlSentCount.fetch_add(1);
 }
 
-bool HostSync::Initialize(const AddressConfig& local)
+bool HostSync::initialize(const AddressConfig& local)
 {
-    Shutdown();
+    shutdown();
     _local = local;
     _status = HostStatus::Idle;
     _igCtrlSentCount = 0;
@@ -260,7 +260,7 @@ bool HostSync::Initialize(const AddressConfig& local)
     return true;
 }
 
-void HostSync::Shutdown()
+void HostSync::shutdown()
 {
     _threadsRunning = false;
     _status = HostStatus::Idle;

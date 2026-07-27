@@ -46,7 +46,7 @@ SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]
 
         WHEN("it is initialized")
         {
-            const bool ok = host.Initialize(makeHostLocal());
+            const bool ok = host.initialize(makeHostLocal());
 
             THEN("initialization succeeds and no IG is ready yet")
             {
@@ -63,7 +63,7 @@ SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]
 
         WHEN("it is initialized")
         {
-            const bool ok = ig.Initialize(makeIgLocal());
+            const bool ok = ig.initialize(makeIgLocal());
 
             THEN("initialization succeeds and it is not connected to a Host yet")
             {
@@ -81,11 +81,11 @@ SCENARIO("IgSync connect fails when Host is not running", "[bdd][sync][connect][
     GIVEN("an IgSync initialized without a running HostSync")
     {
         IgSync ig;
-        REQUIRE(ig.Initialize(makeIgLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
 
         WHEN("the IG connects to a Host endpoint")
         {
-            const bool connected = ig.Connect(makeHostEndpoint());
+            const bool connected = ig.connect(makeHostEndpoint());
 
             THEN("connect fails and neither plane reports connected")
             {
@@ -103,20 +103,20 @@ SCENARIO("IgSync connect fails then succeeds after HostSync starts", "[bdd][sync
     GIVEN("an IgSync initialized without a running HostSync")
     {
         IgSync ig;
-        REQUIRE(ig.Initialize(makeIgLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
 
         WHEN("the IG connects while the Host is down")
         {
-            REQUIRE_FALSE(ig.Connect(makeHostEndpoint()));
+            REQUIRE_FALSE(ig.connect(makeHostEndpoint()));
             REQUIRE_FALSE(ig.tcpConnected());
             REQUIRE_FALSE(ig.udpSynced());
 
             AND_WHEN("the HostSync is initialized and the IG connects again")
             {
                 HostSync host;
-                REQUIRE(host.Initialize(makeHostLocal()));
+                REQUIRE(host.initialize(makeHostLocal()));
 
-                const bool connected = ig.Connect(makeHostEndpoint());
+                const bool connected = ig.connect(makeHostEndpoint());
 
                 THEN("connect succeeds on both planes and Host sees a ready IG")
                 {
@@ -137,17 +137,17 @@ SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync]
     GIVEN("a HostSync that has been initialized and is waiting for IGs")
     {
         HostSync host;
-        REQUIRE(host.Initialize(makeHostLocal()));
+        REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE_FALSE(host.hasReadyIg());
 
         AND_GIVEN("an IgSync that has been initialized")
         {
             IgSync ig;
-            REQUIRE(ig.Initialize(makeIgLocal()));
+            REQUIRE(ig.initialize(makeIgLocal()));
 
             WHEN("the IG connects to the Host endpoint")
             {
-                const bool connected = ig.Connect(makeHostEndpoint());
+                const bool connected = ig.connect(makeHostEndpoint());
 
                 THEN("IG reports TCP and UDP sync, and Host has one ready IG")
                 {
@@ -168,18 +168,18 @@ SCENARIO("IgSync connect fails when UDP peer ports are wrong but TCP port is val
     GIVEN("a HostSync waiting for IGs")
     {
         HostSync host;
-        REQUIRE(host.Initialize(makeHostLocal()));
+        REQUIRE(host.initialize(makeHostLocal()));
 
         AND_GIVEN("an IgSync initialized with correct local ports")
         {
             IgSync ig;
-            REQUIRE(ig.Initialize(makeIgLocal()));
+            REQUIRE(ig.initialize(makeIgLocal()));
 
             WHEN("the IG connects using a Host endpoint with wrong UDP ports")
             {
                 // Connect 使用 hostEndpoint.udpPortRecv 作为 Host UDP 收端口。
                 AddressConfig badUdpEndpoint{"127.0.0.1", 8001, 9999, 8100};
-                const bool connected = ig.Connect(badUdpEndpoint);
+                const bool connected = ig.connect(badUdpEndpoint);
 
                 THEN("overall connect fails and neither plane is ready")
                 {
@@ -199,17 +199,17 @@ SCENARIO("HostSync accepts multiple IgSync connections", "[bdd][sync][connect][m
     GIVEN("a HostSync waiting for IGs")
     {
         HostSync host;
-        REQUIRE(host.Initialize(makeHostLocal()));
+        REQUIRE(host.initialize(makeHostLocal()));
 
         WHEN("two co-located IGs initialize on distinct UDP recv ports and connect")
         {
             IgSync ig1;
             IgSync ig2;
-            REQUIRE(ig1.Initialize(makeIgLocal("127.0.0.1", 8001)));
-            REQUIRE(ig2.Initialize(makeIgLocal("127.0.0.1", 8003)));
+            REQUIRE(ig1.initialize(makeIgLocal("127.0.0.1", 8001)));
+            REQUIRE(ig2.initialize(makeIgLocal("127.0.0.1", 8003)));
 
-            REQUIRE(ig1.Connect(makeHostEndpoint()));
-            REQUIRE(ig2.Connect(makeHostEndpoint()));
+            REQUIRE(ig1.connect(makeHostEndpoint()));
+            REQUIRE(ig2.connect(makeHostEndpoint()));
 
             THEN("both IGs are synced and Host reports two ready IGs")
             {
@@ -234,18 +234,18 @@ SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bd
     {
         HostSync host;
         IgSync ig;
-        REQUIRE(host.Initialize(makeHostLocal()));
-        REQUIRE(ig.Initialize(makeIgLocal()));
-        REQUIRE(ig.Connect(makeHostEndpoint()));
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
+        REQUIRE(ig.connect(makeHostEndpoint()));
 
         WHEN("host runs and sends 10 IGCtrl frames while IG updates")
         {
-            host.Run();
+            host.run();
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0));
-                ig.Update();
+                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                ig.update();
             }
 
             THEN("both are RUNNING and Host sent one IGCtrl per Update")
@@ -266,18 +266,18 @@ SCENARIO("IG replies with one SOF per received IGCtrl", "[bdd][sync][status][sof
     {
         HostSync host;
         IgSync ig;
-        REQUIRE(host.Initialize(makeHostLocal()));
-        REQUIRE(ig.Initialize(makeIgLocal()));
-        REQUIRE(ig.Connect(makeHostEndpoint()));
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
+        REQUIRE(ig.connect(makeHostEndpoint()));
 
         WHEN("host sends 10 IGCtrl and IG updates each frame")
         {
-            host.Run();
+            host.run();
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0));
-                ig.Update(/*sendSof=*/true);
+                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                ig.update(/*sendSof=*/true);
             }
 
             THEN("SOF sent equals IGCtrl received; Host SOF count cannot exceed what IG sent")
@@ -297,23 +297,23 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
     {
         HostSync host;
         IgSync ig;
-        REQUIRE(host.Initialize(makeHostLocal()));
-        REQUIRE(ig.Initialize(makeIgLocal()));
-        REQUIRE(ig.Connect(makeHostEndpoint()));
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
+        REQUIRE(ig.connect(makeHostEndpoint()));
 
         SyncPaceConfig pace{};
         pace.igCtrlSendPace = SendPace::FreeRun;
         pace.frameGate = FrameGate::FreeRun;
-        host.SetPaceConfig(pace);
+        host.setPaceConfig(pace);
 
         WHEN("host sends 10 IGCtrl while IG receives but never replies SOF")
         {
-            host.Run();
+            host.run();
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0));
-                ig.Update(/*sendSof=*/false);
+                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                ig.update(/*sendSof=*/false);
             }
 
             THEN("Host sent all IGCtrl without any SOF, independent of UDP delivery")
@@ -334,21 +334,21 @@ SCENARIO("IgSync exposes last received IGCtrl frame counter correctly", "[bdd][s
     {
         HostSync host;
         IgSync ig;
-        REQUIRE(host.Initialize(makeHostLocal()));
-        REQUIRE(ig.Initialize(makeIgLocal()));
-        REQUIRE(ig.Connect(makeHostEndpoint()));
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
+        REQUIRE(ig.connect(makeHostEndpoint()));
 
         WHEN("host sends IGCtrl frames 0..N-1 and IG updates each frame")
         {
-            host.Run();
+            host.run();
             constexpr int kFrames = 10;
             std::uint32_t prevReceived = 0;
             int matchedFrames = 0;
 
             for (int i = 0; i < kFrames; ++i)
             {
-                host.Update(/*simTimeMs=*/i * (1000.0 / 60.0)); // Host 本轮 frameCntr == i
-                ig.Update();
+                host.update(/*simTimeMs=*/i * (1000.0 / 60.0)); // Host 本轮 frameCntr == i
+                ig.update();
 
                 if (ig.igCtrlReceivedCount() > prevReceived)
                 {
@@ -635,7 +635,7 @@ SCENARIO("unlinked IG does not apply queued Host eye on update", "[bdd][sync][ho
         role.igLocal = makeIgLocalEye(18001, 18000);
         role.hostEndpoint = makeHostEndpointEye(18000);
         // Host 未启动 → Connect 失败，但仍完成本地 Init。
-        REQUIRE(engine.synchronSystem().Initialize(role, /*requireIgConnect=*/false));
+        REQUIRE(engine.synchronSystem().initialize(role, /*requireIgConnect=*/false));
         REQUIRE_FALSE(engine.synchronSystem().igLinked());
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
@@ -837,7 +837,7 @@ SCENARIO("after disconnect, update keeps last Host eye pose", "[bdd][sync][hostc
         engine.synchronSystem().update(engine);
         REQUIRE(engine.synchronSystem().igLinked());
 
-        engine.synchronSystem().igSync().Shutdown();
+        engine.synchronSystem().igSync().shutdown();
         REQUIRE_FALSE(engine.synchronSystem().igLinked());
 
         WHEN("local pose is changed and update runs while disconnected")

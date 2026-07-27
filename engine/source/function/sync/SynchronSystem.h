@@ -26,9 +26,9 @@ public:
     SynchronSystem();
     ~SynchronSystem() override;
 
-    /// If requireIgConnect is false, IgSync is initialized locally even when Connect fails.
-    bool Initialize(const SyncRoleConfig& role, bool requireIgConnect = true);
-    void Shutdown();
+    /// If requireIgConnect is false, IgSync is initialized locally even when connect fails.
+    bool initialize(const SyncRoleConfig& role, bool requireIgConnect = true);
+    void shutdown();
 
     void preFrame();
     /// Sample authority LookAt after handleEvents (Host engines only).

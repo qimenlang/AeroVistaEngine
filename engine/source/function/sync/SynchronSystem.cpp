@@ -47,43 +47,43 @@ SynchronSystem::SynchronSystem() = default;
 
 SynchronSystem::~SynchronSystem()
 {
-    Shutdown();
+    shutdown();
 }
 
-bool SynchronSystem::Initialize(const SyncRoleConfig& role, bool requireIgConnect)
+bool SynchronSystem::initialize(const SyncRoleConfig& role, bool requireIgConnect)
 {
-    Shutdown();
+    shutdown();
     _role = role;
 
     if (role.enableHost)
     {
         _host = std::make_unique<HostSync>();
-        if (!_host->Initialize(role.hostLocal))
+        if (!_host->initialize(role.hostLocal))
         {
-            std::cerr << "SynchronSystem: HostSync Initialize failed\n";
-            Shutdown();
+            std::cerr << "SynchronSystem: HostSync initialize failed\n";
+            shutdown();
             return false;
         }
-        _host->SetPaceConfig(SyncPaceConfig{});
-        _host->Run();
+        _host->setPaceConfig(SyncPaceConfig{});
+        _host->run();
     }
 
     if (role.enableIg)
     {
         _ig = std::make_unique<IgSync>();
-        if (!_ig->Initialize(role.igLocal))
+        if (!_ig->initialize(role.igLocal))
         {
-            std::cerr << "SynchronSystem: IgSync Initialize failed\n";
-            Shutdown();
+            std::cerr << "SynchronSystem: IgSync initialize failed\n";
+            shutdown();
             return false;
         }
 
-        if (!_ig->Connect(role.hostEndpoint))
+        if (!_ig->connect(role.hostEndpoint))
         {
             if (requireIgConnect)
             {
-                std::cerr << "SynchronSystem: IgSync Connect failed\n";
-                Shutdown();
+                std::cerr << "SynchronSystem: IgSync connect failed\n";
+                shutdown();
                 return false;
             }
         }
@@ -92,16 +92,16 @@ bool SynchronSystem::Initialize(const SyncRoleConfig& role, bool requireIgConnec
     return true;
 }
 
-void SynchronSystem::Shutdown()
+void SynchronSystem::shutdown()
 {
     if (_ig)
     {
-        _ig->Shutdown();
+        _ig->shutdown();
         _ig.reset();
     }
     if (_host)
     {
-        _host->Shutdown();
+        _host->shutdown();
         _host.reset();
     }
     _role = {};
@@ -118,7 +118,7 @@ void SynchronSystem::preFrame()
     if (!_ig)
         return;
 
-    _ig->Update(/*sendSof=*/true);
+    _ig->update(/*sendSof=*/true);
     if (auto eye = _ig->takeReceivedHostEye())
     {
         HostEyePose pose;
@@ -242,7 +242,7 @@ void SynchronSystem::postFrame(double simTimeMs)
         _lastSent = *sendEye;
     }
 
-    _host->Update(simTimeMs, wirePtr);
+    _host->update(simTimeMs, wirePtr);
 }
 
 HostSync& SynchronSystem::hostSync()

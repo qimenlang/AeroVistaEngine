@@ -34,11 +34,11 @@ public:
         double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
     };
 
-    bool Initialize(const AddressConfig& local);
-    bool Connect(const AddressConfig& hostEndpoint);
-    void Shutdown();
+    bool initialize(const AddressConfig& local);
+    bool connect(const AddressConfig& hostEndpoint);
+    void shutdown();
 
-    void Update(bool sendSof = true);
+    void update(bool sendSof = true);
 
     /// Consume Host eye received during the last Update (if any).
     std::optional<HostEye> takeReceivedHostEye();

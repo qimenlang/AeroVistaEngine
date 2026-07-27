@@ -364,7 +364,7 @@ Engine::Engine()
 Engine::~Engine()
 {
     if (_synchronSystem)
-        _synchronSystem->Shutdown();
+        _synchronSystem->shutdown();
 }
 
 std::string Engine::resolveConfigPath(int argc, char** argv)
@@ -462,7 +462,7 @@ bool Engine::init(const vsg::Path& modelPath)
 bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
 {
     _syncSimTimeMs = 0.0;
-    return _synchronSystem->Initialize(syncRole, requireIgConnect);
+    return _synchronSystem->initialize(syncRole, requireIgConnect);
 }
 
 bool Engine::init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole)

@@ -37,7 +37,7 @@ namespace
 
 IgSync::~IgSync()
 {
-    Shutdown();
+    shutdown();
 }
 
 void IgSync::closeTcp()
@@ -70,9 +70,9 @@ bool IgSync::udpSynced() const
     return _udpSynced;
 }
 
-bool IgSync::Initialize(const AddressConfig& local)
+bool IgSync::initialize(const AddressConfig& local)
 {
-    Shutdown();
+    shutdown();
     _local = local;
     _tcpConnected = false;
     _udpSynced = false;
@@ -94,7 +94,7 @@ bool IgSync::Initialize(const AddressConfig& local)
     return true;
 }
 
-void IgSync::Shutdown()
+void IgSync::shutdown()
 {
     closeTcp();
     _tcpConnected = false;
@@ -147,7 +147,7 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
     _sofSentCount.fetch_add(1);
 }
 
-void IgSync::Update(bool sendSof)
+void IgSync::update(bool sendSof)
 {
     if (!_initialized || !_udpSynced)
         return;
@@ -276,7 +276,7 @@ bool IgSync::tcpConnect(const std::string& ip, int port, int timeoutMs)
     fcntl(_tcp, F_SETFL, flags | O_NONBLOCK);
 #endif
 
-    const int cr = connect(_tcp, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    const int cr = ::connect(_tcp, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
 #ifdef WIN32
     if (cr == 0)
     {
@@ -393,7 +393,7 @@ bool IgSync::connectOnce(const AddressConfig& hostEndpoint)
     return false;
 }
 
-bool IgSync::Connect(const AddressConfig& hostEndpoint)
+bool IgSync::connect(const AddressConfig& hostEndpoint)
 {
     if (!_initialized)
         return false;

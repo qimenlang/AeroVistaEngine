@@ -31,18 +31,18 @@ public:
     HostSync(const HostSync&) = delete;
     HostSync& operator=(const HostSync&) = delete;
 
-    bool Initialize(const AddressConfig& local);
-    void Shutdown();
+    bool initialize(const AddressConfig& local);
+    void shutdown();
 
-    void Run();
+    void run();
     struct EyePose
     {
         double x = 0, y = 0, z = 0;
         double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
     };
     /// Fan-out IGCtrl (+ optional Host eye) to all ready IGs.
-    void Update(double simTimeMs = 0.0, const EyePose* eye = nullptr);
-    void SetPaceConfig(const SyncPaceConfig& pace);
+    void update(double simTimeMs = 0.0, const EyePose* eye = nullptr);
+    void setPaceConfig(const SyncPaceConfig& pace);
 
     const AddressConfig& addressConfig() const { return _local; }
 
