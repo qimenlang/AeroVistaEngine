@@ -25,7 +25,13 @@ BUILD_CANDIDATES = (
     ROOT / "out" / "build" / "ci-release",
 )
 
-EXCLUDE_REL = "function/sync/Network.cpp"
+EXCLUDE_REL_PARTS = (
+    "function/sync/Network.cpp",
+    "function/sync/Network.h",
+)
+
+# LLVM regex (no PCRE lookahead). Network.* suppressed via NOLINT in those files.
+HEADER_FILTER = r"[/\\]engine[/\\]"
 
 
 def find_clang_tidy() -> str | None:
@@ -54,7 +60,8 @@ def find_build_dir(explicit: Path | None) -> Path | None:
 
 
 def is_excluded(path: Path) -> bool:
-    return EXCLUDE_REL.replace("\\", "/") in str(path).replace("\\", "/")
+    text = str(path).replace("\\", "/")
+    return any(part in text for part in EXCLUDE_REL_PARTS)
 
 
 def collect_files(paths: list[str], all_engine: bool) -> list[Path]:
@@ -136,7 +143,7 @@ def main() -> int:
     cmd = [
         tidy,
         f"-p={build_dir}",
-        "-header-filter=[/\\\\]engine[/\\\\]",
+        "-header-filter=" + HEADER_FILTER,
         "-warnings-as-errors=readability-identifier-naming",
         "--quiet",
         *[str(f) for f in files],

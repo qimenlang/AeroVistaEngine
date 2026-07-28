@@ -40,6 +40,9 @@
  *  1.7.2
  */
 
+// Legacy MPV networking — keep upstream-ish names; do not spread this style (CONTRIBUTING.md).
+// NOLINTBEGIN(readability-identifier-naming)
+
 #ifndef _MPV_NETWORK_INTERFACE_INCLUDED_
 #define _MPV_NETWORK_INTERFACE_INCLUDED_
 
@@ -182,5 +185,7 @@ private:
     //!
     bool valid;
 };
+
+// NOLINTEND(readability-identifier-naming)
 
 #endif //  _MPV_NETWORK_INTERFACE_INCLUDED_

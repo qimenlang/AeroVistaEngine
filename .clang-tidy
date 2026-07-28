@@ -7,11 +7,12 @@
 # Example (after configure with CMAKE_EXPORT_COMPILE_COMMANDS=ON):
 #   clang-tidy -p out/build/clang-Ninja engine/source/function/sync/HostSync.cpp
 #
-# Prefer scanning engine/ only; skip thirdparty/ and legacy Network.* until cleaned.
+# Prefer scanning engine/ only; skip thirdparty/. Legacy Network.* uses NOLINT
+# (HeaderFilterRegex cannot exclude files via PCRE lookahead — LLVM regex only).
 # Wired by: scripts/clang_tidy_engine.py (pre-commit + CI). Naming hits fail those runs
 # via -warnings-as-errors=readability-identifier-naming (not via this file).
 Checks: '-*,readability-identifier-naming'
-HeaderFilterRegex: 'engine[/\\].*'
+HeaderFilterRegex: '[/\\]engine[/\\]'
 WarningsAsErrors: ''
 FormatStyle: file
 CheckOptions:

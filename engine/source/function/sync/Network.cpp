@@ -48,6 +48,9 @@
 #include <memory.h>
 #include <stdio.h>
 
+// Legacy MPV networking — see Network.h / CONTRIBUTING.md.
+// NOLINTBEGIN(readability-identifier-naming)
+
 namespace
 {
 #ifdef WIN32
@@ -398,3 +401,5 @@ void Network::InitializeComm(const int rcvport)
     // FIXME - more error checking
     valid = true;
 }
+
+// NOLINTEND(readability-identifier-naming)
