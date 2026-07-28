@@ -1,0 +1,92 @@
+﻿---
+# AeroVistaEngine — identifier naming aligned with CONTRIBUTING.md (VSG style).
+# Having this file alone does nothing: clang-tidy must be run explicitly
+# (or wired via CI / CMAKE_CXX_CLANG_TIDY / pre-commit). It is NOT applied
+# automatically by a normal compile.
+#
+# Example (after configure with CMAKE_EXPORT_COMPILE_COMMANDS=ON):
+#   clang-tidy -p out/build/clang-Ninja engine/source/function/sync/HostSync.cpp
+#
+# Prefer scanning engine/ only; skip thirdparty/ and legacy Network.* until cleaned.
+# Wired by: scripts/clang_tidy_engine.py (pre-commit + CI). Naming hits fail those runs
+# via -warnings-as-errors=readability-identifier-naming (not via this file).
+Checks: '-*,readability-identifier-naming'
+HeaderFilterRegex: 'engine[/\\].*'
+WarningsAsErrors: ''
+FormatStyle: file
+CheckOptions:
+  # Types
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+
+  # Enum values / macros → SCREAMING_SNAKE
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+
+  # Namespaces → lowercase
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+
+  # Functions / methods → camelCase (ban PascalCase)
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.MethodCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.ProtectedMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.PublicMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.VirtualMethodCase
+    value: camelBack
+
+  # Public data → camelCase, no prefix
+  - key: readability-identifier-naming.PublicMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PublicMemberPrefix
+    value: ''
+
+  # Private / protected → _camelCase (bans m_ and trailing _)
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberPrefix
+    value: '_'
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: camelBack
+  - key: readability-identifier-naming.ProtectedMemberPrefix
+    value: '_'
+
+  # Locals / parameters → camelCase
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterCase
+    value: camelBack
+
+  # static constexpr / locals like nearFarRatio → camelCase (not SCREAMING)
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: camelBack
+  - key: readability-identifier-naming.LocalConstantCase
+    value: camelBack
+  - key: readability-identifier-naming.StaticConstantCase
+    value: camelBack
+
+  # Template type parameters → PascalCase (T, Key); values → camelCase
+  - key: readability-identifier-naming.TypeTemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.ValueTemplateParameterCase
+    value: camelBack

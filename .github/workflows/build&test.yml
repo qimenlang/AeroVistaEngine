@@ -80,3 +80,16 @@ jobs:
 
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      - name: Install LLVM (clang-tidy)
+        if: matrix.preset == 'ci-debug'
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "19.1.7"
+
+      - name: clang-tidy (engine naming)
+        if: matrix.preset == 'ci-debug'
+        shell: pwsh
+        run: |
+          python scripts/clang_tidy_engine.py --all-engine --build-dir out/build/ci-debug
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
