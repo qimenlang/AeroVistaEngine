@@ -2,6 +2,16 @@
 
 set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
+# Run clang-tidy on engine targets during build (uses repo-root .clang-tidy).
+# Does not apply to thirdparty/ (configured before this directory).
+find_program(AEROVISTA_CLANG_TIDY NAMES clang-tidy clang-tidy.exe)
+if(AEROVISTA_CLANG_TIDY)
+    set(CMAKE_CXX_CLANG_TIDY "${AEROVISTA_CLANG_TIDY}")
+    message(STATUS "Engine clang-tidy: ${AEROVISTA_CLANG_TIDY}")
+else()
+    message(STATUS "Engine clang-tidy: not found (build continues without tidy)")
+endif()
+
 add_library(vsgEngineLib STATIC
     source/engine.cpp
     source/function/config/EngineConfig.cpp

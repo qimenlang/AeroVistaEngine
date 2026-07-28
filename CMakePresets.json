@@ -1,4 +1,4 @@
-{
+﻿{
     "version": 8,
     "configurePresets": [
         {
@@ -11,7 +11,8 @@
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
                 "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe",
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         },
         {
@@ -36,7 +37,8 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-debug",
-                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF"
+                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         },
         {
@@ -47,7 +49,8 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-release",
-                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF"
+                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
         }
     ],
