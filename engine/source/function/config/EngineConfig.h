@@ -21,8 +21,8 @@ struct WindowConfig
 
 enum class HostEyeStalePolicy
 {
-    ReuseLast,
-    Freeze
+    REUSE_LAST,
+    FREEZE
 };
 
 /// Per-process Engine channel config (see engine/resources/config/*.json).
@@ -35,7 +35,7 @@ struct EngineChannelConfig
     AddressConfig hostLocal{};
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
-    HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::ReuseLast;
+    HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
 
     bool enableHost() const { return channelId == 0; }
     bool enableIg() const { return true; }

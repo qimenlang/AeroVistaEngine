@@ -73,7 +73,7 @@ SCENARIO("teapot default camera matches the golden image", "[bdd][render][golden
         {
             REQUIRE(engine.init(modelPath));
             REQUIRE(engine.tickOnFrame());
-            REQUIRE(engine.CaptureToFile(actualPath));
+            REQUIRE(engine.captureToFile(actualPath));
 
             const auto result = compareImages(goldenPath, actualPath);
 

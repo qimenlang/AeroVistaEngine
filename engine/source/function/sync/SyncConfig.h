@@ -12,31 +12,31 @@ struct AddressConfig
 
 enum class HostStatus
 {
-    Idle,
-    Running
+    IDLE,
+    RUNNING
 };
 
 enum class IgStatus
 {
-    Idle,
-    Running
+    IDLE,
+    RUNNING
 };
 
 enum class SendPace
 {
-    FreeRun
+    FREE_RUN
 };
 
 enum class FrameGate
 {
-    FreeRun,
-    Barrier
+    FREE_RUN,
+    BARRIER
 };
 
 struct SyncPaceConfig
 {
-    SendPace igCtrlSendPace = SendPace::FreeRun;
-    FrameGate frameGate = FrameGate::FreeRun;
+    SendPace igCtrlSendPace = SendPace::FREE_RUN;
+    FrameGate frameGate = FrameGate::FREE_RUN;
     double targetFps = 60.0;
     int barrierTimeoutMs = 8;
 };

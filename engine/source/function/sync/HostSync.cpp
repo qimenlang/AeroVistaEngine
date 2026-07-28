@@ -111,7 +111,7 @@ void HostSync::setPaceConfig(const SyncPaceConfig& pace)
 
 void HostSync::run()
 {
-    _status = HostStatus::Running;
+    _status = HostStatus::RUNNING;
 }
 
 void HostSync::pollUdp()
@@ -146,7 +146,7 @@ void HostSync::pollUdp()
 
 void HostSync::update(double simTimeMs, const EyePose* eye)
 {
-    if (_status.load() != HostStatus::Running)
+    if (_status.load() != HostStatus::RUNNING)
         return;
 
     // FreeRun: never block on SOF. Barrier reserved for later.
@@ -156,7 +156,7 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
 
     sync_proto::IgCtrlMsg msg{};
     msg.magic = sync_proto::kMagic;
-    msg.type = static_cast<uint32_t>(sync_proto::MsgType::IgCtrl);
+    msg.type = static_cast<uint32_t>(sync_proto::MsgType::IG_CTRL);
     msg.frameCntr = _frameCounter++;
     msg.simTimeMs = simTimeMs;
     if (eye)
@@ -197,7 +197,7 @@ bool HostSync::initialize(const AddressConfig& local)
 {
     shutdown();
     _local = local;
-    _status = HostStatus::Idle;
+    _status = HostStatus::IDLE;
     _igCtrlSentCount = 0;
     _sofReceivedCount = 0;
     _frameCounter = 0;
@@ -263,7 +263,7 @@ bool HostSync::initialize(const AddressConfig& local)
 void HostSync::shutdown()
 {
     _threadsRunning = false;
-    _status = HostStatus::Idle;
+    _status = HostStatus::IDLE;
     closeSocket(_listenSocket);
 
     if (_acceptThread.joinable())
@@ -335,7 +335,7 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
     const int n = static_cast<int>(::recv(client, &hello, sizeof(hello), 0));
 #endif
     if (n != static_cast<int>(sizeof(hello)) || hello.magic != sync_proto::kMagic ||
-        hello.type != static_cast<uint32_t>(sync_proto::MsgType::Hello))
+        hello.type != static_cast<uint32_t>(sync_proto::MsgType::HELLO))
     {
         closeSocket(client);
         return;
@@ -356,7 +356,7 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
 
     sync_proto::WireMsg ack{};
     ack.magic = sync_proto::kMagic;
-    ack.type = static_cast<uint32_t>(sync_proto::MsgType::HelloAck);
+    ack.type = static_cast<uint32_t>(sync_proto::MsgType::HELLO_ACK);
     ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
 #ifdef WIN32
     send(client, reinterpret_cast<const char*>(&ack), sizeof(ack), 0);
@@ -368,7 +368,7 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
     {
         sync_proto::WireMsg udpAck{};
         udpAck.magic = sync_proto::kMagic;
-        udpAck.type = static_cast<uint32_t>(sync_proto::MsgType::UdpSyncAck);
+        udpAck.type = static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC_ACK);
         udpAck.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
         std::lock_guard lock(_udpMutex);
         _udp.sendTo(peerIp.c_str(), static_cast<int>(hello.udpRecvPort),
@@ -386,14 +386,14 @@ void HostSync::processUdpDatagram(const unsigned char* buf, int n, const char* f
     if (header.magic != sync_proto::kMagic)
         return;
 
-    if (header.type == static_cast<uint32_t>(sync_proto::MsgType::Sof))
+    if (header.type == static_cast<uint32_t>(sync_proto::MsgType::SOF))
     {
         if (n >= static_cast<int>(sizeof(sync_proto::SofMsg)))
             _sofReceivedCount.fetch_add(1);
         return;
     }
 
-    if (header.type != static_cast<uint32_t>(sync_proto::MsgType::UdpSync))
+    if (header.type != static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC))
         return;
 
     const uint32_t replyPort = header.udpRecvPort;
@@ -418,7 +418,7 @@ void HostSync::processUdpDatagram(const unsigned char* buf, int n, const char* f
 
     sync_proto::WireMsg ack{};
     ack.magic = sync_proto::kMagic;
-    ack.type = static_cast<uint32_t>(sync_proto::MsgType::UdpSyncAck);
+    ack.type = static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC_ACK);
     ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
     {
         std::lock_guard lock(_udpMutex);

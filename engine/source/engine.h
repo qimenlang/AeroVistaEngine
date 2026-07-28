@@ -40,11 +40,11 @@ public:
     bool tickOnFrame();
     /// preFrame + postFrame without rendering (sync-only engines).
     void tickSync();
-    bool CaptureToFile(const vsg::Path& outputPngPath);
+    bool captureToFile(const vsg::Path& outputPngPath);
     void run();
 
     SynchronSystem& synchronSystem();
-    bool hasGraphics() const { return static_cast<bool>(viewer); }
+    bool hasGraphics() const { return static_cast<bool>(_viewer); }
 
     /// On-screen vsg window (null when showWindow=false / offscreen).
     vsg::ref_ptr<vsg::Window> mainWindow() const;
@@ -52,7 +52,7 @@ public:
     /// World / channel camera used by Trackball and Host→IG pose sync (not HUD).
     vsg::ref_ptr<vsg::Camera> mainCamera() const;
     /// Set LookAt from world position + Euler YPR in degrees (yaw,pitch,roll; Y-forward, Z-up).
-    bool setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg);
+    bool setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg);
 
 private:
     void applyConfigToEngine();
@@ -63,22 +63,22 @@ private:
     void render();
     void postFrame();
 
-    vsg::ref_ptr<vsg::Options> options;
-    vsg::ref_ptr<vsg::Node> scene;
-    vsg::ref_ptr<vsg::Device> device;
-    vsg::ref_ptr<vsg::Viewer> viewer;
-    vsg::ref_ptr<vsg::Image> copiedColorBuffer;
-    vsg::ref_ptr<vsg::Window> window;
+    vsg::ref_ptr<vsg::Options> _options;
+    vsg::ref_ptr<vsg::Node> _scene;
+    vsg::ref_ptr<vsg::Device> _device;
+    vsg::ref_ptr<vsg::Viewer> _viewer;
+    vsg::ref_ptr<vsg::Image> _copiedColorBuffer;
+    vsg::ref_ptr<vsg::Window> _window;
     vsg::ref_ptr<vsg::Camera> _mainCamera;
 
-    vsg::ref_ptr<vsg::Text> frameStatsText;
-    vsg::ref_ptr<vsg::stringValue> frameStatsLabel;
-    vsg::ref_ptr<vsg::Switch> frameStatsSwitch;
+    vsg::ref_ptr<vsg::Text> _frameStatsText;
+    vsg::ref_ptr<vsg::stringValue> _frameStatsLabel;
+    vsg::ref_ptr<vsg::Switch> _frameStatsSwitch;
 
-    VkExtent2D currentExtent{};
-    bool hasRenderedFrame = false;
-    bool reportFrameStats = false;
-    double lastFrameSeconds = 0.0;
+    VkExtent2D _currentExtent{};
+    bool _hasRenderedFrame = false;
+    bool _reportFrameStats = false;
+    double _lastFrameSeconds = 0.0;
     double _syncSimTimeMs = 0.0;
 
     vsg::ref_ptr<SynchronSystem> _synchronSystem;

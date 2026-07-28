@@ -66,7 +66,7 @@ SCENARIO("Engine init with defaults matches main.json and starts Host", "[bdd][c
                 REQUIRE(cfg.window.y == 0);
                 REQUIRE(cfg.window.width == 640);
                 REQUIRE(cfg.window.height == 1080);
-                REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::ReuseLast);
+                REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::REUSE_LAST);
             }
         }
 
@@ -130,7 +130,7 @@ SCENARIO("Engine loadConfig(main.json) fills engine.config to match file", "[bdd
                 REQUIRE(cfg.window.y == 0);
                 REQUIRE(cfg.window.width == 640);
                 REQUIRE(cfg.window.height == 1080);
-                REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::ReuseLast);
+                REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::REUSE_LAST);
             }
         }
     }

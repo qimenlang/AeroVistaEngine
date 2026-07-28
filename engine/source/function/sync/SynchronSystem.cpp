@@ -38,7 +38,7 @@ namespace
         const vsg::dvec3 up = vsg::normalize(lookAt.up);
         const double rollRad = std::atan2(vsg::dot(up, expectedRight), vsg::dot(up, expectedUp));
 
-        out.eulerYPR_deg = vsg::dvec3(rad2deg(yawRad), rad2deg(pitchRad), rad2deg(rollRad));
+        out.eulerYprDeg = vsg::dvec3(rad2deg(yawRad), rad2deg(pitchRad), rad2deg(rollRad));
         return true;
     }
 } // namespace
@@ -123,7 +123,7 @@ void SynchronSystem::preFrame()
     {
         HostEyePose pose;
         pose.position = vsg::dvec3(eye->x, eye->y, eye->z);
-        pose.eulerYPR_deg = vsg::dvec3(eye->yawDeg, eye->pitchDeg, eye->rollDeg);
+        pose.eulerYprDeg = vsg::dvec3(eye->yawDeg, eye->pitchDeg, eye->rollDeg);
         queueHostEyePose(pose);
     }
 }
@@ -152,7 +152,7 @@ void SynchronSystem::captureAuthorityEye(Engine& engine)
     {
         constexpr double kEps = 1e-4;
         if (vsg::length(sample.position - _lastApplied->position) < kEps &&
-            vsg::length(sample.eulerYPR_deg - _lastApplied->eulerYPR_deg) < kEps)
+            vsg::length(sample.eulerYprDeg - _lastApplied->eulerYprDeg) < kEps)
         {
             _frameSample.reset();
             return;
@@ -165,9 +165,9 @@ void SynchronSystem::captureAuthorityEye(Engine& engine)
 HostEyePose SynchronSystem::compose(const HostEyePose& host, const OffsetDeg& offset)
 {
     HostEyePose out = host;
-    out.eulerYPR_deg.x += offset.yaw;
-    out.eulerYPR_deg.y += offset.pitch;
-    out.eulerYPR_deg.z += offset.roll;
+    out.eulerYprDeg.x += offset.yaw;
+    out.eulerYprDeg.y += offset.pitch;
+    out.eulerYprDeg.z += offset.roll;
     return out;
 }
 
@@ -175,7 +175,7 @@ void SynchronSystem::applyHostEye(Engine& engine, const HostEyePose& hostEye)
 {
     const HostEyePose composed = compose(hostEye, _offsetDeg);
     if (engine.hasGraphics())
-        engine.setCameraPose(composed.position, composed.eulerYPR_deg);
+        engine.setCameraPose(composed.position, composed.eulerYprDeg);
     _lastApplied = composed;
 }
 
@@ -193,7 +193,7 @@ void SynchronSystem::update(Engine& engine)
         }
         else if (_cachedHostEye)
         {
-            if (_stalePolicy == HostEyeStalePolicy::ReuseLast)
+            if (_stalePolicy == HostEyeStalePolicy::REUSE_LAST)
                 applyHostEye(engine, *_cachedHostEye);
             // Freeze: leave camera as-is
         }
@@ -235,9 +235,9 @@ void SynchronSystem::postFrame(double simTimeMs)
         wire.x = sendEye->position.x;
         wire.y = sendEye->position.y;
         wire.z = sendEye->position.z;
-        wire.yawDeg = sendEye->eulerYPR_deg.x;
-        wire.pitchDeg = sendEye->eulerYPR_deg.y;
-        wire.rollDeg = sendEye->eulerYPR_deg.z;
+        wire.yawDeg = sendEye->eulerYprDeg.x;
+        wire.pitchDeg = sendEye->eulerYprDeg.y;
+        wire.rollDeg = sendEye->eulerYprDeg.z;
         wirePtr = &wire;
         _lastSent = *sendEye;
     }

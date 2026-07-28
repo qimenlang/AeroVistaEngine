@@ -305,9 +305,9 @@ namespace
     HostEyeStalePolicy parseStalePolicy(const std::string& text)
     {
         if (text == "ReuseLast")
-            return HostEyeStalePolicy::ReuseLast;
+            return HostEyeStalePolicy::REUSE_LAST;
         if (text == "Freeze")
-            return HostEyeStalePolicy::Freeze;
+            return HostEyeStalePolicy::FREEZE;
         throw std::runtime_error("invalid hostEyeStalePolicy: " + text);
     }
 

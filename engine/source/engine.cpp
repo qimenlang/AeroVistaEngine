@@ -244,14 +244,14 @@ namespace
             sourceImage,
             VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 
-        auto cmd_transitionForTransferBarrier = vsg::PipelineBarrier::create(
+        auto cmdTransitionForTransferBarrier = vsg::PipelineBarrier::create(
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             0,
             transitionDestinationImageToDestinationLayoutBarrier,
             transitionSourceImageToTransferSourceLayoutBarrier);
 
-        commands->addChild(cmd_transitionForTransferBarrier);
+        commands->addChild(cmdTransitionForTransferBarrier);
 
         if (supportsBlit)
         {
@@ -306,13 +306,13 @@ namespace
             destinationImage,
             VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1});
 
-        auto cmd_transitionFromTransferBarrier = vsg::PipelineBarrier::create(
+        auto cmdTransitionFromTransferBarrier = vsg::PipelineBarrier::create(
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             0,
             transitionDestinationImageToMemoryReadBarrier);
 
-        commands->addChild(cmd_transitionFromTransferBarrier);
+        commands->addChild(cmdTransitionFromTransferBarrier);
 
         return {commands, destinationImage};
     }
@@ -405,7 +405,7 @@ SynchronSystem& Engine::synchronSystem()
 
 vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
 {
-    return window;
+    return _window;
 }
 
 vsg::ref_ptr<vsg::Camera> Engine::mainCamera() const
@@ -413,7 +413,7 @@ vsg::ref_ptr<vsg::Camera> Engine::mainCamera() const
     return _mainCamera;
 }
 
-bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg)
+bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
 {
     if (!_mainCamera)
         return false;
@@ -422,11 +422,11 @@ bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYP
     if (!lookAt)
         return false;
 
-    // YPR degrees → quat: Rz(yaw) * Rx(pitch) * Ry(roll). Forward=+Y, up=+Z.
+    // YPR degrees ¡ú quat: Rz(yaw) * Rx(pitch) * Ry(roll). Forward=+Y, up=+Z.
     const vsg::dquat rotation =
-        vsg::dquat(vsg::radians(eulerYPR_deg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
-        vsg::dquat(vsg::radians(eulerYPR_deg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
-        vsg::dquat(vsg::radians(eulerYPR_deg.z), vsg::dvec3(0.0, 1.0, 0.0));
+        vsg::dquat(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
+        vsg::dquat(vsg::radians(eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
+        vsg::dquat(vsg::radians(eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0));
 
     constexpr double kLookDistance = 1.0;
     const vsg::dvec3 forward = rotation * vsg::dvec3(0.0, 1.0, 0.0);
@@ -476,24 +476,24 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
 {
     try
     {
-        currentExtent = extent;
-        hasRenderedFrame = false;
-        window = {};
+        _currentExtent = extent;
+        _hasRenderedFrame = false;
+        _window = {};
         _mainCamera = {};
 
-        options = vsg::Options::create();
-        options->sharedObjects = vsg::SharedObjects::create();
-        options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
-        options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
-        options->add(vsgXchange::all::create());
+        _options = vsg::Options::create();
+        _options->sharedObjects = vsg::SharedObjects::create();
+        _options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
+        _options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
+        _options->add(vsgXchange::all::create());
 #ifdef RESOURCE_DIR
-        options->paths.push_back(vsg::Path(RESOURCE_DIR));
+        _options->paths.push_back(vsg::Path(RESOURCE_DIR));
 #endif
 
-        if (!loadScene(modelPath, options, scene))
+        if (!loadScene(modelPath, _options, _scene))
             return false;
 
-        viewer = vsg::Viewer::create();
+        _viewer = vsg::Viewer::create();
 
         int queueFamily = -1;
         if (showWindow)
@@ -506,15 +506,15 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
                 "AeroVistaEngine");
             windowTraits->hdpi = false;
             windowTraits->decoration = false; // borderless client area
-            window = vsg::Window::create(windowTraits);
-            if (!window)
+            _window = vsg::Window::create(windowTraits);
+            if (!_window)
             {
                 std::cerr << "Could not create window." << std::endl;
                 return false;
             }
-            viewer->addWindow(window);
-            device = window->getOrCreateDevice();
-            currentExtent = window->extent2D();
+            _viewer->addWindow(_window);
+            _device = _window->getOrCreateDevice();
+            _currentExtent = _window->extent2D();
         }
         else
         {
@@ -530,102 +530,102 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
             vsg::QueueSettings queueSettings{vsg::QueueSetting{queueFamily, {1.0}}};
             auto deviceFeatures = vsg::DeviceFeatures::create();
             deviceFeatures->get().samplerAnisotropy = VK_TRUE;
-            device = vsg::Device::create(physicalDevice, queueSettings, vsg::Names{}, vsg::Names{}, deviceFeatures);
+            _device = vsg::Device::create(physicalDevice, queueSettings, vsg::Names{}, vsg::Names{}, deviceFeatures);
         }
 
         // Camera matches RenderingEngine defaults so golden regression images remain valid.
         vsg::ComputeBounds computeBounds;
-        scene->accept(computeBounds);
+        _scene->accept(computeBounds);
         vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
         double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
         constexpr double nearFarRatio = 0.001;
 
         auto lookAt = vsg::LookAt::create(centre + vsg::dvec3(0.0, -radius * 1.5, 0.0), centre, vsg::dvec3(0.0, 0.0, 1.0));
 
-        auto ellipsoidModel = scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
+        auto ellipsoidModel = _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
         vsg::ref_ptr<vsg::ProjectionMatrix> perspective;
         if (ellipsoidModel)
         {
             perspective = vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, 30.0,
-                                                            static_cast<double>(currentExtent.width) / static_cast<double>(currentExtent.height),
+                                                            static_cast<double>(_currentExtent.width) / static_cast<double>(_currentExtent.height),
                                                             nearFarRatio, 0.0);
         }
         else
         {
             perspective = vsg::Perspective::create(30.0,
-                                                   static_cast<double>(currentExtent.width) / static_cast<double>(currentExtent.height),
+                                                   static_cast<double>(_currentExtent.width) / static_cast<double>(_currentExtent.height),
                                                    nearFarRatio * radius, radius * 4.5);
         }
 
-        auto camera = vsg::Camera::create(perspective, lookAt, vsg::ViewportState::create(currentExtent));
+        auto camera = vsg::Camera::create(perspective, lookAt, vsg::ViewportState::create(_currentExtent));
         _mainCamera = camera;
 
-        auto colorImageView = createColorImageView(device, currentExtent, imageFormat);
-        auto depthImageView = createDepthImageView(device, currentExtent, depthFormat);
-        auto renderPass = createOffscreenRenderPass(device, imageFormat, depthFormat);
-        auto framebuffer = vsg::Framebuffer::create(renderPass, vsg::ImageViews{colorImageView, depthImageView}, currentExtent.width, currentExtent.height, 1);
+        auto colorImageView = createColorImageView(_device, _currentExtent, imageFormat);
+        auto depthImageView = createDepthImageView(_device, _currentExtent, depthFormat);
+        auto renderPass = createOffscreenRenderPass(_device, imageFormat, depthFormat);
+        auto framebuffer = vsg::Framebuffer::create(renderPass, vsg::ImageViews{colorImageView, depthImageView}, _currentExtent.width, _currentExtent.height, 1);
 
         vsg::ref_ptr<vsg::Commands> colorBufferCapture;
-        std::tie(colorBufferCapture, copiedColorBuffer) = createColorCapture(device, currentExtent, colorImageView->image, imageFormat);
+        std::tie(colorBufferCapture, _copiedColorBuffer) = createColorCapture(_device, _currentExtent, colorImageView->image, imageFormat);
 
         auto offscreenRenderGraph = vsg::RenderGraph::create();
         offscreenRenderGraph->framebuffer = framebuffer;
         offscreenRenderGraph->renderArea.offset = {0, 0};
-        offscreenRenderGraph->renderArea.extent = currentExtent;
+        offscreenRenderGraph->renderArea.extent = _currentExtent;
         offscreenRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
 
-        auto offscreenView = vsg::View::create(camera, scene);
+        auto offscreenView = vsg::View::create(camera, _scene);
         offscreenView->addChild(vsg::createHeadlight());
         offscreenRenderGraph->addChild(offscreenView);
 
-        reportFrameStats = false;
-        frameStatsText = {};
-        frameStatsLabel = {};
-        frameStatsSwitch = {};
-        lastFrameSeconds = 0.0;
+        _reportFrameStats = false;
+        _frameStatsText = {};
+        _frameStatsLabel = {};
+        _frameStatsSwitch = {};
+        _lastFrameSeconds = 0.0;
 
         vsg::ref_ptr<vsg::CommandGraph> commandGraph;
-        if (window)
+        if (_window)
         {
-            viewer->addEventHandler(vsg::CloseHandler::create(viewer));
-            viewer->addEventHandler(vsg::Trackball::create(camera, ellipsoidModel));
+            _viewer->addEventHandler(vsg::CloseHandler::create(_viewer));
+            _viewer->addEventHandler(vsg::Trackball::create(camera, ellipsoidModel));
 
             auto frameStatsHandler = FrameStatsHandler::create();
-            frameStatsHandler->enabled = &reportFrameStats;
-            viewer->addEventHandler(frameStatsHandler);
+            frameStatsHandler->enabled = &_reportFrameStats;
+            _viewer->addEventHandler(frameStatsHandler);
 
             auto windowView = vsg::View::create(camera);
             windowView->addChild(vsg::createHeadlight());
-            windowView->addChild(scene);
+            windowView->addChild(_scene);
 
-            auto windowRenderGraph = vsg::RenderGraph::create(window, windowView);
+            auto windowRenderGraph = vsg::RenderGraph::create(_window, windowView);
             windowRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
 
-            auto hud = createFrameStatsHud(currentExtent, options);
+            auto hud = createFrameStatsHud(_currentExtent, _options);
             if (hud.text && hud.visibility && hud.camera)
             {
-                frameStatsText = hud.text;
-                frameStatsLabel = hud.label;
-                frameStatsSwitch = hud.visibility;
+                _frameStatsText = hud.text;
+                _frameStatsLabel = hud.label;
+                _frameStatsSwitch = hud.visibility;
                 // HUD text pipeline has depth test/write disabled, so no mid-pass depth clear is needed.
                 windowRenderGraph->addChild(vsg::View::create(hud.camera, hud.visibility));
             }
 
-            commandGraph = vsg::CommandGraph::create(window);
+            commandGraph = vsg::CommandGraph::create(_window);
             commandGraph->addChild(windowRenderGraph);
             commandGraph->addChild(offscreenRenderGraph);
             if (colorBufferCapture) commandGraph->addChild(colorBufferCapture);
         }
         else
         {
-            commandGraph = vsg::CommandGraph::create(device, queueFamily);
+            commandGraph = vsg::CommandGraph::create(_device, queueFamily);
             commandGraph->addChild(offscreenRenderGraph);
             if (colorBufferCapture) commandGraph->addChild(colorBufferCapture);
         }
 
-        viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
-        viewer->compile();
-        viewer->start_point() = vsg::clock::now();
+        _viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
+        _viewer->compile();
+        _viewer->start_point() = vsg::clock::now();
         return true;
     }
     catch (const vsg::Exception& ve)
@@ -637,19 +637,19 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
 
 void Engine::preFrame()
 {
-    // Subsystems: recv / apply state before scene update.
+    // Subsystems: recv / apply state before _scene update.
     if (_synchronSystem)
         _synchronSystem->preFrame();
 }
 
 bool Engine::update()
 {
-    if (!viewer->advanceToNextFrame())
+    if (!_viewer->advanceToNextFrame())
         return false;
 
-    viewer->handleEvents();
+    _viewer->handleEvents();
 
-    // Host→IG: sample authority eye before overwrite, then apply Host eye ⊕ offset.
+    // Host¡úIG: sample authority eye before overwrite, then apply Host eye ¨ offset.
     if (_synchronSystem)
     {
         if (_synchronSystem->hasHost())
@@ -657,13 +657,13 @@ bool Engine::update()
         _synchronSystem->update(*this);
     }
 
-    if (frameStatsSwitch)
-        frameStatsSwitch->setAllChildren(reportFrameStats);
+    if (_frameStatsSwitch)
+        _frameStatsSwitch->setAllChildren(_reportFrameStats);
 
-    if (reportFrameStats && frameStatsText && frameStatsLabel && lastFrameSeconds > 0.0)
+    if (_reportFrameStats && _frameStatsText && _frameStatsLabel && _lastFrameSeconds > 0.0)
     {
-        const double frameMs = lastFrameSeconds * 1000.0;
-        const double instantFps = 1.0 / lastFrameSeconds;
+        const double frameMs = _lastFrameSeconds * 1000.0;
+        const double instantFps = 1.0 / _lastFrameSeconds;
 
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(1);
@@ -674,21 +674,21 @@ bool Engine::update()
         oss << "FPS: " << instantFps << "\n"
             << "frame: " << frameMs << " ms";
 
-        frameStatsLabel->value() = oss.str();
-        frameStatsText->setup(0, options);
+        _frameStatsLabel->value() = oss.str();
+        _frameStatsText->setup(0, _options);
     }
 
-    viewer->update();
+    _viewer->update();
     return true;
 }
 
 void Engine::render()
 {
     constexpr uint64_t waitTimeout = 1999999999;
-    viewer->recordAndSubmit();
-    if (window)
-        viewer->present();
-    viewer->waitForFences(0, waitTimeout);
+    _viewer->recordAndSubmit();
+    if (_window)
+        _viewer->present();
+    _viewer->waitForFences(0, waitTimeout);
 }
 
 void Engine::postFrame()
@@ -710,7 +710,7 @@ void Engine::tickSync()
 
 bool Engine::tickOnFrame()
 {
-    if (!viewer)
+    if (!_viewer)
     {
         std::cerr << "Engine not initialized." << std::endl;
         return false;
@@ -726,8 +726,8 @@ bool Engine::tickOnFrame()
         render();
         postFrame();
 
-        lastFrameSeconds = std::chrono::duration<double, std::chrono::seconds::period>(vsg::clock::now() - frameStart).count();
-        hasRenderedFrame = true;
+        _lastFrameSeconds = std::chrono::duration<double, std::chrono::seconds::period>(vsg::clock::now() - frameStart).count();
+        _hasRenderedFrame = true;
         return true;
     }
     catch (const vsg::Exception& ve)
@@ -737,17 +737,17 @@ bool Engine::tickOnFrame()
     }
 }
 
-bool Engine::CaptureToFile(const vsg::Path& outputPngPath)
+bool Engine::captureToFile(const vsg::Path& outputPngPath)
 {
-    if (!viewer || !device || !copiedColorBuffer || !options)
+    if (!_viewer || !_device || !_copiedColorBuffer || !_options)
     {
         std::cerr << "Engine not initialized." << std::endl;
         return false;
     }
 
-    if (!hasRenderedFrame)
+    if (!_hasRenderedFrame)
     {
-        std::cerr << "No frame rendered yet; call tickOnFrame() before CaptureToFile()." << std::endl;
+        std::cerr << "No frame rendered yet; call tickOnFrame() before captureToFile()." << std::endl;
         return false;
     }
 
@@ -755,27 +755,27 @@ bool Engine::CaptureToFile(const vsg::Path& outputPngPath)
     {
         VkImageSubresource subResource{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0};
         VkSubresourceLayout subResourceLayout;
-        vkGetImageSubresourceLayout(*device, copiedColorBuffer->vk(device->deviceID), &subResource, &subResourceLayout);
+        vkGetImageSubresourceLayout(*_device, _copiedColorBuffer->vk(_device->deviceID), &subResource, &subResourceLayout);
 
-        auto deviceMemory = copiedColorBuffer->getDeviceMemory(device->deviceID);
+        auto deviceMemory = _copiedColorBuffer->getDeviceMemory(_device->deviceID);
 
-        size_t destRowWidth = currentExtent.width * sizeof(vsg::ubvec4);
+        size_t destRowWidth = _currentExtent.width * sizeof(vsg::ubvec4);
         vsg::ref_ptr<vsg::Data> imageData;
         if (destRowWidth == subResourceLayout.rowPitch)
         {
-            imageData = vsg::MappedData<vsg::ubvec4Array2D>::create(deviceMemory, subResourceLayout.offset, 0, vsg::Data::Properties{imageFormat}, currentExtent.width, currentExtent.height);
+            imageData = vsg::MappedData<vsg::ubvec4Array2D>::create(deviceMemory, subResourceLayout.offset, 0, vsg::Data::Properties{imageFormat}, _currentExtent.width, _currentExtent.height);
         }
         else
         {
-            auto mappedData = vsg::MappedData<vsg::ubyteArray>::create(deviceMemory, subResourceLayout.offset, 0, vsg::Data::Properties{imageFormat}, subResourceLayout.rowPitch * currentExtent.height);
-            imageData = vsg::ubvec4Array2D::create(currentExtent.width, currentExtent.height, vsg::Data::Properties{imageFormat});
-            for (uint32_t row = 0; row < currentExtent.height; ++row)
+            auto mappedData = vsg::MappedData<vsg::ubyteArray>::create(deviceMemory, subResourceLayout.offset, 0, vsg::Data::Properties{imageFormat}, subResourceLayout.rowPitch * _currentExtent.height);
+            imageData = vsg::ubvec4Array2D::create(_currentExtent.width, _currentExtent.height, vsg::Data::Properties{imageFormat});
+            for (uint32_t row = 0; row < _currentExtent.height; ++row)
             {
-                std::memcpy(imageData->dataPointer(row * currentExtent.width), mappedData->dataPointer(row * subResourceLayout.rowPitch), destRowWidth);
+                std::memcpy(imageData->dataPointer(row * _currentExtent.width), mappedData->dataPointer(row * subResourceLayout.rowPitch), destRowWidth);
             }
         }
 
-        if (!vsg::write(imageData, outputPngPath, options))
+        if (!vsg::write(imageData, outputPngPath, _options))
         {
             std::cerr << "Failed to write PNG: " << outputPngPath << std::endl;
             return false;

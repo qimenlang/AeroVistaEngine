@@ -15,7 +15,7 @@ class Engine;
 struct HostEyePose
 {
     vsg::dvec3 position{};
-    vsg::dvec3 eulerYPR_deg{};
+    vsg::dvec3 eulerYprDeg{};
 };
 
 /// Engine-facing sync facade (loop preFrame / update / postFrame).
@@ -70,7 +70,7 @@ private:
     std::unique_ptr<IgSync> _ig;
 
     OffsetDeg _offsetDeg{};
-    HostEyeStalePolicy _stalePolicy = HostEyeStalePolicy::ReuseLast;
+    HostEyeStalePolicy _stalePolicy = HostEyeStalePolicy::REUSE_LAST;
 
     bool _hasPendingEye = false;
     HostEyePose _pendingEye{};

@@ -78,7 +78,7 @@ private:
     SocketHandle _listenSocket = static_cast<SocketHandle>(-1);
 
     std::atomic<bool> _threadsRunning{false};
-    std::atomic<HostStatus> _status{HostStatus::Idle};
+    std::atomic<HostStatus> _status{HostStatus::IDLE};
     std::thread _acceptThread;
     std::thread _udpThread;
 

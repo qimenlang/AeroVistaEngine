@@ -12,7 +12,7 @@ public:
 
     void OnPacketReceived(CigiBasePacket* packet) override;
 
-    void SetOrigPckt(CigiIGCtrlV4* packetIn) { _packet = packetIn; }
+    void setOrigPacket(CigiIGCtrlV4* packetIn) { _packet = packetIn; }
 
 protected:
     CigiIGCtrlV4* _packet = nullptr;
@@ -26,7 +26,7 @@ public:
 
     void OnPacketReceived(CigiBasePacket* packet) override;
 
-    void SetOrigPckt(CigiSOFV4* packetIn) { _packet = packetIn; }
+    void setOrigPacket(CigiSOFV4* packetIn) { _packet = packetIn; }
 
 protected:
     CigiSOFV4* _packet = nullptr;

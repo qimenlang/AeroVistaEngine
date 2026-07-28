@@ -55,10 +55,10 @@ public:
     std::uint32_t lastIgCtrlFrameCntr() const;
 
 private:
-    static constexpr int TcpConnectTimeoutMs = 200;
-    static constexpr int HandshakeTimeoutMs = 1000;
-    static constexpr int TcpRetryAttempts = 16;
-    static constexpr int HandshakeRetryAttempts = 8;
+    static constexpr int tcpConnectTimeoutMs = 200;
+    static constexpr int handshakeTimeoutMs = 1000;
+    static constexpr int tcpRetryAttempts = 16;
+    static constexpr int handshakeRetryAttempts = 8;
 
     void closeTcp();
     void drainUdp();
@@ -77,7 +77,7 @@ private:
     std::atomic<bool> _initialized{false};
     std::atomic<bool> _tcpConnected{false};
     std::atomic<bool> _udpSynced{false};
-    std::atomic<IgStatus> _status{IgStatus::Idle};
+    std::atomic<IgStatus> _status{IgStatus::IDLE};
 
     std::atomic<std::uint32_t> _igCtrlReceivedCount{0};
     std::atomic<std::uint32_t> _sofSentCount{0};

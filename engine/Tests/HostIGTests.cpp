@@ -250,8 +250,8 @@ SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bd
 
             THEN("both are RUNNING and Host sent one IGCtrl per Update")
             {
-                REQUIRE(host.status() == HostStatus::Running);
-                REQUIRE(ig.status() == IgStatus::Running);
+                REQUIRE(host.status() == HostStatus::RUNNING);
+                REQUIRE(ig.status() == IgStatus::RUNNING);
                 REQUIRE(host.igCtrlSentCount() == kFrames);
                 REQUIRE(approxAtMost(ig.igCtrlReceivedCount(), kFrames, 3));
             }
@@ -302,8 +302,8 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
         REQUIRE(ig.connect(makeHostEndpoint()));
 
         SyncPaceConfig pace{};
-        pace.igCtrlSendPace = SendPace::FreeRun;
-        pace.frameGate = FrameGate::FreeRun;
+        pace.igCtrlSendPace = SendPace::FREE_RUN;
+        pace.frameGate = FrameGate::FREE_RUN;
         host.setPaceConfig(pace);
 
         WHEN("host sends 10 IGCtrl while IG receives but never replies SOF")
@@ -494,19 +494,19 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
 
 namespace
 {
-    vsg::dquat quatFromEulerYPR_deg(const vsg::dvec3& eulerYPR_deg)
+    vsg::dquat quatFromEulerYprDeg(const vsg::dvec3& eulerYprDeg)
     {
-        return vsg::dquat(vsg::radians(eulerYPR_deg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
-               vsg::dquat(vsg::radians(eulerYPR_deg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
-               vsg::dquat(vsg::radians(eulerYPR_deg.z), vsg::dvec3(0.0, 1.0, 0.0));
+        return vsg::dquat(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
+               vsg::dquat(vsg::radians(eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
+               vsg::dquat(vsg::radians(eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0));
     }
 
-    void requireLookAtMatchesPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYPR_deg)
+    void requireLookAtMatchesPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
     {
         auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
         REQUIRE(lookAt);
 
-        const vsg::dquat rotation = quatFromEulerYPR_deg(eulerYPR_deg);
+        const vsg::dquat rotation = quatFromEulerYprDeg(eulerYprDeg);
         const vsg::dvec3 expectedForward = rotation * vsg::dvec3(0.0, 1.0, 0.0);
         const vsg::dvec3 expectedUp = rotation * vsg::dvec3(0.0, 0.0, 1.0);
         const vsg::dvec3 expectedCenter = position + expectedForward;
@@ -519,16 +519,16 @@ namespace
     void requirePoseNear(const HostEyePose& actual, const HostEyePose& expected, double eps = 1e-6)
     {
         REQUIRE(vsg::length(actual.position - expected.position) < eps);
-        REQUIRE(vsg::length(actual.eulerYPR_deg - expected.eulerYPR_deg) < eps);
+        REQUIRE(vsg::length(actual.eulerYprDeg - expected.eulerYprDeg) < eps);
     }
 
     /// 分量相加：最终 euler = Host.euler + offsetDeg（初步约定，与实现注释对齐）。
     HostEyePose hostEyePlusOffset(const HostEyePose& host, const OffsetDeg& offset)
     {
         HostEyePose out = host;
-        out.eulerYPR_deg.x += offset.yaw;
-        out.eulerYPR_deg.y += offset.pitch;
-        out.eulerYPR_deg.z += offset.roll;
+        out.eulerYprDeg.x += offset.yaw;
+        out.eulerYprDeg.y += offset.pitch;
+        out.eulerYprDeg.z += offset.roll;
         return out;
     }
 
@@ -600,13 +600,13 @@ SCENARIO("Engine get camera and set camera pose from position and euler YPR", "[
             AND_WHEN("camera pose is set from position and euler YPR degrees")
             {
                 const vsg::dvec3 position{10.0, -20.0, 5.0};
-                const vsg::dvec3 eulerYPR_deg{90.0, 0.0, 0.0}; // yaw 90° about Z
+                const vsg::dvec3 eulerYprDeg{90.0, 0.0, 0.0}; // yaw 90° about Z
 
-                REQUIRE(engine.setCameraPose(position, eulerYPR_deg));
+                REQUIRE(engine.setCameraPose(position, eulerYprDeg));
 
                 THEN("LookAt eye/center/up match position and euler (Y-forward, Z-up)")
                 {
-                    requireLookAtMatchesPose(engine, position, eulerYPR_deg);
+                    requireLookAtMatchesPose(engine, position, eulerYprDeg);
                 }
             }
         }
@@ -640,7 +640,7 @@ SCENARIO("unlinked IG does not apply queued Host eye on update", "[bdd][sync][ho
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
         const HostEyePose hostPose{{100.0, 200.0, 50.0}, {45.0, 0.0, 0.0}};
-        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYPR_deg));
+        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
 
         WHEN("a Host eye is queue-injected and update runs")
         {
@@ -649,7 +649,7 @@ SCENARIO("unlinked IG does not apply queued Host eye on update", "[bdd][sync][ho
 
             THEN("camera stays at the local pose")
             {
-                requireLookAtMatchesPose(engine, localPose.position, localPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, localPose.position, localPose.eulerYprDeg);
             }
         }
     }
@@ -670,7 +670,7 @@ SCENARIO("linked IG applies queued Host eye on update", "[bdd][sync][hostctrl][g
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
         const HostEyePose hostPose{{100.0, 200.0, 50.0}, {45.0, 0.0, 0.0}};
-        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYPR_deg));
+        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
 
         WHEN("a Host eye is queue-injected and update runs")
         {
@@ -680,7 +680,7 @@ SCENARIO("linked IG applies queued Host eye on update", "[bdd][sync][hostctrl][g
 
             THEN("camera matches the Host eye")
             {
-                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
             }
         }
     }
@@ -712,7 +712,7 @@ SCENARIO("linked IG with zero offset applies Host eye unchanged", "[bdd][sync][h
 
             THEN("final pose equals Host eye")
             {
-                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
             }
         }
     }
@@ -743,7 +743,7 @@ SCENARIO("linked IG applies Host eye plus channel offsetDeg", "[bdd][sync][hostc
 
             THEN("camera matches Host position and Host.euler + offsetDeg")
             {
-                requireLookAtMatchesPose(engine, expected.position, expected.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, expected.position, expected.eulerYprDeg);
             }
         }
     }
@@ -764,13 +764,13 @@ SCENARIO("ReuseLast re-applies cached Host eye when no new packet", "[bdd][sync]
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engine.init(modelPath, makeHostIgRole(18001, 18300)));
-        engine.synchronSystem().setHostEyeStalePolicy(HostEyeStalePolicy::ReuseLast);
+        engine.synchronSystem().setHostEyeStalePolicy(HostEyeStalePolicy::REUSE_LAST);
         engine.synchronSystem().setOffsetDeg({});
 
         const HostEyePose hostPose{{8.0, 9.0, 10.0}, {15.0, 0.0, 0.0}};
         engine.synchronSystem().queueHostEyePose(hostPose);
         engine.synchronSystem().update(engine);
-        requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYPR_deg);
+        requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
 
         WHEN("local pose is changed and update runs without a new queued eye")
         {
@@ -779,7 +779,7 @@ SCENARIO("ReuseLast re-applies cached Host eye when no new packet", "[bdd][sync]
 
             THEN("camera returns to the cached Host eye")
             {
-                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
             }
         }
     }
@@ -796,24 +796,24 @@ SCENARIO("Freeze leaves camera unchanged when no new Host eye", "[bdd][sync][hos
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engine.init(modelPath, makeHostIgRole(18001, 18400)));
-        engine.synchronSystem().setHostEyeStalePolicy(HostEyeStalePolicy::Freeze);
+        engine.synchronSystem().setHostEyeStalePolicy(HostEyeStalePolicy::FREEZE);
         engine.synchronSystem().setOffsetDeg({});
 
         const HostEyePose hostPose{{8.0, 9.0, 10.0}, {15.0, 0.0, 0.0}};
         engine.synchronSystem().queueHostEyePose(hostPose);
         engine.synchronSystem().update(engine);
-        requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYPR_deg);
+        requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
 
         const HostEyePose localPose{{0.0, 0.0, 1.0}, {0.0, 0.0, 0.0}};
 
         WHEN("local pose is changed and update runs without a new queued eye")
         {
-            REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYPR_deg));
+            REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
             engine.synchronSystem().update(engine);
 
             THEN("camera stays at the local pose")
             {
-                requireLookAtMatchesPose(engine, localPose.position, localPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, localPose.position, localPose.eulerYprDeg);
             }
         }
     }
@@ -847,7 +847,7 @@ SCENARIO("after disconnect, update keeps last Host eye pose", "[bdd][sync][hostc
 
             THEN("camera is restored to the last Host eye")
             {
-                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
             }
         }
     }
@@ -873,7 +873,7 @@ SCENARIO("authority window A also applies Host eye on update", "[bdd][sync][host
 
         const HostEyePose localPose{{1.0, 1.0, 1.0}, {5.0, 0.0, 0.0}};
         const HostEyePose hostPose{{50.0, 60.0, 70.0}, {12.0, 0.0, 0.0}};
-        REQUIRE(engineA.setCameraPose(localPose.position, localPose.eulerYPR_deg));
+        REQUIRE(engineA.setCameraPose(localPose.position, localPose.eulerYprDeg));
 
         WHEN("Host eye is queue-injected onto A and update runs")
         {
@@ -883,7 +883,7 @@ SCENARIO("authority window A also applies Host eye on update", "[bdd][sync][host
 
             THEN("A camera matches Host eye (no bypass)")
             {
-                requireLookAtMatchesPose(engineA, hostPose.position, hostPose.eulerYPR_deg);
+                requireLookAtMatchesPose(engineA, hostPose.position, hostPose.eulerYprDeg);
             }
         }
     }
@@ -921,7 +921,7 @@ SCENARIO("E2E Host eye packet from A is applied on B with offsetDeg", "[bdd][syn
 
         WHEN("A sets authority pose and both engines tick so Host fans out EntityPosition+IGCtrl")
         {
-            REQUIRE(engineA.setCameraPose(intentPose.position, intentPose.eulerYPR_deg));
+            REQUIRE(engineA.setCameraPose(intentPose.position, intentPose.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
             REQUIRE(engineA.tickOnFrame());
@@ -969,7 +969,7 @@ SCENARIO("E2E sample-before-overwrite fans out Pose_new not echoed Pose_old",
 
         WHEN("A LookAt becomes Pose_new then a full tick fans out to B")
         {
-            REQUIRE(engineA.setCameraPose(poseNew.position, poseNew.eulerYPR_deg));
+            REQUIRE(engineA.setCameraPose(poseNew.position, poseNew.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
             REQUIRE(engineA.tickOnFrame());
@@ -1026,7 +1026,7 @@ SCENARIO("E2E three channels share Host eye and differ only by offsetDeg",
 
         WHEN("A publishes intent and all channels tick")
         {
-            REQUIRE(engineA.setCameraPose(intent.position, intent.eulerYPR_deg));
+            REQUIRE(engineA.setCameraPose(intent.position, intent.eulerYprDeg));
             for (int i = 0; i < 2; ++i)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -1036,7 +1036,7 @@ SCENARIO("E2E three channels share Host eye and differ only by offsetDeg",
 
             THEN("A LookAt and B/C lastApplied match Host intent ⊕ respective offsetDeg")
             {
-                requireLookAtMatchesPose(engineA, expectA.position, expectA.eulerYPR_deg);
+                requireLookAtMatchesPose(engineA, expectA.position, expectA.eulerYprDeg);
                 auto appliedB = engineB.synchronSystem().lastAppliedHostEye();
                 auto appliedC = engineC.synchronSystem().lastAppliedHostEye();
                 REQUIRE(appliedB.has_value());

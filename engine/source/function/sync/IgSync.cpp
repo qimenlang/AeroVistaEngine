@@ -76,7 +76,7 @@ bool IgSync::initialize(const AddressConfig& local)
     _local = local;
     _tcpConnected = false;
     _udpSynced = false;
-    _status = IgStatus::Idle;
+    _status = IgStatus::IDLE;
     _igCtrlReceivedCount = 0;
     _sofSentCount = 0;
     _lastFrameCntr = 0;
@@ -99,7 +99,7 @@ void IgSync::shutdown()
     closeTcp();
     _tcpConnected = false;
     _udpSynced = false;
-    _status = IgStatus::Idle;
+    _status = IgStatus::IDLE;
     if (_udp.isValid())
         _udp.closeSocket();
     _initialized = false;
@@ -140,7 +140,7 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
 
     sync_proto::SofMsg sof{};
     sof.magic = sync_proto::kMagic;
-    sof.type = static_cast<uint32_t>(sync_proto::MsgType::Sof);
+    sof.type = static_cast<uint32_t>(sync_proto::MsgType::SOF);
     sof.frameCntr = frameCntr;
     _udp.sendTo(_hostEndpoint.addr.c_str(), _hostEndpoint.udpPortRecv,
                 reinterpret_cast<const unsigned char*>(&sof), sizeof(sof));
@@ -153,7 +153,7 @@ void IgSync::update(bool sendSof)
         return;
 
     if (_tcpConnected && _udpSynced)
-        _status = IgStatus::Running;
+        _status = IgStatus::RUNNING;
 
     unsigned char buf[128]{};
     for (;;)
@@ -167,7 +167,7 @@ void IgSync::update(bool sendSof)
         if (header.magic != sync_proto::kMagic)
             continue;
 
-        if (header.type == static_cast<uint32_t>(sync_proto::MsgType::IgCtrl))
+        if (header.type == static_cast<uint32_t>(sync_proto::MsgType::IG_CTRL))
         {
             // Accept full IgCtrlMsg (with optional eye) or legacy 20-byte header-only layout.
             if (n < 20)
@@ -354,7 +354,7 @@ bool IgSync::waitUdpAck(int timeoutMs)
             sync_proto::WireMsg msg{};
             std::memcpy(&msg, buf, sizeof(msg));
             if (msg.magic == sync_proto::kMagic &&
-                msg.type == static_cast<uint32_t>(sync_proto::MsgType::UdpSyncAck))
+                msg.type == static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC_ACK))
                 return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -367,22 +367,22 @@ bool IgSync::connectOnce(const AddressConfig& hostEndpoint)
     // Assumes TCP already connected on _tcp.
     sync_proto::WireMsg hello{};
     hello.magic = sync_proto::kMagic;
-    hello.type = static_cast<uint32_t>(sync_proto::MsgType::Hello);
+    hello.type = static_cast<uint32_t>(sync_proto::MsgType::HELLO);
     hello.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
     if (!sendAll(_tcp, &hello, sizeof(hello)))
         return false;
 
     sync_proto::WireMsg ack{};
-    if (!recvAll(_tcp, &ack, sizeof(ack), HandshakeTimeoutMs) || ack.magic != sync_proto::kMagic ||
-        ack.type != static_cast<uint32_t>(sync_proto::MsgType::HelloAck))
+    if (!recvAll(_tcp, &ack, sizeof(ack), handshakeTimeoutMs) || ack.magic != sync_proto::kMagic ||
+        ack.type != static_cast<uint32_t>(sync_proto::MsgType::HELLO_ACK))
         return false;
 
     sync_proto::WireMsg udpSync{};
     udpSync.magic = sync_proto::kMagic;
-    udpSync.type = static_cast<uint32_t>(sync_proto::MsgType::UdpSync);
+    udpSync.type = static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC);
     udpSync.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(HandshakeTimeoutMs);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(handshakeTimeoutMs);
     while (std::chrono::steady_clock::now() < deadline)
     {
         _udp.sendTo(hostEndpoint.addr.c_str(), hostEndpoint.udpPortRecv,
@@ -404,12 +404,12 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
     // TCP retries: Host may still be starting (reconnect BDD).
     // Handshake retries (few): rare UDP loss — wrong UDP port fails quickly.
     int handshakeFails = 0;
-    for (int attempt = 0; attempt < TcpRetryAttempts; ++attempt)
+    for (int attempt = 0; attempt < tcpRetryAttempts; ++attempt)
     {
         closeTcp();
         drainUdp();
 
-        if (!tcpConnect(hostEndpoint.addr, hostEndpoint.tcpPort, TcpConnectTimeoutMs))
+        if (!tcpConnect(hostEndpoint.addr, hostEndpoint.tcpPort, tcpConnectTimeoutMs))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
             continue;
@@ -420,12 +420,12 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
             _hostEndpoint = hostEndpoint;
             _tcpConnected = true;
             _udpSynced = true;
-            _status = IgStatus::Running;
+            _status = IgStatus::RUNNING;
             return true;
         }
 
         closeTcp();
-        if (++handshakeFails >= HandshakeRetryAttempts)
+        if (++handshakeFails >= handshakeRetryAttempts)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }

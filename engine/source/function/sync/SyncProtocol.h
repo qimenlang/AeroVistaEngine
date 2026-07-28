@@ -8,12 +8,12 @@ namespace sync_proto
 
     enum class MsgType : uint32_t
     {
-        Hello = 1,
-        HelloAck = 2,
-        UdpSync = 3,
-        UdpSyncAck = 4,
-        IgCtrl = 5,
-        Sof = 6
+        HELLO = 1,
+        HELLO_ACK = 2,
+        UDP_SYNC = 3,
+        UDP_SYNC_ACK = 4,
+        IG_CTRL = 5,
+        SOF = 6
     };
 
 #pragma pack(push, 1)
@@ -28,7 +28,7 @@ namespace sync_proto
     struct IgCtrlMsg
     {
         uint32_t magic = kMagic;
-        uint32_t type = static_cast<uint32_t>(MsgType::IgCtrl);
+        uint32_t type = static_cast<uint32_t>(MsgType::IG_CTRL);
         uint32_t frameCntr = 0;
         double simTimeMs = 0.0;
         uint32_t hasEye = 0; // 1 → pos/euler valid (world XYZ + YPR degrees)
@@ -43,7 +43,7 @@ namespace sync_proto
     struct SofMsg
     {
         uint32_t magic = kMagic;
-        uint32_t type = static_cast<uint32_t>(MsgType::Sof);
+        uint32_t type = static_cast<uint32_t>(MsgType::SOF);
         uint32_t frameCntr = 0;
     };
 #pragma pack(pop)
