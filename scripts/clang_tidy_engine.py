@@ -58,30 +58,53 @@ def is_excluded(path: Path) -> bool:
 
 
 def collect_files(paths: list[str], all_engine: bool) -> list[Path]:
-    if all_engine or not paths:
-        files = sorted((ROOT / "engine").rglob("*.cpp"))
-    else:
-        files = [Path(p) for p in paths]
+    """Return .cpp TUs for clang-tidy.
 
-    selected: list[Path] = []
-    for path in files:
-        resolved = path if path.is_absolute() else (ROOT / path)
+    Headers are not tidy entry points; map foo.h -> foo.cpp when present.
+    If a header has no sibling .cpp, fall back to all engine/**/*.cpp so
+    header-only edits still get checked via includers.
+    """
+    if all_engine or not paths:
+        return _all_engine_cpp()
+
+    tus: set[Path] = set()
+    unmatched_header = False
+
+    for path in paths:
+        resolved = path if Path(path).is_absolute() else (ROOT / path)
         try:
-            resolved = resolved.resolve()
+            resolved = Path(resolved).resolve()
         except OSError:
-            resolved = path
+            resolved = Path(path)
 
         rel = str(resolved).replace("\\", "/")
-        if "/engine/" not in rel and not rel.endswith("/engine"):
-            # pre-commit may pass non-engine files; skip quietly
+        if "/engine/" not in rel:
             continue
-        if not str(resolved).lower().endswith((".cpp", ".cc", ".cxx")):
+
+        lower = str(resolved).lower()
+        if lower.endswith((".cpp", ".cc", ".cxx")):
+            if not is_excluded(resolved) and resolved.is_file():
+                tus.add(resolved)
             continue
-        if is_excluded(resolved):
-            continue
-        if resolved.is_file():
-            selected.append(resolved)
-    return selected
+
+        if lower.endswith((".h", ".hpp", ".hh", ".hxx")):
+            sibling = resolved.with_suffix(".cpp")
+            if sibling.is_file() and not is_excluded(sibling):
+                tus.add(sibling.resolve())
+            else:
+                unmatched_header = True
+
+    if unmatched_header:
+        return _all_engine_cpp()
+    return sorted(tus)
+
+
+def _all_engine_cpp() -> list[Path]:
+    files: list[Path] = []
+    for path in sorted((ROOT / "engine").rglob("*.cpp")):
+        if not is_excluded(path):
+            files.append(path.resolve())
+    return files
 
 
 def main() -> int:

@@ -19,7 +19,7 @@ repos:
         entry: python scripts/clang_tidy_engine.py
         language: system
         types_or: [c++, c]
-        files: ^engine/.*\.(cpp|cc|cxx)$
-        exclude: (^thirdparty/|engine/source/function/sync/Network\.cpp$)
+        files: ^engine/.*\.(cpp|cc|cxx|h|hpp|hh|hxx)$
+        exclude: (^thirdparty/|engine/source/function/sync/Network\.(cpp|h)$)
         pass_filenames: true
         require_serial: true
