@@ -1,0 +1,67 @@
+﻿---
+description: VSG-aligned C++ naming and style for AeroVistaEngine (from CONTRIBUTING.md)
+globs: engine/**/*.{h,hpp,cpp}
+alwaysApply: false
+---
+
+# Engine C++ style (VSG)
+
+Authority: `CONTRIBUTING.md`. Match `vsg::` style; **do not** use Google C++ naming (PascalCase methods, `m_` / trailing `_` members).
+
+## Naming (required)
+
+| Kind                             | Style                | Example                       |
+| -------------------------------- | -------------------- | ----------------------------- |
+| Namespace                        | lowercase            | `aerovista`                   |
+| Types (class/struct/enum)        | PascalCase           | `SynchronSystem`              |
+| Methods / free functions         | camelCase            | `initialize`, `renderOneTick` |
+| Public data                      | camelCase, no prefix | `extent`                      |
+| Private / protected              | `_camelCase`         | `_syncSystem`                 |
+| Locals / params                  | camelCase            | `modelPath`                   |
+| Ctor params shadowing members    | `in_` + camelCase    | `in_matrix`                   |
+| Container aliases                | PascalCase plural    | `Children`                    |
+| Enum **values** / feature macros | SCREAMING_SNAKE      | `ONE_TIME`, `AEROVISTA_…`     |
+| `static constexpr` values        | camelCase            | `nearFarRatio`                |
+| Main-class files                 | match class name     | `SynchronSystem.h/.cpp`       |
+
+## Hard bans (new engine code)
+
+```cpp
+// ❌
+void Initialize();
+bool CaptureToFile(...);
+int m_count;
+int count_;
+void render_one_tick();
+
+// ✅
+void initialize();
+bool captureToFile(...);
+int _count;          // private
+void renderOneTick();
+```
+
+- Prefer readable names (`address`) over cryptic abbreviations (`addr`, `OmsgPtr`) on engine APIs.
+- Keep third-party type spellings (`CigiIGCtrlV4`, `VkExtent2D`).
+- If a method is named `connect` / `shutdown`, call Winsock with `::connect` / `::shutdown`.
+
+## Types & VSG
+
+- Prefer top-level `namespace aerovista` (not nested under `vsg`); modules by **directory**, not nested namespaces.
+- Ref-counted scene-graph types: `vsg::Inherit<...>` + `Type::create(...)`; register with `VSG_type_name` when needed.
+- Behavior / ref-counted → `class`; small POD / options → `struct`.
+- Prefer `vsg::ref_ptr` / `vsg::vec3` / `vsg::dmat4`; do not invent parallel math names.
+
+## Files & format
+
+- New headers: `#pragma once`; VSG includes as `#include <vsg/...>` .
+- Do not restyle or rename `thirdparty/`.
+- Do not spread legacy styles (e.g. old `Network` snake_case / bare members); wrap with a thin VSG-style adapter; rename only on substantive edits of that file.
+- Let `clang-format` own layout (4 spaces, Allman braces, `T* p`).
+
+## Before finishing an edit
+
+1. No new PascalCase methods; no `m_` / trailing `_` members.
+2. Enum values are SCREAMING_SNAKE.
+3. Public API names are clear; files match primary type names where applicable.
+4. Unrelated mass renames are out of scope unless asked.
