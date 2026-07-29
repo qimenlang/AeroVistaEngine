@@ -97,8 +97,9 @@ SCENARIO("IgSync connect fails when Host is not running", "[bdd][sync][connect][
     }
 }
 
-// 验证先连失败、Host 起来后再连可成功（重连路径）。
-SCENARIO("IgSync connect fails then succeeds after HostSync starts", "[bdd][sync][connect][reconnect]")
+// 验证：Host 未起连失败 → Host 起来后连成功 → Host 下线后 IG 的 TCP/UDP 为断连。
+SCENARIO("IgSync connect fails then succeeds after HostSync starts then disconnects when Host goes offline",
+         "[bdd][sync][connect][reconnect]")
 {
     GIVEN("an IgSync initialized without a running HostSync")
     {
@@ -117,14 +118,21 @@ SCENARIO("IgSync connect fails then succeeds after HostSync starts", "[bdd][sync
                 REQUIRE(host.initialize(makeHostLocal()));
 
                 const bool connected = ig.connect(makeHostEndpoint());
+                REQUIRE(connected);
+                REQUIRE(ig.tcpConnected());
+                REQUIRE(ig.udpSynced());
+                REQUIRE(host.hasReadyIg());
+                REQUIRE(host.readyIgCount() == 1);
 
-                THEN("connect succeeds on both planes and Host sees a ready IG")
+                AND_WHEN("the Host goes offline")
                 {
-                    REQUIRE(connected);
-                    REQUIRE(ig.tcpConnected());
-                    REQUIRE(ig.udpSynced());
-                    REQUIRE(host.hasReadyIg());
-                    REQUIRE(host.readyIgCount() == 1);
+                    host.shutdown();
+
+                    THEN("IG TCP and UDP report disconnected")
+                    {
+                        REQUIRE_FALSE(ig.tcpConnected());
+                        REQUIRE_FALSE(ig.udpSynced());
+                    }
                 }
             }
         }

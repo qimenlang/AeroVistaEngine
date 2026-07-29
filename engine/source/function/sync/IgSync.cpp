@@ -60,13 +60,89 @@ void IgSync::drainUdp()
     }
 }
 
+void IgSync::markDisconnected()
+{
+    closeTcp();
+    _tcpConnected = false;
+    _udpSynced = false;
+    _status = IgStatus::IDLE;
+}
+
+bool IgSync::isTcpPeerAlive() const
+{
+    if (!isValidSock(_tcp))
+        return false;
+
+    fd_set rfds;
+    fd_set efds;
+    FD_ZERO(&rfds);
+    FD_ZERO(&efds);
+    FD_SET(_tcp, &rfds);
+    FD_SET(_tcp, &efds);
+    timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+#ifdef WIN32
+    const int sel = select(0, &rfds, nullptr, &efds, &tv);
+#else
+    const int sel = select(static_cast<int>(_tcp) + 1, &rfds, nullptr, &efds, &tv);
+#endif
+    if (sel < 0)
+        return false;
+    if (sel == 0)
+        return true;
+
+    if (FD_ISSET(_tcp, &efds))
+        return false;
+
+    if (!FD_ISSET(_tcp, &rfds))
+        return true;
+
+    // Peek without blocking: Host FIN → recv returns 0; pending bytes → still alive.
+#ifdef WIN32
+    u_long nonBlock = 1;
+    ioctlsocket(_tcp, FIONBIO, &nonBlock);
+    char peek = 0;
+    const int n = recv(_tcp, &peek, 1, MSG_PEEK);
+    u_long block = 0;
+    ioctlsocket(_tcp, FIONBIO, &block);
+    if (n == 0)
+        return false;
+    if (n < 0)
+        return WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    const int flags = fcntl(_tcp, F_GETFL, 0);
+    fcntl(_tcp, F_SETFL, flags | O_NONBLOCK);
+    char peek = 0;
+    const int n = static_cast<int>(::recv(_tcp, &peek, 1, MSG_PEEK));
+    fcntl(_tcp, F_SETFL, flags);
+    if (n == 0)
+        return false;
+    if (n < 0)
+        return errno == EAGAIN || errno == EWOULDBLOCK;
+#endif
+    return true;
+}
+
+void IgSync::refreshConnectionState() const
+{
+    if (!_tcpConnected.load())
+        return;
+    if (isTcpPeerAlive())
+        return;
+    const_cast<IgSync*>(this)->markDisconnected();
+}
+
 bool IgSync::tcpConnected() const
 {
+    refreshConnectionState();
     return _tcpConnected;
 }
 
 bool IgSync::udpSynced() const
 {
+    refreshConnectionState();
     return _udpSynced;
 }
 
@@ -107,6 +183,7 @@ void IgSync::shutdown()
 
 IgStatus IgSync::status() const
 {
+    refreshConnectionState();
     return _status.load();
 }
 
@@ -149,6 +226,7 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
 
 void IgSync::update(bool sendSof)
 {
+    refreshConnectionState();
     if (!_initialized || !_udpSynced)
         return;
 

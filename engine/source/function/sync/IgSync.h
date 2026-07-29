@@ -68,6 +68,10 @@ private:
     bool waitUdpAck(int timeoutMs);
     bool connectOnce(const AddressConfig& hostEndpoint);
     void sendSofPacket(std::uint32_t frameCntr);
+    /// Poll TCP for peer close (Host offline). Clears both plane flags when dead.
+    void refreshConnectionState() const;
+    bool isTcpPeerAlive() const;
+    void markDisconnected();
 
     AddressConfig _local{};
     AddressConfig _hostEndpoint{};
