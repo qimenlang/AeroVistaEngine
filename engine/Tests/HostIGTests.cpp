@@ -34,11 +34,10 @@ namespace
 } // namespace
 
 // =============================================================================
-// 1. 连接面：Initialize / Connect / 多 IG
+// 1. 连接面（集成 / 协议契约，非 Engine 产品验收）
 // =============================================================================
 
-// 验证 HostSync、IgSync 单独 Initialize 成功，且初始未就绪/未连接。
-SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]")
+SCENARIO("Host initializes with no ready IG", "[integration][sync][initialize]")
 {
     GIVEN("a new HostSync")
     {
@@ -56,7 +55,10 @@ SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]
             }
         }
     }
+}
 
+SCENARIO("IG initializes disconnected from any Host", "[integration][sync][initialize]")
+{
     GIVEN("a new IgSync")
     {
         IgSync ig;
@@ -75,10 +77,9 @@ SCENARIO("HostSync or IgSync initializes successfully", "[bdd][sync][initialize]
     }
 }
 
-// 验证 Host 未启动时 IgSync::Connect 失败，TCP/UDP 状态均为未连接。
-SCENARIO("IgSync connect fails when Host is not running", "[bdd][sync][connect][failure]")
+SCENARIO("IG connect fails when Host is not running", "[integration][sync][connect][failure]")
 {
-    GIVEN("an IgSync initialized without a running HostSync")
+    GIVEN("an IG initialized without a running Host")
     {
         IgSync ig;
         REQUIRE(ig.initialize(makeIgLocal()));
@@ -97,58 +98,15 @@ SCENARIO("IgSync connect fails when Host is not running", "[bdd][sync][connect][
     }
 }
 
-// 验证：Host 未起连失败 → Host 起来后连成功 → Host 下线后 IG 的 TCP/UDP 为断连。
-SCENARIO("IgSync connect fails then succeeds after HostSync starts then disconnects when Host goes offline",
-         "[bdd][sync][connect][reconnect]")
+SCENARIO("IG connects successfully when Host is already waiting", "[integration][sync][connect]")
 {
-    GIVEN("an IgSync initialized without a running HostSync")
-    {
-        IgSync ig;
-        REQUIRE(ig.initialize(makeIgLocal()));
-
-        WHEN("the IG connects while the Host is down")
-        {
-            REQUIRE_FALSE(ig.connect(makeHostEndpoint()));
-            REQUIRE_FALSE(ig.tcpConnected());
-            REQUIRE_FALSE(ig.udpSynced());
-
-            AND_WHEN("the HostSync is initialized and the IG connects again")
-            {
-                HostSync host;
-                REQUIRE(host.initialize(makeHostLocal()));
-
-                const bool connected = ig.connect(makeHostEndpoint());
-                REQUIRE(connected);
-                REQUIRE(ig.tcpConnected());
-                REQUIRE(ig.udpSynced());
-                REQUIRE(host.hasReadyIg());
-                REQUIRE(host.readyIgCount() == 1);
-
-                AND_WHEN("the Host goes offline")
-                {
-                    host.shutdown();
-
-                    THEN("IG TCP and UDP report disconnected")
-                    {
-                        REQUIRE_FALSE(ig.tcpConnected());
-                        REQUIRE_FALSE(ig.udpSynced());
-                    }
-                }
-            }
-        }
-    }
-}
-
-// 验证 Host 已监听时，IgSync Connect 成功且 readyIgCount==1。
-SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync][connect]")
-{
-    GIVEN("a HostSync that has been initialized and is waiting for IGs")
+    GIVEN("a Host that has been initialized and is waiting for IGs")
     {
         HostSync host;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE_FALSE(host.hasReadyIg());
 
-        AND_GIVEN("an IgSync that has been initialized")
+        AND_GIVEN("an IG that has been initialized")
         {
             IgSync ig;
             REQUIRE(ig.initialize(makeIgLocal()));
@@ -157,7 +115,7 @@ SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync]
             {
                 const bool connected = ig.connect(makeHostEndpoint());
 
-                THEN("IG reports TCP and UDP sync, and Host has one ready IG")
+                THEN("both planes are synced and Host has one ready IG")
                 {
                     REQUIRE(connected);
                     REQUIRE(ig.tcpConnected());
@@ -170,15 +128,40 @@ SCENARIO("IgSync connects to an initialized HostSync successfully", "[bdd][sync]
     }
 }
 
-// 验证 TCP 端口正确但 UDP 对端端口错误时，整体 Connect 失败且 Host 无就绪 IG。
-SCENARIO("IgSync connect fails when UDP peer ports are wrong but TCP port is valid", "[bdd][sync][connect][failure]")
+SCENARIO("IG disconnects when Host goes offline", "[integration][sync][connect][disconnect]")
 {
-    GIVEN("a HostSync waiting for IGs")
+    GIVEN("a connected Host and IG")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
+        REQUIRE(ig.connect(makeHostEndpoint()));
+        REQUIRE(ig.tcpConnected());
+        REQUIRE(ig.udpSynced());
+
+        WHEN("the Host goes offline")
+        {
+            host.shutdown();
+
+            THEN("IG reports disconnected on both planes")
+            {
+                REQUIRE_FALSE(ig.tcpConnected());
+                REQUIRE_FALSE(ig.udpSynced());
+            }
+        }
+    }
+}
+
+SCENARIO("IG connect fails when UDP peer ports are wrong but TCP port is valid",
+         "[integration][sync][connect][failure]")
+{
+    GIVEN("a Host waiting for IGs")
     {
         HostSync host;
         REQUIRE(host.initialize(makeHostLocal()));
 
-        AND_GIVEN("an IgSync initialized with correct local ports")
+        AND_GIVEN("an IG initialized with correct local ports")
         {
             IgSync ig;
             REQUIRE(ig.initialize(makeIgLocal()));
@@ -201,10 +184,9 @@ SCENARIO("IgSync connect fails when UDP peer ports are wrong but TCP port is val
     }
 }
 
-// 验证同机多 IG 使用不同 udpRecv 端口时可同时接入，Host readyIgCount==2。
-SCENARIO("HostSync accepts multiple IgSync connections", "[bdd][sync][connect][multi-ig]")
+SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync][connect][multi-ig]")
 {
-    GIVEN("a HostSync waiting for IGs")
+    GIVEN("a Host waiting for IGs")
     {
         HostSync host;
         REQUIRE(host.initialize(makeHostLocal()));
@@ -232,13 +214,13 @@ SCENARIO("HostSync accepts multiple IgSync connections", "[bdd][sync][connect][m
 }
 
 // =============================================================================
-// 2. 帧节拍：IGCtrl / SOF / FreeRun
+// 2. 帧节拍：IGCtrl / SOF / FreeRun（集成 / 协议契约）
 // =============================================================================
 
-// 验证 Host::Update×N 发送 N 轮 IGCtrl，IG 能收到（允许少量 UDP 丢包），双方进入 Running。
-SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bdd][sync][status]")
+SCENARIO("connected Host and IG enter RUNNING and exchange IGCtrl each update",
+         "[integration][sync][status]")
 {
-    GIVEN("a HostSync and an IgSync that have been initialized and connected")
+    GIVEN("a Host and an IG that have been initialized and connected")
     {
         HostSync host;
         IgSync ig;
@@ -246,7 +228,7 @@ SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bd
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeHostEndpoint()));
 
-        WHEN("host runs and sends 10 IGCtrl frames while IG updates")
+        WHEN("Host runs and sends 10 IGCtrl frames while IG updates")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -267,10 +249,9 @@ SCENARIO("HostSync and IgSync enter RUNNING and deliver IGCtrl per Update", "[bd
     }
 }
 
-// 验证应用层契约：每成功收到 1 条 IGCtrl 回 1 条 SOF；Host 收到数不超过 IG 发出数。
-SCENARIO("IG replies with one SOF per received IGCtrl", "[bdd][sync][status][sof]")
+SCENARIO("IG replies with one SOF per received IGCtrl", "[integration][sync][status][sof]")
 {
-    GIVEN("a HostSync and an IgSync that have been initialized and connected")
+    GIVEN("a Host and an IG that have been initialized and connected")
     {
         HostSync host;
         IgSync ig;
@@ -278,7 +259,7 @@ SCENARIO("IG replies with one SOF per received IGCtrl", "[bdd][sync][status][sof
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeHostEndpoint()));
 
-        WHEN("host sends 10 IGCtrl and IG updates each frame")
+        WHEN("Host sends 10 IGCtrl and IG updates each frame")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -298,10 +279,9 @@ SCENARIO("IG replies with one SOF per received IGCtrl", "[bdd][sync][status][sof
     }
 }
 
-// 验证 FreeRun：IG 不回 SOF 时 Host 仍能发齐 N 轮 IGCtrl，发送不门控在 SOF 上。
-SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][freerun]")
+SCENARIO("Host keeps sending IGCtrl when IG never replies SOF", "[integration][sync][status][freerun]")
 {
-    GIVEN("a connected HostSync/IgSync with FreeRun IGCtrl send pace")
+    GIVEN("a connected Host and IG with FreeRun send pace")
     {
         HostSync host;
         IgSync ig;
@@ -314,7 +294,7 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
         pace.frameGate = FrameGate::FREE_RUN;
         host.setPaceConfig(pace);
 
-        WHEN("host sends 10 IGCtrl while IG receives but never replies SOF")
+        WHEN("Host sends 10 IGCtrl while IG receives but never replies SOF")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -324,7 +304,7 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
                 ig.update(/*sendSof=*/false);
             }
 
-            THEN("Host sent all IGCtrl without any SOF, independent of UDP delivery")
+            THEN("Host sent all IGCtrl without depending on SOF")
             {
                 REQUIRE(host.igCtrlSentCount() == kFrames);
                 REQUIRE(host.sofReceivedCount() == 0);
@@ -334,11 +314,10 @@ SCENARIO("HostSync sends IGCtrl without depending on SOF", "[bdd][sync][status][
     }
 }
 
-// 验证 IG 可查询最新收到的 IGCtrl.FrameCntr；每成功收一包则与本轮 Host 下发帧号一致。
-// 红灯 API：IgSync::lastIgCtrlFrameCntr()（待实现对外暴露）。
-SCENARIO("IgSync exposes last received IGCtrl frame counter correctly", "[bdd][sync][status][frame]")
+SCENARIO("IG last received frame counter matches Host frame numbers",
+         "[integration][sync][status][frame]")
 {
-    GIVEN("a HostSync and an IgSync that have been initialized and connected")
+    GIVEN("a Host and an IG that have been initialized and connected")
     {
         HostSync host;
         IgSync ig;
@@ -346,7 +325,7 @@ SCENARIO("IgSync exposes last received IGCtrl frame counter correctly", "[bdd][s
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeHostEndpoint()));
 
-        WHEN("host sends IGCtrl frames 0..N-1 and IG updates each frame")
+        WHEN("Host sends IGCtrl frames 0..N-1 and IG updates each frame")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -366,7 +345,7 @@ SCENARIO("IgSync exposes last received IGCtrl frame counter correctly", "[bdd][s
                 }
             }
 
-            THEN("at least one IGCtrl was received and lastIgCtrlFrameCntr matched Host frameCntr")
+            THEN("at least one IGCtrl was received and frame counters matched")
             {
                 REQUIRE(matchedFrames >= 1);
                 REQUIRE(ig.igCtrlReceivedCount() == static_cast<std::uint32_t>(matchedFrames));
@@ -377,14 +356,13 @@ SCENARIO("IgSync exposes last received IGCtrl frame counter correctly", "[bdd][s
 }
 
 // =============================================================================
-// 3. Engine + SynchronSystem 集成
+// 3. Engine + SynchronSystem 集成（帧交换契约）
 // =============================================================================
 
-// 验证单 Engine（Host+IG）经 tickOnFrame×N 完成 IGCtrl/SOF 收发契约。
-SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 10 ticks",
-         "[bdd][sync][engine]")
+SCENARIO("single Engine with Host and IG exchanges frame control over ticks",
+         "[integration][sync][engine]")
 {
-    GIVEN("an offscreen Engine whose SynchronSystem owns both HostSync and IgSync")
+    GIVEN("an offscreen Engine whose SynchronSystem owns both Host and IG")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -399,7 +377,7 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
-        WHEN("the engine is initialized and tickOnFrame runs 10 times")
+        WHEN("the Engine is initialized and tickOnFrame runs 10 times")
         {
             REQUIRE(engine.init(modelPath, syncRole));
 
@@ -407,7 +385,7 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
             for (int i = 0; i < kTicks; ++i)
                 REQUIRE(engine.tickOnFrame());
 
-            THEN("HostSync and IgSync exchanged IGCtrl/SOF via the engine loop")
+            THEN("Host and IG exchanged IGCtrl/SOF via the Engine loop")
             {
                 SynchronSystem& sync = engine.synchronSystem();
                 HostSync& host = sync.hostSync();
@@ -423,10 +401,8 @@ SCENARIO("Engine SynchronSystem with Host and IG exchanges IGCtrl and SOF over 1
     }
 }
 
-// 验证三通道：A=Host+IG，B/C=仅 IG；先全员 initSync，A 再 initGraphics；
-// 各 IG 约收到 N 条 IGCtrl，A.Host 约收到 N×3 条 SOF（B/C 用 tickSync 避免多 Vulkan Device）。
-SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 ticks",
-         "[bdd][sync][engine][multi-ig]")
+SCENARIO("three Engines exchange frame control across one Host and three IGs",
+         "[integration][sync][engine][multi-ig]")
 {
     GIVEN("Engine A with Host+IG, and Engines B and C with IG only on distinct UDP ports")
     {
@@ -474,7 +450,7 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
                 engineC.tickSync();
             }
 
-            THEN("each IG got ~N IGCtrl and A's Host got ~N*3 SOF")
+            THEN("each IG got about N IGCtrl and A's Host got about N times 3 SOF")
             {
                 HostSync& host = engineA.synchronSystem().hostSync();
                 IgSync& igA = engineA.synchronSystem().igSync();
@@ -496,8 +472,8 @@ SCENARIO("three Engines (A Host+IG, B/C IG-only) exchange IGCtrl/SOF over 10 tic
 
 // =============================================================================
 // 4. Host 控制 IG 相机位姿
-// 约定：ABC 同为 IG；已连接时最终位姿 = Host 眼点 ⊕ 本地 offsetDeg。
-// 分层：queue 注入钉门控/合成/无新包策略；E2E 钉真报文 + 覆盖前采样防回声。
+// 约定：已连接时最终位姿 = Host 眼点 ⊕ 本地 offsetDeg。
+// 分层：应用契约用注入测门控/合成/无新包；E2E 钉真报文（注入是测试手法，不写进故事标题）。
 // =============================================================================
 
 namespace
@@ -530,7 +506,6 @@ namespace
         REQUIRE(vsg::length(actual.eulerYprDeg - expected.eulerYprDeg) < eps);
     }
 
-    /// 分量相加：最终 euler = Host.euler + offsetDeg（初步约定，与实现注释对齐）。
     HostEyePose hostEyePlusOffset(const HostEyePose& host, const OffsetDeg& offset)
     {
         HostEyePose out = host;
@@ -540,7 +515,7 @@ namespace
         return out;
     }
 
-    // Host 眼点 BDD 使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
+    // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
     AddressConfig makeHostLocalEye(int base = 18000)
     {
         return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
@@ -579,56 +554,36 @@ namespace
 } // namespace
 
 // -----------------------------------------------------------------------------
-// 4.1 基础：mainCamera / setCameraPose
+// 4.1 位姿 API 标尺（单元，非验收）
 // -----------------------------------------------------------------------------
 
-// 验证 mainCamera 可用，且 setCameraPose(pos, eulerYPR°) 正确写入 LookAt（Y-forward、Z-up）。
-// 这是后续 Host 回灌断言的标尺，本身不测同步门控。
-SCENARIO("Engine get camera and set camera pose from position and euler YPR", "[bdd][sync][hostctrl]")
+TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][camera]")
 {
-    GIVEN("an offscreen Engine with graphics initialized")
-    {
-        Engine engine;
-        engine.extent = {1920, 1080};
-        engine.showWindow = false;
+    Engine engine;
+    engine.extent = {1920, 1080};
+    engine.showWindow = false;
 
-        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
-        REQUIRE(engine.init(modelPath));
+    const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
+    REQUIRE(engine.init(modelPath));
 
-        WHEN("the main camera is obtained")
-        {
-            auto camera = engine.mainCamera();
+    auto camera = engine.mainCamera();
+    REQUIRE(camera);
+    REQUIRE(camera->viewMatrix.cast<vsg::LookAt>());
 
-            THEN("main camera and LookAt are available")
-            {
-                REQUIRE(camera);
-                REQUIRE(camera->viewMatrix.cast<vsg::LookAt>());
-            }
-
-            AND_WHEN("camera pose is set from position and euler YPR degrees")
-            {
-                const vsg::dvec3 position{10.0, -20.0, 5.0};
-                const vsg::dvec3 eulerYprDeg{90.0, 0.0, 0.0}; // yaw 90° about Z
-
-                REQUIRE(engine.setCameraPose(position, eulerYprDeg));
-
-                THEN("LookAt eye/center/up match position and euler (Y-forward, Z-up)")
-                {
-                    requireLookAtMatchesPose(engine, position, eulerYprDeg);
-                }
-            }
-        }
-    }
+    const vsg::dvec3 position{10.0, -20.0, 5.0};
+    const vsg::dvec3 eulerYprDeg{90.0, 0.0, 0.0}; // yaw 90° about Z
+    REQUIRE(engine.setCameraPose(position, eulerYprDeg));
+    requireLookAtMatchesPose(engine, position, eulerYprDeg);
 }
 
 // -----------------------------------------------------------------------------
-// 4.2 门控（queue 注入）：未连接不覆盖 / 已连接覆盖
+// 4.2 门控：未连接不覆盖 / 已连接覆盖（验收行为；注入仅作测试手段）
 // -----------------------------------------------------------------------------
 
-// 门控-关：未连接 Host 时，即便 queue 注入眼点，SynchronSystem::update 也不得改写相机。
-SCENARIO("unlinked IG does not apply queued Host eye on update", "[bdd][sync][hostctrl][gate]")
+SCENARIO("unlinked IG does not apply Host eye to the camera",
+         "[acceptance][bdd][sync][hostctrl][gate]")
 {
-    GIVEN("an Engine with graphics but SynchronSystem IG not linked to a Host")
+    GIVEN("an Engine with graphics whose IG is not linked to a Host")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -650,8 +605,9 @@ SCENARIO("unlinked IG does not apply queued Host eye on update", "[bdd][sync][ho
         const HostEyePose hostPose{{100.0, 200.0, 50.0}, {45.0, 0.0, 0.0}};
         REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
 
-        WHEN("a Host eye is queue-injected and update runs")
+        WHEN("a Host eye becomes available and sync update runs")
         {
+            // 测试手法：queue 注入，绕过真报文，只钉门控行为。
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
 
@@ -663,8 +619,7 @@ SCENARIO("unlinked IG does not apply queued Host eye on update", "[bdd][sync][ho
     }
 }
 
-// 门控-开：已连接时 queue 注入 Host 眼点，update 后相机变为 Host 位姿（offset=0）。
-SCENARIO("linked IG applies queued Host eye on update", "[bdd][sync][hostctrl][gate]")
+SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][hostctrl][gate]")
 {
     GIVEN("an Engine whose SynchronSystem is Host+IG and linked")
     {
@@ -680,7 +635,7 @@ SCENARIO("linked IG applies queued Host eye on update", "[bdd][sync][hostctrl][g
         const HostEyePose hostPose{{100.0, 200.0, 50.0}, {45.0, 0.0, 0.0}};
         REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
 
-        WHEN("a Host eye is queue-injected and update runs")
+        WHEN("a Host eye becomes available and sync update runs")
         {
             engine.synchronSystem().setOffsetDeg({});
             engine.synchronSystem().queueHostEyePose(hostPose);
@@ -695,13 +650,13 @@ SCENARIO("linked IG applies queued Host eye on update", "[bdd][sync][hostctrl][g
 }
 
 // -----------------------------------------------------------------------------
-// 4.3 位姿合成：Host ⊕ offsetDeg（queue 注入）
+// 4.3 位姿合成：Host ⊕ offsetDeg
 // -----------------------------------------------------------------------------
 
-// offset=0：最终位姿等于 Host 眼点。
-SCENARIO("linked IG with zero offset applies Host eye unchanged", "[bdd][sync][hostctrl][offset]")
+SCENARIO("linked IG with zero offset keeps Host eye unchanged",
+         "[acceptance][bdd][sync][hostctrl][offset]")
 {
-    GIVEN("a linked Host+IG Engine with offsetDeg all zero")
+    GIVEN("a linked Host+IG Engine with channel offset all zero")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -713,7 +668,7 @@ SCENARIO("linked IG with zero offset applies Host eye unchanged", "[bdd][sync][h
 
         const HostEyePose hostPose{{10.0, -5.0, 2.0}, {0.0, 0.0, 0.0}};
 
-        WHEN("Host eye is queued and update runs")
+        WHEN("a Host eye becomes available and sync update runs")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
@@ -726,8 +681,8 @@ SCENARIO("linked IG with zero offset applies Host eye unchanged", "[bdd][sync][h
     }
 }
 
-// 非零 offset：最终 euler = Host.euler + offsetDeg（位置仍用 Host.pos）。
-SCENARIO("linked IG applies Host eye plus channel offsetDeg", "[bdd][sync][hostctrl][offset]")
+SCENARIO("linked IG applies Host eye plus channel offset",
+         "[acceptance][bdd][sync][hostctrl][offset]")
 {
     GIVEN("a linked Host+IG Engine with yaw offset -60 deg")
     {
@@ -744,12 +699,12 @@ SCENARIO("linked IG applies Host eye plus channel offsetDeg", "[bdd][sync][hostc
         const HostEyePose hostPose{{10.0, -5.0, 2.0}, {30.0, 5.0, 1.0}};
         const HostEyePose expected = hostEyePlusOffset(hostPose, offset);
 
-        WHEN("Host eye is queued and update runs")
+        WHEN("a Host eye becomes available and sync update runs")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
 
-            THEN("camera matches Host position and Host.euler + offsetDeg")
+            THEN("camera matches Host position and Host euler plus offset")
             {
                 requireLookAtMatchesPose(engine, expected.position, expected.eulerYprDeg);
             }
@@ -758,11 +713,11 @@ SCENARIO("linked IG applies Host eye plus channel offsetDeg", "[bdd][sync][hostc
 }
 
 // -----------------------------------------------------------------------------
-// 4.4 无新包策略与断线（queue 注入）
+// 4.4 无新包策略与断线
 // -----------------------------------------------------------------------------
 
-// ReuseLast：已连接、本帧无新眼点时，update 仍用缓存 Host 眼点写相机（可覆盖本地改动）。
-SCENARIO("ReuseLast re-applies cached Host eye when no new packet", "[bdd][sync][hostctrl][stale]")
+SCENARIO("ReuseLast re-applies cached Host eye when no new eye arrives",
+         "[acceptance][bdd][sync][hostctrl][stale]")
 {
     GIVEN("a linked Engine with ReuseLast after one Host eye was applied")
     {
@@ -780,7 +735,7 @@ SCENARIO("ReuseLast re-applies cached Host eye when no new packet", "[bdd][sync]
         engine.synchronSystem().update(engine);
         requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
 
-        WHEN("local pose is changed and update runs without a new queued eye")
+        WHEN("local pose is changed and update runs without a new Host eye")
         {
             REQUIRE(engine.setCameraPose(vsg::dvec3{0.0, 0.0, 0.0}, vsg::dvec3{0.0, 0.0, 0.0}));
             engine.synchronSystem().update(engine);
@@ -793,8 +748,8 @@ SCENARIO("ReuseLast re-applies cached Host eye when no new packet", "[bdd][sync]
     }
 }
 
-// Freeze：已连接、本帧无新眼点时，update 不再改写 LookAt（本地改动得以保留）。
-SCENARIO("Freeze leaves camera unchanged when no new Host eye", "[bdd][sync][hostctrl][stale]")
+SCENARIO("Freeze leaves camera unchanged when no new Host eye arrives",
+         "[acceptance][bdd][sync][hostctrl][stale]")
 {
     GIVEN("a linked Engine with Freeze after one Host eye was applied")
     {
@@ -814,7 +769,7 @@ SCENARIO("Freeze leaves camera unchanged when no new Host eye", "[bdd][sync][hos
 
         const HostEyePose localPose{{0.0, 0.0, 1.0}, {0.0, 0.0, 0.0}};
 
-        WHEN("local pose is changed and update runs without a new queued eye")
+        WHEN("local pose is changed and update runs without a new Host eye")
         {
             REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
             engine.synchronSystem().update(engine);
@@ -827,10 +782,10 @@ SCENARIO("Freeze leaves camera unchanged when no new Host eye", "[bdd][sync][hos
     }
 }
 
-// 断线：曾连接并应用过 Host 眼点后断开；update 仍保留最后一帧 Host 位姿，不回到断线前 Trackball。
-SCENARIO("after disconnect, update keeps last Host eye pose", "[bdd][sync][hostctrl][disconnect]")
+SCENARIO("after disconnect, camera keeps the last Host eye pose",
+         "[acceptance][bdd][sync][hostctrl][disconnect]")
 {
-    GIVEN("a linked Engine that applied a Host eye then IG plane shut down")
+    GIVEN("a linked Engine that applied a Host eye then lost the IG link")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -862,13 +817,13 @@ SCENARIO("after disconnect, update keeps last Host eye pose", "[bdd][sync][hostc
 }
 
 // -----------------------------------------------------------------------------
-// 4.5 权威窗 A 同样回灌（queue 注入，不为 A 开旁路）
+// 4.5 权威窗同样回灌（无旁路）
 // -----------------------------------------------------------------------------
 
-// A（Host+IG）已连接时同样被 Host 眼点覆盖，验证权威窗无“跳过回灌”旁路。
-SCENARIO("authority window A also applies Host eye on update", "[bdd][sync][hostctrl][authority]")
+SCENARIO("Host-local IG channel also applies Host eye to its camera",
+         "[acceptance][bdd][sync][hostctrl][authority]")
 {
-    GIVEN("Engine A with Host+IG linked")
+    GIVEN("an Engine with Host+IG linked (authority window)")
     {
         Engine engineA;
         engineA.extent = {1920, 1080};
@@ -883,13 +838,13 @@ SCENARIO("authority window A also applies Host eye on update", "[bdd][sync][host
         const HostEyePose hostPose{{50.0, 60.0, 70.0}, {12.0, 0.0, 0.0}};
         REQUIRE(engineA.setCameraPose(localPose.position, localPose.eulerYprDeg));
 
-        WHEN("Host eye is queue-injected onto A and update runs")
+        WHEN("a Host eye becomes available and sync update runs")
         {
             engineA.synchronSystem().setOffsetDeg({});
             engineA.synchronSystem().queueHostEyePose(hostPose);
             engineA.synchronSystem().update(engineA);
 
-            THEN("A camera matches Host eye (no bypass)")
+            THEN("camera matches Host eye with no authority bypass")
             {
                 requireLookAtMatchesPose(engineA, hostPose.position, hostPose.eulerYprDeg);
             }
@@ -898,15 +853,13 @@ SCENARIO("authority window A also applies Host eye on update", "[bdd][sync][host
 }
 
 // -----------------------------------------------------------------------------
-// 4.6 端到端：真连接 + 真报文 + 多通道 offset / 防回声
-// 说明：同机多 Engine 仅 A initGraphics；B/C 用 tickSync + lastAppliedHostEye 断言
-//      （规避「Device 数量超限」；位姿契约与有窗 IG 相同）。
+// 4.6 端到端验收：真连接 + 真报文 + 多通道 offset / 防回声
 // -----------------------------------------------------------------------------
 
-// E2E：A(Host+IG) 与 B(仅 IG) 真连接；A 扇出 Host 眼点报文后，B 应用为 Host ⊕ offset_B。
-SCENARIO("E2E Host eye packet from A is applied on B with offsetDeg", "[bdd][sync][hostctrl][e2e]")
+SCENARIO("remote IG applies Host eye from live packets with channel offset",
+         "[acceptance][bdd][sync][hostctrl][e2e]")
 {
-    GIVEN("Engine A Host+IG (graphics) and Engine B IG-only (sync-only)")
+    GIVEN("Engine A as Host+IG with graphics and Engine B as IG-only sync")
     {
         constexpr int kBase = 19000;
         Engine engineA;
@@ -927,7 +880,7 @@ SCENARIO("E2E Host eye packet from A is applied on B with offsetDeg", "[bdd][syn
         const HostEyePose intentPose{{11.0, 22.0, 33.0}, {40.0, 0.0, 0.0}};
         const HostEyePose expectedB = hostEyePlusOffset(intentPose, offsetB);
 
-        WHEN("A sets authority pose and both engines tick so Host fans out EntityPosition+IGCtrl")
+        WHEN("A publishes authority pose and both engines tick")
         {
             REQUIRE(engineA.setCameraPose(intentPose.position, intentPose.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
@@ -935,7 +888,7 @@ SCENARIO("E2E Host eye packet from A is applied on B with offsetDeg", "[bdd][syn
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
 
-            THEN("B lastApplied matches Host intent ⊕ offsetB")
+            THEN("B applied pose matches Host intent plus B offset")
             {
                 auto applied = engineB.synchronSystem().lastAppliedHostEye();
                 REQUIRE(applied.has_value());
@@ -945,10 +898,8 @@ SCENARIO("E2E Host eye packet from A is applied on B with offsetDeg", "[bdd][syn
     }
 }
 
-// E2E 防回声：A 在回灌前采到 Pose_new；扇出应为 Pose_new，而非 update 盖回的 Pose_old。
-// B 的 lastApplied 与 A 的 lastSent 共同验证（不依赖真 Trackball）。
-SCENARIO("E2E sample-before-overwrite fans out Pose_new not echoed Pose_old",
-         "[bdd][sync][hostctrl][e2e][anti-echo]")
+SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
+         "[acceptance][bdd][sync][hostctrl][e2e][anti-echo]")
 {
     GIVEN("linked A(Host+IG graphics) and B(IG sync-only) with prior Host eye Pose_old")
     {
@@ -969,13 +920,13 @@ SCENARIO("E2E sample-before-overwrite fans out Pose_new not echoed Pose_old",
         const HostEyePose poseOld{{1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
         const HostEyePose poseNew{{9.0, 8.0, 7.0}, {35.0, 0.0, 0.0}};
 
-        // 建立 Pose_old 为当前权威（queue 注入；报文路径落地后亦可由上一帧建立）。
+        // 建立 Pose_old 为当前权威（应用层注入；E2E 断言走后续真 tick 扇出）。
         engineA.synchronSystem().queueHostEyePose(poseOld);
         engineA.synchronSystem().update(engineA);
         engineB.synchronSystem().queueHostEyePose(poseOld);
         engineB.synchronSystem().update(engineB);
 
-        WHEN("A LookAt becomes Pose_new then a full tick fans out to B")
+        WHEN("A camera becomes Pose_new then a full tick fans out to B")
         {
             REQUIRE(engineA.setCameraPose(poseNew.position, poseNew.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
@@ -983,14 +934,14 @@ SCENARIO("E2E sample-before-overwrite fans out Pose_new not echoed Pose_old",
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
 
-            THEN("B follows Pose_new (not stuck on echoed Pose_old)")
+            THEN("B follows Pose_new")
             {
                 auto applied = engineB.synchronSystem().lastAppliedHostEye();
                 REQUIRE(applied.has_value());
                 requirePoseNear(*applied, poseNew);
             }
 
-            AND_THEN("Host lastSent authority eye is Pose_new when observable")
+            AND_THEN("Host last sent authority eye is Pose_new when observable")
             {
                 auto sent = engineA.synchronSystem().lastSentHostEye();
                 REQUIRE(sent.has_value());
@@ -1000,11 +951,10 @@ SCENARIO("E2E sample-before-overwrite fans out Pose_new not echoed Pose_old",
     }
 }
 
-// E2E 三通道：同一 Host 眼点，B/C 仅因 offsetDeg 不同而最终位姿不同。
-SCENARIO("E2E three channels share Host eye and differ only by offsetDeg",
-         "[bdd][sync][hostctrl][e2e][multi-ig]")
+SCENARIO("three channels share Host eye and differ only by channel offset",
+         "[acceptance][bdd][sync][hostctrl][e2e][multi-ig]")
 {
-    GIVEN("A Host+IG (graphics), B and C IG-only (sync-only) with yaw offsets -60 / +60")
+    GIVEN("A Host+IG with graphics, B and C IG-only with yaw offsets -60 / +60")
     {
         constexpr int kBase = 19200;
         Engine engineA;
@@ -1042,7 +992,7 @@ SCENARIO("E2E three channels share Host eye and differ only by offsetDeg",
                 engineC.tickSync();
             }
 
-            THEN("A LookAt and B/C lastApplied match Host intent ⊕ respective offsetDeg")
+            THEN("each channel pose matches Host intent plus its own offset")
             {
                 requireLookAtMatchesPose(engineA, expectA.position, expectA.eulerYprDeg);
                 auto appliedB = engineB.synchronSystem().lastAppliedHostEye();

@@ -1,11 +1,15 @@
-﻿#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "ImageCompare.h"
 #include "engine.h"
 
-SCENARIO("Engine loads a model and renders one frame", "[bdd][engine][load]")
+// =============================================================================
+// 验收：Engine 加载 / 渲染对外行为
+// =============================================================================
+
+SCENARIO("Engine loads a valid model and renders one frame", "[acceptance][bdd][render][load]")
 {
-    GIVEN("an offscreen engine and a valid teapot model path")
+    GIVEN("an offscreen Engine and a valid teapot model")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -13,31 +17,24 @@ SCENARIO("Engine loads a model and renders one frame", "[bdd][engine][load]")
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
-        WHEN("the model is loaded")
+        WHEN("the model is loaded and one frame is rendered")
         {
             const bool loaded = engine.init(modelPath);
+            const bool rendered = loaded && engine.tickOnFrame();
 
-            THEN("initialization succeeds")
+            THEN("initialization and the frame both succeed")
             {
                 REQUIRE(loaded);
-
-                AND_WHEN("one frame is rendered")
-                {
-                    const bool rendered = engine.tickOnFrame();
-
-                    THEN("the frame completes successfully")
-                    {
-                        REQUIRE(rendered);
-                    }
-                }
+                REQUIRE(rendered);
             }
         }
     }
 }
 
-SCENARIO("Engine fails to load a missing model", "[bdd][engine][load][failure]")
+SCENARIO("Engine fails to initialize when the model path does not exist",
+         "[acceptance][bdd][render][load][failure]")
 {
-    GIVEN("an offscreen engine and a model path that does not exist")
+    GIVEN("an offscreen Engine and a model path that does not exist")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -45,7 +42,7 @@ SCENARIO("Engine fails to load a missing model", "[bdd][engine][load][failure]")
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "missing.vsgt";
 
-        WHEN("the missing model is loaded")
+        WHEN("initialization is attempted with that path")
         {
             const bool loaded = engine.init(modelPath);
 
@@ -57,9 +54,10 @@ SCENARIO("Engine fails to load a missing model", "[bdd][engine][load][failure]")
     }
 }
 
-SCENARIO("teapot default camera matches the golden image", "[bdd][render][golden]")
+SCENARIO("default teapot view matches the golden reference image",
+         "[acceptance][bdd][render][golden]")
 {
-    GIVEN("an offscreen engine, teapot model, and golden reference image")
+    GIVEN("an offscreen Engine, teapot model, and golden reference image")
     {
         Engine engine;
         engine.extent = {1920, 1080};
