@@ -1,0 +1,55 @@
+﻿---
+description: Catch2 ATDD/BDD test writing rules for engine/Tests (from doc/测试用例书写规范.md)
+globs: engine/Tests/**/*.{cpp,h,hpp}
+alwaysApply: false
+---
+
+# Engine tests (ATDD / Catch2)
+
+Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observable contracts over implementation details.
+
+## Role → form → tags (required)
+
+| Role | Ask | Form | Tags |
+| ---- | --- | ---- | ---- |
+| Acceptance | Done / receivable? | `SCENARIO` | `[acceptance][bdd]…` |
+| Integration | Modules/protocol wired? | `SCENARIO` or `TEST_CASE` | `[integration]…` |
+| Unit | Local logic correct? | `TEST_CASE` default | `[unit]…` |
+
+- Do **not** treat `SCENARIO` / `[bdd]` alone as acceptance.
+- API rulers / CLI parsers → `[unit]`, not `[acceptance]`.
+
+## Scenario narrative (required)
+
+- **One Scenario, one outcome.** Split fail / succeed / disconnect lifecycles.
+- **Given** = state; **When** = action/event; **Then** = machine-checkable result.
+- Titles/When: behavior language. **Never** put test techniques in titles (`queue-injected`, mock names).
+- Inject/mock/stub OK in **comments/code**; keep separate from true-packet E2E scenarios.
+- Config: assert **rules** (e.g. channelId 0 starts Host; runtime addr == `engine.config.*`; default ≡ loaded `main.json`). Do **not** hardcode full JSON field tables (ports/sizes) unless `[golden]` / characterization and reference update is explicit.
+
+## Hard bans
+
+```text
+❌ One SCENARIO: connect fails THEN succeeds THEN disconnects
+❌ [bdd] on setCameraPose / resolveConfigPath with no [unit]
+❌ Title: "queue-injected Host eye…"
+❌ REQUIRE every main.json literal (8000, 640, …) in acceptance tests
+
+✅ Split connect-fail / connect-ok / host-offline disconnect
+✅ [unit][camera] TEST_CASE for LookAt pose helper
+✅ Title: "linked IG applies Host eye…"; queue in comment
+✅ Compare to loadEngineChannelConfig / engine.config
+```
+
+## AI + tests
+
+- Human writes/reviews acceptance and critical Then assertions.
+- **Do not** weaken or rewrite Then meanings to make tests green.
+- Prefer few stable acceptance contracts + integration for protocol + many fast unit tests.
+
+## Before finishing an edit
+
+1. Tags match real role (`acceptance` / `integration` / `unit`).
+2. One receivable outcome per Scenario.
+3. No technique words in Scenario titles; Then is deterministic.
+4. No new hardcoded config snapshot tables without explicit golden/characterization intent.
