@@ -885,8 +885,6 @@ SCENARIO("remote IG applies Host eye from live packets with channel offset",
             REQUIRE(engineA.setCameraPose(intentPose.position, intentPose.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
-            REQUIRE(engineA.tickOnFrame());
-            engineB.tickSync();
 
             THEN("B applied pose matches Host intent plus B offset")
             {
