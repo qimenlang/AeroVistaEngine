@@ -422,7 +422,7 @@ bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYp
     if (!lookAt)
         return false;
 
-    // YPR degrees ¡ú quat: Rz(yaw) * Rx(pitch) * Ry(roll). Forward=+Y, up=+Z.
+    // YPR degrees -> quat: Rz(yaw) * Rx(pitch) * Ry(roll). Forward=+Y, up=+Z.
     const vsg::dquat rotation =
         vsg::dquat(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
         vsg::dquat(vsg::radians(eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *

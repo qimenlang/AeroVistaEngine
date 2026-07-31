@@ -4,14 +4,12 @@
   "igLocal": {
     "addr": "127.0.0.1",
     "udpPortSend": 8000,
-    "udpPortRecv": 8001,
-    "tcpPort": 8100
+    "udpPortRecv": 8001
   },
   "hostEndpoint": {
     "addr": "127.0.0.1",
-    "udpPortSend": 8001,
-    "udpPortRecv": 8000,
-    "tcpPort": 8100
+    "tcpPort": 8100,
+    "udpPortRecv": 8000
   },
   "hostLocal": {
     "addr": "127.0.0.1",
@@ -21,5 +19,6 @@
   },
   "model": "models/lz.vsgt",
   "window": { "x": 640, "y": 0, "width": 640, "height": 1080 },
-  "hostEyeStalePolicy": "ReuseLast"
+  "hostEyeStalePolicy": "ReuseLast",
+  "requireIgConnect": true
 }
