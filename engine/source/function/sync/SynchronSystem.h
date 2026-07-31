@@ -11,7 +11,7 @@
 
 class Engine;
 
-/// World-space Host eye (pos + Euler YPR degrees). See doc/多通道同步模块设计.md §1.2.
+/// World-space Host eye (pos + Euler YPR degrees). See doc/design/多通道同步模块设计.md §1.2.
 struct HostEyePose
 {
     vsg::dvec3 position{};
@@ -19,7 +19,7 @@ struct HostEyePose
 };
 
 /// Engine-facing sync facade (loop preFrame / update / postFrame).
-/// Owns IgSync and optionally HostSync. See doc/多通道同步模块设计.md.
+/// Owns IgSync and optionally HostSync. See doc/design/多通道同步模块设计.md.
 class SynchronSystem : public vsg::Inherit<vsg::Object, SynchronSystem>
 {
 public:

@@ -12,7 +12,7 @@
 #    define RESOURCE_DIR "."
 #endif
 
-// Tests below encode doc/多通道同步模块设计.md §3.1 contracts.
+// Tests below encode doc/design/多通道同步模块设计.md §3.1 contracts.
 // They are expected to fail until EngineConfig / load / Engine::init are aligned.
 // Avoid referencing members not yet on EngineChannelConfig (e.g. wire requireIgConnect
 // asserts when the field lands); role is asserted via hasHost/hasIg after init, and via

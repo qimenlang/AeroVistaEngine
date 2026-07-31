@@ -8,7 +8,7 @@
 
 namespace
 {
-    // 默认端口见 doc/多通道同步模块设计.md
+    // 默认端口见 doc/design/多通道同步模块设计.md
     AddressConfig makeHostLocal(const std::string& addr = "127.0.0.1")
     {
         return AddressConfig{addr, 8001, 8000, 8100};
