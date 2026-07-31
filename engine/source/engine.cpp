@@ -348,17 +348,17 @@ namespace
 
 namespace
 {
-    std::string defaultMainConfigPath()
+    std::string defaultConfigPath()
     {
-        return std::string(RESOURCE_DIR) + "/config/main.json";
+        return std::string(RESOURCE_DIR) + "/config/default.json";
     }
 } // namespace
 
 Engine::Engine()
 {
     _synchronSystem = SynchronSystem::create();
-    // Defaults match main.json (no -c).
-    loadConfig(defaultMainConfigPath());
+    // Defaults match default.json (no -c): graphics only, sync off.
+    loadConfig(defaultConfigPath());
 }
 
 Engine::~Engine()
@@ -374,7 +374,7 @@ std::string Engine::resolveConfigPath(int argc, char** argv)
         if (argv[i] && std::string(argv[i]) == "-c" && argv[i + 1])
             return std::string(argv[i + 1]);
     }
-    return defaultMainConfigPath();
+    return defaultConfigPath();
 }
 
 bool Engine::loadConfig(const std::string& path)
@@ -441,8 +441,8 @@ bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYp
 bool Engine::init()
 {
     applyConfigToEngine();
-    // channelId==0 starts Host; require IG Connect only when Host is local (so handshake can succeed).
-    if (!initSync(config.toSyncRole(), /*requireIgConnect=*/config.enableHost()))
+    // Parent-key enable; requireIgConnect from config (default false).
+    if (!initSync(config.toSyncRole(), config.requireIgConnect))
         return false;
 
     // Channel frustum offset + stale policy come from JSON (not SyncRoleConfig).

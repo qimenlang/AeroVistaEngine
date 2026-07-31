@@ -25,7 +25,7 @@ enum class HostEyeStalePolicy
     FREEZE
 };
 
-/// Per-process Engine channel config (see engine/resources/config/*.json).
+/// Per-process Engine channel config (see engine/resources/config/*.json, design §3.1).
 struct EngineChannelConfig
 {
     int channelId = 0;
@@ -36,9 +36,14 @@ struct EngineChannelConfig
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
     HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
+    bool requireIgConnect = false;
 
-    bool enableHost() const { return channelId == 0; }
-    bool enableIg() const { return true; }
+    /// Set when the corresponding JSON object key is present (parent-key enable).
+    bool hasHostLocal = false;
+    bool hasIgLocal = false;
+
+    bool enableHost() const { return hasHostLocal; }
+    bool enableIg() const { return hasIgLocal; }
 
     SyncRoleConfig toSyncRole() const;
 };

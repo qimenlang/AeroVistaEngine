@@ -22,7 +22,7 @@ public:
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
     bool showWindow = true;
 
-    /// Resolve config path from argv: `-c path` or default `RESOURCE_DIR/config/main.json`.
+    /// Resolve config path from argv: `-c path` or default `RESOURCE_DIR/config/default.json`.
     static std::string resolveConfigPath(int argc, char** argv);
 
     bool loadConfig(const std::string& path);

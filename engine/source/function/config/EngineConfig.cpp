@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <fstream>
+#include <initializer_list>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -24,6 +25,7 @@ namespace
         using Storage = std::variant<JsonNull, bool, double, std::string, JsonArray, JsonObject>;
         Storage data;
 
+        bool isNull() const { return std::holds_alternative<JsonNull>(data); }
         bool isObject() const { return std::holds_alternative<JsonObject>(data); }
         bool isString() const { return std::holds_alternative<std::string>(data); }
         bool isNumber() const { return std::holds_alternative<double>(data); }
@@ -263,10 +265,37 @@ namespace
         return it == obj.end() ? nullptr : &it->second;
     }
 
+    void rejectUnknownKeys(const JsonObject& obj, std::initializer_list<const char*> allowed)
+    {
+        for (const auto& entry : obj)
+        {
+            bool ok = false;
+            for (const char* key : allowed)
+            {
+                if (entry.first == key)
+                {
+                    ok = true;
+                    break;
+                }
+            }
+            if (!ok)
+                throw std::runtime_error("unknown key: " + entry.first);
+        }
+    }
+
+    void rejectNull(const JsonValue& v, const char* key)
+    {
+        if (v.isNull())
+            throw std::runtime_error(std::string("null not allowed: ") + key);
+    }
+
     double requireNumber(const JsonObject& obj, const char* key)
     {
         const JsonValue* v = find(obj, key);
-        if (!v || !v->isNumber())
+        if (!v)
+            throw std::runtime_error(std::string("missing/invalid number: ") + key);
+        rejectNull(*v, key);
+        if (!v->isNumber())
             throw std::runtime_error(std::string("missing/invalid number: ") + key);
         return v->asNumber();
     }
@@ -279,27 +308,31 @@ namespace
     std::string requireString(const JsonObject& obj, const char* key)
     {
         const JsonValue* v = find(obj, key);
-        if (!v || !v->isString())
+        if (!v)
+            throw std::runtime_error(std::string("missing/invalid string: ") + key);
+        rejectNull(*v, key);
+        if (!v->isString())
             throw std::runtime_error(std::string("missing/invalid string: ") + key);
         return v->asString();
     }
 
-    const JsonObject& requireObject(const JsonObject& obj, const char* key)
+    bool requireBool(const JsonObject& obj, const char* key)
     {
         const JsonValue* v = find(obj, key);
-        if (!v || !v->isObject())
-            throw std::runtime_error(std::string("missing/invalid object: ") + key);
-        return v->asObject();
+        if (!v)
+            throw std::runtime_error(std::string("missing/invalid bool: ") + key);
+        rejectNull(*v, key);
+        if (!v->isBool())
+            throw std::runtime_error(std::string("missing/invalid bool: ") + key);
+        return v->asBool();
     }
 
-    AddressConfig parseAddress(const JsonObject& obj)
+    const JsonObject& requireObjectValue(const JsonValue& v, const char* key)
     {
-        AddressConfig cfg;
-        cfg.addr = requireString(obj, "addr");
-        cfg.udpPortSend = requireInt(obj, "udpPortSend");
-        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
-        cfg.tcpPort = requireInt(obj, "tcpPort");
-        return cfg;
+        rejectNull(v, key);
+        if (!v.isObject())
+            throw std::runtime_error(std::string("missing/invalid object: ") + key);
+        return v.asObject();
     }
 
     HostEyeStalePolicy parseStalePolicy(const std::string& text)
@@ -311,29 +344,125 @@ namespace
         throw std::runtime_error("invalid hostEyeStalePolicy: " + text);
     }
 
+    AddressConfig parseHostLocal(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"addr", "udpPortSend", "udpPortRecv", "tcpPort"});
+        AddressConfig cfg;
+        cfg.addr = requireString(obj, "addr");
+        cfg.udpPortSend = requireInt(obj, "udpPortSend");
+        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
+        cfg.tcpPort = requireInt(obj, "tcpPort");
+        return cfg;
+    }
+
+    AddressConfig parseIgLocal(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"addr", "udpPortSend", "udpPortRecv"});
+        AddressConfig cfg;
+        cfg.addr = requireString(obj, "addr");
+        cfg.udpPortSend = requireInt(obj, "udpPortSend");
+        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
+        cfg.tcpPort = 0;
+        return cfg;
+    }
+
+    AddressConfig parseHostEndpoint(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"addr", "tcpPort", "udpPortRecv"});
+        AddressConfig cfg;
+        cfg.addr = requireString(obj, "addr");
+        cfg.tcpPort = requireInt(obj, "tcpPort");
+        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
+        cfg.udpPortSend = 0;
+        return cfg;
+    }
+
+    OffsetDeg parseOffsetDeg(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"yaw", "pitch", "roll"});
+        OffsetDeg offset;
+        offset.yaw = requireNumber(obj, "yaw");
+        offset.pitch = requireNumber(obj, "pitch");
+        offset.roll = requireNumber(obj, "roll");
+        return offset;
+    }
+
+    WindowConfig parseWindow(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"x", "y", "width", "height"});
+        WindowConfig window;
+        window.x = requireInt(obj, "x");
+        window.y = requireInt(obj, "y");
+        window.width = requireInt(obj, "width");
+        window.height = requireInt(obj, "height");
+        return window;
+    }
+
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
+        rejectUnknownKeys(root, {"channelId", "offsetDeg", "igLocal", "hostEndpoint", "hostLocal", "model", "window",
+                                 "hostEyeStalePolicy", "requireIgConnect"});
+
         EngineChannelConfig cfg;
-        cfg.channelId = requireInt(root, "channelId");
 
-        const JsonObject& offset = requireObject(root, "offsetDeg");
-        cfg.offsetDeg.yaw = requireNumber(offset, "yaw");
-        cfg.offsetDeg.pitch = requireNumber(offset, "pitch");
-        cfg.offsetDeg.roll = requireNumber(offset, "roll");
+        if (const JsonValue* v = find(root, "channelId"))
+        {
+            rejectNull(*v, "channelId");
+            if (!v->isNumber())
+                throw std::runtime_error("missing/invalid number: channelId");
+            cfg.channelId = static_cast<int>(v->asNumber());
+        }
 
-        cfg.igLocal = parseAddress(requireObject(root, "igLocal"));
-        cfg.hostEndpoint = parseAddress(requireObject(root, "hostEndpoint"));
-        cfg.hostLocal = parseAddress(requireObject(root, "hostLocal"));
+        if (const JsonValue* v = find(root, "offsetDeg"))
+            cfg.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
 
-        cfg.model = requireString(root, "model");
+        if (const JsonValue* v = find(root, "hostLocal"))
+        {
+            cfg.hasHostLocal = true;
+            cfg.hostLocal = parseHostLocal(requireObjectValue(*v, "hostLocal"));
+        }
 
-        const JsonObject& window = requireObject(root, "window");
-        cfg.window.x = requireInt(window, "x");
-        cfg.window.y = requireInt(window, "y");
-        cfg.window.width = requireInt(window, "width");
-        cfg.window.height = requireInt(window, "height");
+        if (const JsonValue* v = find(root, "igLocal"))
+        {
+            cfg.hasIgLocal = true;
+            cfg.igLocal = parseIgLocal(requireObjectValue(*v, "igLocal"));
+        }
 
-        cfg.hostEyeStalePolicy = parseStalePolicy(requireString(root, "hostEyeStalePolicy"));
+        if (const JsonValue* v = find(root, "hostEndpoint"))
+            cfg.hostEndpoint = parseHostEndpoint(requireObjectValue(*v, "hostEndpoint"));
+
+        if (const JsonValue* v = find(root, "model"))
+        {
+            rejectNull(*v, "model");
+            if (!v->isString())
+                throw std::runtime_error("missing/invalid string: model");
+            cfg.model = v->asString();
+        }
+
+        if (const JsonValue* v = find(root, "window"))
+            cfg.window = parseWindow(requireObjectValue(*v, "window"));
+
+        if (const JsonValue* v = find(root, "hostEyeStalePolicy"))
+        {
+            rejectNull(*v, "hostEyeStalePolicy");
+            if (!v->isString())
+                throw std::runtime_error("missing/invalid string: hostEyeStalePolicy");
+            cfg.hostEyeStalePolicy = parseStalePolicy(v->asString());
+        }
+
+        const bool hasRequireIgConnect = find(root, "requireIgConnect") != nullptr;
+        if (hasRequireIgConnect)
+            cfg.requireIgConnect = requireBool(root, "requireIgConnect");
+
+        const bool hasHostEndpoint = find(root, "hostEndpoint") != nullptr;
+
+        if (cfg.hasIgLocal && !hasHostEndpoint)
+            throw std::runtime_error("igLocal requires hostEndpoint");
+        if (hasHostEndpoint && !cfg.hasIgLocal)
+            throw std::runtime_error("hostEndpoint without igLocal is invalid");
+        if (hasRequireIgConnect && !cfg.hasIgLocal)
+            throw std::runtime_error("requireIgConnect without igLocal is invalid");
+
         return cfg;
     }
 } // namespace
