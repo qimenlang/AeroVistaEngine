@@ -1,9 +1,11 @@
 ﻿# https://pre-commit.com
-# Install once: pip install pre-commit && pre-commit install
+# Install once: pip install pre-commit lizard && pre-commit install
 #
 # clang-tidy needs compile_commands.json from a Ninja configure, e.g.:
 #   cmake --preset clang-Ninja
 # Optional: set AEROVISTA_TIDY_BUILD_DIR to the build directory.
+#
+# lizard (CCN) needs: pip install lizard  (invoked as python -m lizard)
 repos:
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v19.1.7
@@ -15,11 +17,20 @@ repos:
   - repo: local
     hooks:
       - id: clang-tidy
-        name: clang-tidy (engine naming)
+        name: clang-tidy (engine naming + cognitive)
         entry: python scripts/clang_tidy_engine.py
         language: system
         types_or: [c++, c]
         files: ^engine/.*\.(cpp|cc|cxx|h|hpp|hh|hxx)$
         exclude: (^thirdparty/|engine/source/function/sync/Network\.(cpp|h)$)
+        pass_filenames: true
+        require_serial: true
+
+      - id: lizard
+        name: lizard (engine CCN)
+        entry: python scripts/lizard_engine.py
+        language: system
+        types_or: [c++, c]
+        files: ^engine/source/.*\.(cpp|cc|cxx)$
         pass_filenames: true
         require_serial: true

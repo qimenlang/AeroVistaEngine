@@ -41,6 +41,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Need merge-base history for complexity gates (changed files only).
+          fetch-depth: 0
 
       - name: Init submodules
         shell: bash
@@ -87,9 +90,14 @@ jobs:
         with:
           version: "19.1.7"
 
-      - name: clang-tidy (engine naming)
+      # Changed files only (same policy as pre-commit). Fail CI on violations.
+      - name: Complexity gates (clang-tidy + lizard on diff)
         if: matrix.preset == 'ci-debug'
         shell: pwsh
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         run: |
-          python scripts/clang_tidy_engine.py --all-engine --build-dir out/build/ci-debug
+          pip install lizard
+          python scripts/ci_changed_complexity.py --build-dir out/build/ci-debug --ccn 15
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

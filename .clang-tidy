@@ -9,9 +9,10 @@
 #
 # Prefer scanning engine/ only; skip thirdparty/. Legacy Network.* uses NOLINT
 # (HeaderFilterRegex cannot exclude files via PCRE lookahead — LLVM regex only).
-# Wired by: scripts/clang_tidy_engine.py (pre-commit + CI). Naming hits fail those runs
-# via -warnings-as-errors=readability-identifier-naming (not via this file).
-Checks: '-*,readability-identifier-naming'
+# Wired by: scripts/clang_tidy_engine.py (pre-commit + CI) and engine/CMakeLists.txt
+# (CMAKE_CXX_CLANG_TIDY). engine/Tests/.clang-tidy turns off cognitive complexity
+# (Catch2 macros). Script fails naming + cognitive via -warnings-as-errors=...
+Checks: '-*,readability-identifier-naming,readability-function-cognitive-complexity'
 HeaderFilterRegex: '[/\\]engine[/\\]'
 WarningsAsErrors: ''
 FormatStyle: file
@@ -91,3 +92,7 @@ CheckOptions:
     value: CamelCase
   - key: readability-identifier-naming.ValueTemplateParameterCase
     value: camelBack
+  
+  # 认知复杂度
+  - key: readability-function-cognitive-complexity.Threshold
+    value: '20'   # 先松，再收到 15～20

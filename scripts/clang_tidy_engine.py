@@ -144,7 +144,7 @@ def main() -> int:
         tidy,
         f"-p={build_dir}",
         "-header-filter=" + HEADER_FILTER,
-        "-warnings-as-errors=readability-identifier-naming",
+        "-warnings-as-errors=readability-identifier-naming,readability-function-cognitive-complexity",
         "--quiet",
         *[str(f) for f in files],
     ]
