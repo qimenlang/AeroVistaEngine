@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include "CigiIncludes.h"
+
 #include "CigiBaseEventProcessor.h"
 #include "CigiIGCtrlV4.h"
 #include "CigiSOFV4.h"

@@ -208,28 +208,51 @@ namespace
             return out;
         }
 
+        bool curIs(char c) const
+        {
+            return _pos < _text.size() && _text[_pos] == c;
+        }
+
+        bool curIsDigit() const
+        {
+            return _pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos]));
+        }
+
+        void skipDigits()
+        {
+            while (curIsDigit())
+                ++_pos;
+        }
+
+        void parseFractionPart()
+        {
+            if (!curIs('.'))
+                return;
+            ++_pos;
+            skipDigits();
+        }
+
+        void parseExponentPart()
+        {
+            if (!curIs('e') && !curIs('E'))
+                return;
+            ++_pos;
+            if (curIs('+'))
+                ++_pos;
+            else if (curIs('-'))
+                ++_pos;
+            skipDigits();
+        }
+
         double parseNumber()
         {
             skipWs();
             const std::size_t begin = _pos;
-            if (_pos < _text.size() && _text[_pos] == '-')
+            if (curIs('-'))
                 ++_pos;
-            while (_pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos])))
-                ++_pos;
-            if (_pos < _text.size() && _text[_pos] == '.')
-            {
-                ++_pos;
-                while (_pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos])))
-                    ++_pos;
-            }
-            if (_pos < _text.size() && (_text[_pos] == 'e' || _text[_pos] == 'E'))
-            {
-                ++_pos;
-                if (_pos < _text.size() && (_text[_pos] == '+' || _text[_pos] == '-'))
-                    ++_pos;
-                while (_pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos])))
-                    ++_pos;
-            }
+            skipDigits();
+            parseFractionPart();
+            parseExponentPart();
             if (begin == _pos)
                 throw std::runtime_error("invalid number");
             return std::stod(_text.substr(begin, _pos - begin));
@@ -398,20 +421,45 @@ namespace
         return window;
     }
 
+    int parseOptionalInt(const JsonObject& obj, const char* key, int fallback)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v)
+            return fallback;
+        rejectNull(*v, key);
+        if (!v->isNumber())
+            throw std::runtime_error(std::string("missing/invalid number: ") + key);
+        return static_cast<int>(v->asNumber());
+    }
+
+    std::string parseOptionalString(const JsonObject& obj, const char* key, std::string fallback)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v)
+            return fallback;
+        rejectNull(*v, key);
+        if (!v->isString())
+            throw std::runtime_error(std::string("missing/invalid string: ") + key);
+        return v->asString();
+    }
+
+    void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasHostEndpoint, bool hasRequireIgConnect)
+    {
+        if (cfg.hasIgLocal && !hasHostEndpoint)
+            throw std::runtime_error("igLocal requires hostEndpoint");
+        if (hasHostEndpoint && !cfg.hasIgLocal)
+            throw std::runtime_error("hostEndpoint without igLocal is invalid");
+        if (hasRequireIgConnect && !cfg.hasIgLocal)
+            throw std::runtime_error("requireIgConnect without igLocal is invalid");
+    }
+
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
         rejectUnknownKeys(root, {"channelId", "offsetDeg", "igLocal", "hostEndpoint", "hostLocal", "model", "window",
                                  "hostEyeStalePolicy", "requireIgConnect"});
 
         EngineChannelConfig cfg;
-
-        if (const JsonValue* v = find(root, "channelId"))
-        {
-            rejectNull(*v, "channelId");
-            if (!v->isNumber())
-                throw std::runtime_error("missing/invalid number: channelId");
-            cfg.channelId = static_cast<int>(v->asNumber());
-        }
+        cfg.channelId = parseOptionalInt(root, "channelId", cfg.channelId);
 
         if (const JsonValue* v = find(root, "offsetDeg"))
             cfg.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
@@ -431,38 +479,19 @@ namespace
         if (const JsonValue* v = find(root, "hostEndpoint"))
             cfg.hostEndpoint = parseHostEndpoint(requireObjectValue(*v, "hostEndpoint"));
 
-        if (const JsonValue* v = find(root, "model"))
-        {
-            rejectNull(*v, "model");
-            if (!v->isString())
-                throw std::runtime_error("missing/invalid string: model");
-            cfg.model = v->asString();
-        }
+        cfg.model = parseOptionalString(root, "model", cfg.model);
 
         if (const JsonValue* v = find(root, "window"))
             cfg.window = parseWindow(requireObjectValue(*v, "window"));
 
-        if (const JsonValue* v = find(root, "hostEyeStalePolicy"))
-        {
-            rejectNull(*v, "hostEyeStalePolicy");
-            if (!v->isString())
-                throw std::runtime_error("missing/invalid string: hostEyeStalePolicy");
-            cfg.hostEyeStalePolicy = parseStalePolicy(v->asString());
-        }
+        if (find(root, "hostEyeStalePolicy") != nullptr)
+            cfg.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(root, "hostEyeStalePolicy", ""));
 
         const bool hasRequireIgConnect = find(root, "requireIgConnect") != nullptr;
         if (hasRequireIgConnect)
             cfg.requireIgConnect = requireBool(root, "requireIgConnect");
 
-        const bool hasHostEndpoint = find(root, "hostEndpoint") != nullptr;
-
-        if (cfg.hasIgLocal && !hasHostEndpoint)
-            throw std::runtime_error("igLocal requires hostEndpoint");
-        if (hasHostEndpoint && !cfg.hasIgLocal)
-            throw std::runtime_error("hostEndpoint without igLocal is invalid");
-        if (hasRequireIgConnect && !cfg.hasIgLocal)
-            throw std::runtime_error("requireIgConnect without igLocal is invalid");
-
+        validateIgEndpointPairing(cfg, find(root, "hostEndpoint") != nullptr, hasRequireIgConnect);
         return cfg;
     }
 } // namespace

@@ -1,10 +1,18 @@
+﻿#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine.h"
+#include "function/sync/CigiWire.h"
 #include "function/sync/HostSync.h"
 #include "function/sync/IgSync.h"
 
 #include <cstdint>
+#include <vector>
+
+// 协议分层（测试约定）：
+// - 握手 / 动态端口：仍为自建 sync_proto WireMsg（HELLO / UDP_SYNC）——§1 用例覆盖，本文件不改其方向。
+// - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。
+//   §2 / §3 / §4.6 行为断言仍走 HostSync/IgSync/Engine API；线格式契约见 [unit][cigi][wire-contract]。
 
 namespace
 {
@@ -31,10 +39,52 @@ namespace
         const auto minOk = exp > static_cast<std::uint32_t>(slack) ? exp - static_cast<std::uint32_t>(slack) : 0u;
         return actual >= minOk && actual <= exp;
     }
+
+    /// 钉住数据面线契约（帧号 + 可选眼点 + SOF 回显）；经 cigi_wire 堆上 Session，避免栈溢出。
+    void requireCigiDataPlaneWireContract()
+    {
+        constexpr std::uint32_t kFrame = 7;
+        constexpr double kSimTimeMs = 123.45; // → TimeStamp 12345（10 µs 步进）
+        const cigi_wire::EyePose eye{11.0, 22.0, 33.0, 40.0, 0.0, 0.0};
+
+        std::vector<unsigned char> withEye;
+        REQUIRE(cigi_wire::packHostFrame(kFrame, kSimTimeMs, &eye, withEye));
+        REQUIRE_FALSE(cigi_wire::isAvsyMagic(withEye.data(), static_cast<int>(withEye.size())));
+
+        cigi_wire::HostFrame frame{};
+        REQUIRE(cigi_wire::unpackHostFrame(withEye.data(), static_cast<int>(withEye.size()), frame));
+        REQUIRE(frame.frameCntr == kFrame);
+        REQUIRE(frame.timeStampValid);
+        REQUIRE(frame.timeStamp == cigi_wire::simTimeMsToTimeStamp(kSimTimeMs));
+        REQUIRE(frame.eye.has_value());
+        REQUIRE(frame.eye->x == Catch::Approx(eye.x));
+        REQUIRE(frame.eye->y == Catch::Approx(eye.y));
+        REQUIRE(frame.eye->z == Catch::Approx(eye.z));
+        REQUIRE(frame.eye->yawDeg == Catch::Approx(eye.yawDeg));
+
+        std::vector<unsigned char> noEye;
+        REQUIRE(cigi_wire::packHostFrame(kFrame + 1, kSimTimeMs, nullptr, noEye));
+        cigi_wire::HostFrame frameNoEye{};
+        REQUIRE(cigi_wire::unpackHostFrame(noEye.data(), static_cast<int>(noEye.size()), frameNoEye));
+        REQUIRE(frameNoEye.frameCntr == kFrame + 1);
+        REQUIRE_FALSE(frameNoEye.eye.has_value());
+
+        std::vector<unsigned char> sofBuf;
+        REQUIRE(cigi_wire::packSof(kFrame, sofBuf));
+        std::uint32_t sofFrame = 0;
+        REQUIRE(cigi_wire::unpackSof(sofBuf.data(), static_cast<int>(sofBuf.size()), sofFrame));
+        REQUIRE(sofFrame == kFrame);
+    }
 } // namespace
 
+TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
+          "[unit][cigi][wire-contract]")
+{
+    requireCigiDataPlaneWireContract();
+}
+
 // =============================================================================
-// 1. 连接面（集成 / 协议契约，非 Engine 产品验收）
+// 1. 连接面（集成；握手仍为自建 sync_proto，非 CIGI）
 // =============================================================================
 
 SCENARIO("Host initializes with no ready IG", "[integration][sync][initialize]")
@@ -214,13 +264,14 @@ SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync]
 }
 
 // =============================================================================
-// 2. 帧节拍：IGCtrl / SOF / FreeRun（集成 / 协议契约）
+// 2. 帧节拍：CIGI IGCtrl / SOF / FreeRun（集成；握手仍为 sync_proto）
+// 数据面线格式契约：IGCtrlV4 (+ 可选 EntityPositionCtrlV4) / SOFV4 —— 见 [wire-contract]。
 // =============================================================================
 
-SCENARIO("connected Host and IG enter RUNNING and exchange IGCtrl each update",
-         "[integration][sync][status]")
+SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each update",
+         "[integration][sync][status][cigi]")
 {
-    GIVEN("a Host and an IG that have been initialized and connected")
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
     {
         HostSync host;
         IgSync ig;
@@ -228,7 +279,7 @@ SCENARIO("connected Host and IG enter RUNNING and exchange IGCtrl each update",
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeHostEndpoint()));
 
-        WHEN("Host runs and sends 10 IGCtrl frames while IG updates")
+        WHEN("Host runs and sends 10 CIGI IGCtrl frames while IG updates")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -249,9 +300,9 @@ SCENARIO("connected Host and IG enter RUNNING and exchange IGCtrl each update",
     }
 }
 
-SCENARIO("IG replies with one SOF per received IGCtrl", "[integration][sync][status][sof]")
+SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync][status][sof][cigi]")
 {
-    GIVEN("a Host and an IG that have been initialized and connected")
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
     {
         HostSync host;
         IgSync ig;
@@ -259,7 +310,7 @@ SCENARIO("IG replies with one SOF per received IGCtrl", "[integration][sync][sta
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeHostEndpoint()));
 
-        WHEN("Host sends 10 IGCtrl and IG updates each frame")
+        WHEN("Host sends 10 CIGI IGCtrl and IG updates each frame (reply SOF)")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -279,9 +330,10 @@ SCENARIO("IG replies with one SOF per received IGCtrl", "[integration][sync][sta
     }
 }
 
-SCENARIO("Host keeps sending IGCtrl when IG never replies SOF", "[integration][sync][status][freerun]")
+SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
+         "[integration][sync][status][freerun][cigi]")
 {
-    GIVEN("a connected Host and IG with FreeRun send pace")
+    GIVEN("a connected Host and IG with FreeRun send pace (CIGI SOF does not gate)")
     {
         HostSync host;
         IgSync ig;
@@ -294,7 +346,7 @@ SCENARIO("Host keeps sending IGCtrl when IG never replies SOF", "[integration][s
         pace.frameGate = FrameGate::FREE_RUN;
         host.setPaceConfig(pace);
 
-        WHEN("Host sends 10 IGCtrl while IG receives but never replies SOF")
+        WHEN("Host sends 10 CIGI IGCtrl while IG receives but never replies SOF")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -314,10 +366,10 @@ SCENARIO("Host keeps sending IGCtrl when IG never replies SOF", "[integration][s
     }
 }
 
-SCENARIO("IG last received frame counter matches Host frame numbers",
-         "[integration][sync][status][frame]")
+SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
+         "[integration][sync][status][frame][cigi]")
 {
-    GIVEN("a Host and an IG that have been initialized and connected")
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
     {
         HostSync host;
         IgSync ig;
@@ -325,7 +377,7 @@ SCENARIO("IG last received frame counter matches Host frame numbers",
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeHostEndpoint()));
 
-        WHEN("Host sends IGCtrl frames 0..N-1 and IG updates each frame")
+        WHEN("Host sends CIGI IGCtrl FrameCntr 0..N-1 and IG updates each frame")
         {
             host.run();
             constexpr int kFrames = 10;
@@ -334,7 +386,8 @@ SCENARIO("IG last received frame counter matches Host frame numbers",
 
             for (int i = 0; i < kFrames; ++i)
             {
-                host.update(/*simTimeMs=*/i * (1000.0 / 60.0)); // Host 本轮 frameCntr == i
+                // Host 本轮 CIGI IGCtrl.FrameCntr == i（经 HostSync API 暴露为 lastIgCtrlFrameCntr）
+                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
                 ig.update();
 
                 if (ig.igCtrlReceivedCount() > prevReceived)
@@ -345,7 +398,7 @@ SCENARIO("IG last received frame counter matches Host frame numbers",
                 }
             }
 
-            THEN("at least one IGCtrl was received and frame counters matched")
+            THEN("at least one IGCtrl was received and FrameCntr values matched")
             {
                 REQUIRE(matchedFrames >= 1);
                 REQUIRE(ig.igCtrlReceivedCount() == static_cast<std::uint32_t>(matchedFrames));
@@ -356,11 +409,11 @@ SCENARIO("IG last received frame counter matches Host frame numbers",
 }
 
 // =============================================================================
-// 3. Engine + SynchronSystem 集成（帧交换契约）
+// 3. Engine + SynchronSystem 集成（CIGI 帧交换契约；握手仍为 sync_proto）
 // =============================================================================
 
-SCENARIO("single Engine with Host and IG exchanges frame control over ticks",
-         "[integration][sync][engine]")
+SCENARIO("single Engine with Host and IG exchanges CIGI frame control over ticks",
+         "[integration][sync][engine][cigi]")
 {
     GIVEN("an offscreen Engine whose SynchronSystem owns both Host and IG")
     {
@@ -385,7 +438,7 @@ SCENARIO("single Engine with Host and IG exchanges frame control over ticks",
             for (int i = 0; i < kTicks; ++i)
                 REQUIRE(engine.tickOnFrame());
 
-            THEN("Host and IG exchanged IGCtrl/SOF via the Engine loop")
+            THEN("Host and IG exchanged CIGI IGCtrl/SOF via the Engine loop")
             {
                 SynchronSystem& sync = engine.synchronSystem();
                 HostSync& host = sync.hostSync();
@@ -401,8 +454,8 @@ SCENARIO("single Engine with Host and IG exchanges frame control over ticks",
     }
 }
 
-SCENARIO("three Engines exchange frame control across one Host and three IGs",
-         "[integration][sync][engine][multi-ig]")
+SCENARIO("three Engines exchange CIGI frame control across one Host and three IGs",
+         "[integration][sync][engine][multi-ig][cigi]")
 {
     GIVEN("Engine A with Host+IG, and Engines B and C with IG only on distinct UDP ports")
     {
@@ -450,7 +503,7 @@ SCENARIO("three Engines exchange frame control across one Host and three IGs",
                 engineC.tickSync();
             }
 
-            THEN("each IG got about N IGCtrl and A's Host got about N times 3 SOF")
+            THEN("each IG got about N CIGI IGCtrl and A's Host got about N times 3 SOF")
             {
                 HostSync& host = engineA.synchronSystem().hostSync();
                 IgSync& igA = engineA.synchronSystem().igSync();
@@ -853,11 +906,12 @@ SCENARIO("Host-local IG channel also applies Host eye to its camera",
 }
 
 // -----------------------------------------------------------------------------
-// 4.6 端到端验收：真连接 + 真报文 + 多通道 offset / 防回声
+// 4.6 端到端验收：真连接 + CIGI 数据面真报文（IGCtrl + EntityPosition）+ 多通道 offset / 防回声
+// 握手仍为 sync_proto；眼点在 EntityPositionCtrl（Attach XYZ，本地世界系临时约定）。
 // -----------------------------------------------------------------------------
 
-SCENARIO("remote IG applies Host eye from live packets with channel offset",
-         "[acceptance][bdd][sync][hostctrl][e2e]")
+SCENARIO("remote IG applies Host eye from live CIGI packets with channel offset",
+         "[acceptance][bdd][sync][hostctrl][e2e][cigi]")
 {
     GIVEN("Engine A as Host+IG with graphics and Engine B as IG-only sync")
     {
@@ -880,7 +934,7 @@ SCENARIO("remote IG applies Host eye from live packets with channel offset",
         const HostEyePose intentPose{{11.0, 22.0, 33.0}, {40.0, 0.0, 0.0}};
         const HostEyePose expectedB = hostEyePlusOffset(intentPose, offsetB);
 
-        WHEN("A publishes authority pose and both engines tick")
+        WHEN("A publishes authority pose and both engines tick (CIGI IGCtrl+EntityPosition fan-out)")
         {
             REQUIRE(engineA.setCameraPose(intentPose.position, intentPose.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
@@ -897,7 +951,7 @@ SCENARIO("remote IG applies Host eye from live packets with channel offset",
 }
 
 SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
-         "[acceptance][bdd][sync][hostctrl][e2e][anti-echo]")
+         "[acceptance][bdd][sync][hostctrl][e2e][anti-echo][cigi]")
 {
     GIVEN("linked A(Host+IG graphics) and B(IG sync-only) with prior Host eye Pose_old")
     {
@@ -918,13 +972,13 @@ SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
         const HostEyePose poseOld{{1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
         const HostEyePose poseNew{{9.0, 8.0, 7.0}, {35.0, 0.0, 0.0}};
 
-        // 建立 Pose_old 为当前权威（应用层注入；E2E 断言走后续真 tick 扇出）。
+        // 建立 Pose_old 为当前权威（应用层注入；E2E 断言走后续真 tick 的 CIGI 扇出）。
         engineA.synchronSystem().queueHostEyePose(poseOld);
         engineA.synchronSystem().update(engineA);
         engineB.synchronSystem().queueHostEyePose(poseOld);
         engineB.synchronSystem().update(engineB);
 
-        WHEN("A camera becomes Pose_new then a full tick fans out to B")
+        WHEN("A camera becomes Pose_new then a full tick fans out to B via CIGI")
         {
             REQUIRE(engineA.setCameraPose(poseNew.position, poseNew.eulerYprDeg));
             REQUIRE(engineA.tickOnFrame());
@@ -950,7 +1004,7 @@ SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
 }
 
 SCENARIO("three channels share Host eye and differ only by channel offset",
-         "[acceptance][bdd][sync][hostctrl][e2e][multi-ig]")
+         "[acceptance][bdd][sync][hostctrl][e2e][multi-ig][cigi]")
 {
     GIVEN("A Host+IG with graphics, B and C IG-only with yaw offsets -60 / +60")
     {
@@ -980,7 +1034,7 @@ SCENARIO("three channels share Host eye and differ only by channel offset",
         const HostEyePose expectB = hostEyePlusOffset(intent, offsetB);
         const HostEyePose expectC = hostEyePlusOffset(intent, offsetC);
 
-        WHEN("A publishes intent and all channels tick")
+        WHEN("A publishes intent and all channels tick (shared CIGI eye, local offsetDeg)")
         {
             REQUIRE(engineA.setCameraPose(intent.position, intent.eulerYprDeg));
             for (int i = 0; i < 2; ++i)

@@ -1,4 +1,5 @@
 ﻿#include "IgSync.h"
+#include "CigiWire.h"
 #include "SyncProtocol.h"
 
 #include <chrono>
@@ -6,6 +7,7 @@
 #include <iostream>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #ifdef WIN32
 #    include <ws2tcpip.h>
@@ -33,6 +35,66 @@ namespace
         return s >= 0;
     }
 #endif
+
+    // Isolate Winsock FD_* macros: their expansion inflates clang-tidy cognitive complexity.
+    void fdSetOne(IgSocketHandle sock, fd_set& set)
+    {
+        FD_SET(sock, &set);
+    }
+
+    bool fdIsSet(IgSocketHandle sock, fd_set& set)
+    {
+        return FD_ISSET(sock, &set) != 0;
+    }
+
+    int selectReadableOrException(IgSocketHandle sock, fd_set& rfds, fd_set& efds)
+    {
+        FD_ZERO(&rfds);
+        FD_ZERO(&efds);
+        fdSetOne(sock, rfds);
+        fdSetOne(sock, efds);
+        timeval tv{};
+        tv.tv_sec = 0;
+        tv.tv_usec = 0;
+#ifdef WIN32
+        return select(0, &rfds, nullptr, &efds, &tv);
+#else
+        return select(static_cast<int>(sock) + 1, &rfds, nullptr, &efds, &tv);
+#endif
+    }
+
+    bool interpretPeekResult(int n)
+    {
+        if (n == 0)
+            return false;
+        if (n > 0)
+            return true;
+#ifdef WIN32
+        return WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+        return errno == EAGAIN || errno == EWOULDBLOCK;
+#endif
+    }
+
+    // Peek without blocking: Host FIN → recv returns 0; pending bytes / EWOULDBLOCK → still alive.
+    bool peekTcpStillAlive(IgSocketHandle sock)
+    {
+#ifdef WIN32
+        u_long nonBlock = 1;
+        ioctlsocket(sock, FIONBIO, &nonBlock);
+        char peek = 0;
+        const int n = recv(sock, &peek, 1, MSG_PEEK);
+        u_long block = 0;
+        ioctlsocket(sock, FIONBIO, &block);
+#else
+        const int flags = fcntl(sock, F_GETFL, 0);
+        fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+        char peek = 0;
+        const int n = static_cast<int>(::recv(sock, &peek, 1, MSG_PEEK));
+        fcntl(sock, F_SETFL, flags);
+#endif
+        return interpretPeekResult(n);
+    }
 } // namespace
 
 IgSync::~IgSync()
@@ -75,54 +137,16 @@ bool IgSync::isTcpPeerAlive() const
 
     fd_set rfds;
     fd_set efds;
-    FD_ZERO(&rfds);
-    FD_ZERO(&efds);
-    FD_SET(_tcp, &rfds);
-    FD_SET(_tcp, &efds);
-    timeval tv{};
-    tv.tv_sec = 0;
-    tv.tv_usec = 0;
-
-#ifdef WIN32
-    const int sel = select(0, &rfds, nullptr, &efds, &tv);
-#else
-    const int sel = select(static_cast<int>(_tcp) + 1, &rfds, nullptr, &efds, &tv);
-#endif
+    const int sel = selectReadableOrException(_tcp, rfds, efds);
     if (sel < 0)
         return false;
     if (sel == 0)
         return true;
-
-    if (FD_ISSET(_tcp, &efds))
+    if (fdIsSet(_tcp, efds))
         return false;
-
-    if (!FD_ISSET(_tcp, &rfds))
+    if (!fdIsSet(_tcp, rfds))
         return true;
-
-    // Peek without blocking: Host FIN → recv returns 0; pending bytes → still alive.
-#ifdef WIN32
-    u_long nonBlock = 1;
-    ioctlsocket(_tcp, FIONBIO, &nonBlock);
-    char peek = 0;
-    const int n = recv(_tcp, &peek, 1, MSG_PEEK);
-    u_long block = 0;
-    ioctlsocket(_tcp, FIONBIO, &block);
-    if (n == 0)
-        return false;
-    if (n < 0)
-        return WSAGetLastError() == WSAEWOULDBLOCK;
-#else
-    const int flags = fcntl(_tcp, F_GETFL, 0);
-    fcntl(_tcp, F_SETFL, flags | O_NONBLOCK);
-    char peek = 0;
-    const int n = static_cast<int>(::recv(_tcp, &peek, 1, MSG_PEEK));
-    fcntl(_tcp, F_SETFL, flags);
-    if (n == 0)
-        return false;
-    if (n < 0)
-        return errno == EAGAIN || errno == EWOULDBLOCK;
-#endif
-    return true;
+    return peekTcpStillAlive(_tcp);
 }
 
 void IgSync::refreshConnectionState() const
@@ -215,12 +239,14 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
     if (_hostEndpoint.addr.empty())
         return;
 
-    sync_proto::SofMsg sof{};
-    sof.magic = sync_proto::kMagic;
-    sof.type = static_cast<uint32_t>(sync_proto::MsgType::SOF);
-    sof.frameCntr = frameCntr;
-    _udp.sendTo(_hostEndpoint.addr.c_str(), _hostEndpoint.udpPortRecv,
-                reinterpret_cast<const unsigned char*>(&sof), sizeof(sof));
+    std::vector<unsigned char> sof;
+    if (!cigi_wire::packSof(frameCntr, sof))
+    {
+        std::cerr << "IgSync: CIGI packSof failed\n";
+        return;
+    }
+    _udp.sendTo(_hostEndpoint.addr.c_str(), _hostEndpoint.udpPortRecv, sof.data(),
+                static_cast<int>(sof.size()));
     _sofSentCount.fetch_add(1);
 }
 
@@ -233,50 +259,41 @@ void IgSync::update(bool sendSof)
     if (_tcpConnected && _udpSynced)
         _status = IgStatus::RUNNING;
 
-    unsigned char buf[128]{};
+    unsigned char buf[4096]{};
     for (;;)
     {
         const int n = _udp.recv(buf, sizeof(buf));
-        if (n < static_cast<int>(sizeof(sync_proto::WireMsg)))
+        if (n <= 0)
             break;
 
-        sync_proto::WireMsg header{};
-        std::memcpy(&header, buf, sizeof(header));
-        if (header.magic != sync_proto::kMagic)
+        // Handshake plane (UDP_SYNC_ACK etc.) — ignore during data update.
+        if (cigi_wire::isAvsyMagic(buf, n))
             continue;
 
-        if (header.type == static_cast<uint32_t>(sync_proto::MsgType::IG_CTRL))
+        cigi_wire::HostFrame frame{};
+        if (!cigi_wire::unpackHostFrame(buf, n, frame))
+            continue;
+
+        // Drop whole older bundles (FrameCntr strictly less than last processed).
+        if (_igCtrlReceivedCount.load() > 0 && frame.frameCntr < _lastFrameCntr)
+            continue;
+
+        _lastFrameCntr = frame.frameCntr;
+        _igCtrlReceivedCount.fetch_add(1);
+
+        if (frame.eye)
         {
-            // Accept full IgCtrlMsg (with optional eye) or legacy 20-byte header-only layout.
-            if (n < 20)
-                continue;
-
-            sync_proto::IgCtrlMsg igCtrl{};
-            const int copyN = n < static_cast<int>(sizeof(igCtrl)) ? n : static_cast<int>(sizeof(igCtrl));
-            std::memcpy(&igCtrl, buf, static_cast<size_t>(copyN));
-
-            // Drop whole older bundles (FrameCntr strictly less than last processed).
-            if (_igCtrlReceivedCount.load() > 0 && igCtrl.frameCntr < _lastFrameCntr)
-                continue;
-
-            _lastFrameCntr = igCtrl.frameCntr;
-            _igCtrlReceivedCount.fetch_add(1);
-
-            if (n >= static_cast<int>(sizeof(sync_proto::IgCtrlMsg)) && igCtrl.hasEye != 0)
-            {
-                _receivedEye.x = igCtrl.posX;
-                _receivedEye.y = igCtrl.posY;
-                _receivedEye.z = igCtrl.posZ;
-                _receivedEye.yawDeg = igCtrl.yawDeg;
-                _receivedEye.pitchDeg = igCtrl.pitchDeg;
-                _receivedEye.rollDeg = igCtrl.rollDeg;
-                _hasReceivedEye = true;
-            }
-
-            if (sendSof)
-                sendSofPacket(_lastFrameCntr);
+            _receivedEye.x = frame.eye->x;
+            _receivedEye.y = frame.eye->y;
+            _receivedEye.z = frame.eye->z;
+            _receivedEye.yawDeg = frame.eye->yawDeg;
+            _receivedEye.pitchDeg = frame.eye->pitchDeg;
+            _receivedEye.rollDeg = frame.eye->rollDeg;
+            _hasReceivedEye = true;
         }
-        // Ignore handshake acks / other traffic during Update.
+
+        if (sendSof)
+            sendSofPacket(_lastFrameCntr);
     }
 }
 

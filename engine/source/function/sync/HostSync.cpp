@@ -1,4 +1,5 @@
 ﻿#include "HostSync.h"
+#include "CigiWire.h"
 #include "SyncProtocol.h"
 
 #include <chrono>
@@ -118,7 +119,7 @@ void HostSync::pollUdp()
 {
     struct Packet
     {
-        unsigned char buf[128]{};
+        unsigned char buf[4096]{};
         char fromIp[64]{};
         int n = 0;
     };
@@ -154,20 +155,25 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
 
     pollUdp();
 
-    sync_proto::IgCtrlMsg msg{};
-    msg.magic = sync_proto::kMagic;
-    msg.type = static_cast<uint32_t>(sync_proto::MsgType::IG_CTRL);
-    msg.frameCntr = _frameCounter++;
-    msg.simTimeMs = simTimeMs;
+    const std::uint32_t frameCntr = _frameCounter++;
+    cigi_wire::EyePose eyeWire{};
+    const cigi_wire::EyePose* eyePtr = nullptr;
     if (eye)
     {
-        msg.hasEye = 1;
-        msg.posX = eye->x;
-        msg.posY = eye->y;
-        msg.posZ = eye->z;
-        msg.yawDeg = eye->yawDeg;
-        msg.pitchDeg = eye->pitchDeg;
-        msg.rollDeg = eye->rollDeg;
+        eyeWire.x = eye->x;
+        eyeWire.y = eye->y;
+        eyeWire.z = eye->z;
+        eyeWire.yawDeg = eye->yawDeg;
+        eyeWire.pitchDeg = eye->pitchDeg;
+        eyeWire.rollDeg = eye->rollDeg;
+        eyePtr = &eyeWire;
+    }
+
+    std::vector<unsigned char> datagram;
+    if (!cigi_wire::packHostFrame(frameCntr, simTimeMs, eyePtr, datagram))
+    {
+        std::cerr << "HostSync: CIGI packHostFrame failed\n";
+        return;
     }
 
     std::vector<std::pair<std::string, uint32_t>> targets;
@@ -185,8 +191,8 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
         std::lock_guard lock(_udpMutex);
         for (const auto& t : targets)
         {
-            _udp.sendTo(t.first.c_str(), static_cast<int>(t.second),
-                        reinterpret_cast<const unsigned char*>(&msg), sizeof(msg));
+            _udp.sendTo(t.first.c_str(), static_cast<int>(t.second), datagram.data(),
+                        static_cast<int>(datagram.size()));
         }
     }
 
@@ -378,53 +384,55 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
 
 void HostSync::processUdpDatagram(const unsigned char* buf, int n, const char* fromIp)
 {
-    if (n < static_cast<int>(sizeof(sync_proto::WireMsg)))
+    if (n <= 0)
         return;
 
-    sync_proto::WireMsg header{};
-    std::memcpy(&header, buf, sizeof(header));
-    if (header.magic != sync_proto::kMagic)
-        return;
-
-    if (header.type == static_cast<uint32_t>(sync_proto::MsgType::SOF))
+    // Handshake plane (AVSY). Data-plane SOF is CIGI (no AVSY magic).
+    if (cigi_wire::isAvsyMagic(buf, n))
     {
-        if (n >= static_cast<int>(sizeof(sync_proto::SofMsg)))
-            _sofReceivedCount.fetch_add(1);
-        return;
-    }
+        if (n < static_cast<int>(sizeof(sync_proto::WireMsg)))
+            return;
 
-    if (header.type != static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC))
-        return;
+        sync_proto::WireMsg header{};
+        std::memcpy(&header, buf, sizeof(header));
+        if (header.type != static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC))
+            return;
 
-    const uint32_t replyPort = header.udpRecvPort;
-    std::string replyIp = fromIp;
-    {
-        std::lock_guard lock(_peersMutex);
-        bool matched = false;
-        for (auto& p : _peers)
+        const uint32_t replyPort = header.udpRecvPort;
+        std::string replyIp = fromIp;
         {
-            if (p.tcpReady && p.udpRecvPort == header.udpRecvPort)
+            std::lock_guard lock(_peersMutex);
+            bool matched = false;
+            for (auto& p : _peers)
             {
-                p.udpReady = true;
-                if (!p.ip.empty())
-                    replyIp = p.ip;
-                matched = true;
-                break;
+                if (p.tcpReady && p.udpRecvPort == header.udpRecvPort)
+                {
+                    p.udpReady = true;
+                    if (!p.ip.empty())
+                        replyIp = p.ip;
+                    matched = true;
+                    break;
+                }
             }
+            if (!matched)
+                _earlyUdpSyncByPort[header.udpRecvPort] = replyIp;
         }
-        if (!matched)
-            _earlyUdpSyncByPort[header.udpRecvPort] = replyIp;
+
+        sync_proto::WireMsg ack{};
+        ack.magic = sync_proto::kMagic;
+        ack.type = static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC_ACK);
+        ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
+        {
+            std::lock_guard lock(_udpMutex);
+            _udp.sendTo(replyIp.c_str(), static_cast<int>(replyPort),
+                        reinterpret_cast<const unsigned char*>(&ack), sizeof(ack));
+        }
+        return;
     }
 
-    sync_proto::WireMsg ack{};
-    ack.magic = sync_proto::kMagic;
-    ack.type = static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC_ACK);
-    ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
-    {
-        std::lock_guard lock(_udpMutex);
-        _udp.sendTo(replyIp.c_str(), static_cast<int>(replyPort),
-                    reinterpret_cast<const unsigned char*>(&ack), sizeof(ack));
-    }
+    std::uint32_t sofFrame = 0;
+    if (cigi_wire::unpackSof(buf, n, sofFrame))
+        _sofReceivedCount.fetch_add(1);
 }
 
 void HostSync::udpLoop()

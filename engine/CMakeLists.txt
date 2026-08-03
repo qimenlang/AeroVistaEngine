@@ -25,6 +25,7 @@ add_library(vsgEngineLib STATIC
     source/function/sync/SynchronSystem.cpp
     source/function/sync/HostSync.cpp
     source/function/sync/IgSync.cpp
+    source/function/sync/CigiWire.cpp
     source/function/sync/EventProcess.cpp
 )
 
