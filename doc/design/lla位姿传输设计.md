@@ -1,0 +1,528 @@
+﻿# LLA 位姿传输设计
+
+在已落地的本地笛卡尔 Host→IG 相机同步之上，增加 **LLA + 当地姿态** 作为椭球模式下的权威眼点语义。  
+帧时序、连接态、无新包 / 断线 / 防回声沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5；坐标系背景见 [坐标系统总结.md](../notes/坐标系统总结.md)。  
+本文取代「仅做场景 JSON 装配、暂不动同步」的前置草案方向（见 [坐标系统模块设计.md](./坐标系统模块设计.md)），把范围收束到 **能传、能采、能写** 的 LLA 同步闭环。
+
+---
+
+## 目录
+
+1. [目标与范围](#1-目标与范围)
+2. [模式判定](#2-模式判定)
+3. [位姿语义](#3-位姿语义)
+4. [Engine / SynchronSystem 路径](#4-engine--synchronsystem-路径)
+5. [报文（CIGI）](#5-报文cigi)
+6. [配置](#6-配置)
+7. [验收要点](#7-验收要点)
+8. [不做](#8-不做)
+9. [实现顺序](#9-实现顺序)
+
+---
+
+## 1. 目标与范围
+
+**做**：
+
+| 项 | 说明 |
+| --- | --- |
+| 权威眼点 | 椭球模式下 Host→IG 传 **LLA + YPR（当地）** |
+| 写相机 | IG：`LLA→ECEF`，在 ENU 叠 `offsetDeg`，再写 `LookAt` |
+| 采样出站 | Host：`LookAt→LLA + 当地 YPR`，避免把 ECEF 大数当本地 XYZ 发出 |
+| 本地模式 | 现有 XYZ + 世界轴 YPR 路径行为不变 |
+
+**不做**（见 §8）：取消顶层 `model`、并行双写 `local`/`ellipsoid` pose、仅为演示把普通模型钉到某 LLA、本迭代强制依赖瓦片。
+
+成功标准：同一套帧循环下，Host 与全体 IG 在椭球场景中共用眼点；各通道 frustum 仍由本地 `offsetDeg` 区分；本地笛卡尔同步回归不破。
+
+**本迭代保证与不保证**：
+
+| 保证 | 不保证 |
+| --- | --- |
+| LLA 位姿采 / 传 / 写在数值与同步语义上正确 | `coordFrame: "Ellipsoid"` + 普通 `.vsgt` 且未 `LocalToWorld` 钉到 ECEF 时，画面「看得见合理地球场景」 |
+| 有 `EllipsoidModel` 后投影 / Trackball / 跟拍走椭球路径 | 无瓦片、模型仍在本地原点时的可视化观感 |
+
+无摆模时仍可用于单测与 BDD（自挂椭球 + 断言 ECEF / LLA）；联调观感需瓦片或另开摆模工作。
+
+---
+
+## 2. 模式判定
+
+分两层，**因果一条链**，不是两套互斥判据：
+
+| 层 | 职责 |
+| --- | --- |
+| JSON `coordFrame` | **意图**：模型未自带椭球时，是否要注入 `EllipsoidModel` |
+| 场景上有无 `EllipsoidModel` | **运行时唯一判据**：决定同步走本地 XYZ 还是 LLA / ECEF |
+
+### 2.1 加载后如何得到 `EllipsoidModel`
+
+`main` / `left` / `right` 等通道配置：
+
+| 条件 | 行为 |
+| --- | --- |
+| 加载的模型**已有** `"EllipsoidModel"`（如 `readymap.vsgt`） | **不删除**；场景保持椭球 → 走 ECEF / LLA 同步 |
+| 模型**没有**，且 `coordFrame` 为 `"Ellipsoid"` | Engine **显式**注入 `EllipsoidModel`（默认 WGS-84，见 §2.4）→ 走 ECEF / LLA |
+| **无** `coordFrame` 字段（或显式 `"Local"`），且模型也没有 | **不**注入 → 走本地笛卡尔（现状） |
+
+取值（勿与 VSG 类型名混用）：
+
+```text
+coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
+```
+
+说明：配置写的是坐标系**意图** `"Ellipsoid"`；挂到 scene 上的对象类型才是 `vsg::EllipsoidModel`。
+
+与运行时表示对应（实现须同一张表；**最终以场景有无 `EllipsoidModel` 为准**）：
+
+| 场景状态（装配完成后） | `HostEyePose` 位置类型 | 典型如何到达 |
+| --- | --- | --- |
+| **无** `EllipsoidModel` | `WorldPos` | `coordFrame` 缺省/`Local` 且模型无椭球 |
+| **有** `EllipsoidModel` | `LlaPos` | 模型自带，或 `coordFrame: "Ellipsoid"` 注入；**即使** JSON 为 `Local`/缺省但模型自带椭球（§2.5） |
+
+JSON `coordFrame` 只驱动「是否注入」，**不**单独决定组包类型；组包 / 采样类型始终跟场景走。
+
+### 2.2 注入时机（相对相机装配）
+
+```text
+loadScene(model)
+→ 按 §2.1 保留或注入 EllipsoidModel     // 必须在此完成
+→ 创建 LookAt / Projection / Trackball
+     （有 EllipsoidModel → EllipsoidPerspective + 椭球 Trackball）
+→ 同步路径按场景有无 EllipsoidModel 分支
+```
+
+**禁止**在 `EllipsoidPerspective` / 椭球 `Trackball` 创建之后再补挂 `EllipsoidModel`（否则仍走普通透视，与 LLA 跟拍不一致）。
+
+### 2.3 运行时写相机 / 组包判据
+
+在完成 §2.1–§2.2 之后：
+
+| 场景状态 | 同步权威眼点 | 写相机 |
+| --- | --- | --- |
+| **无** `EllipsoidModel` | 世界 XYZ + 世界轴 YPR | `setCameraPose` |
+| **有** `EllipsoidModel` | LLA + 当地 YPR | `setCameraPoseLla`（§4） |
+
+### 2.4 椭球半径（Host / IG 一致）
+
+| 来源 | 半径 |
+| --- | --- |
+| 模型自带（如 `readymap.vsgt`） | **沿用文件内** `EllipsoidModel`（勿替换为默认） |
+| `coordFrame: "Ellipsoid"` 注入 | `EllipsoidModel::create()` → VSG 默认 **WGS-84**（赤道 6378137，极 6356752.3142） |
+
+`readymap` 内半径（6378140 / 6356750）与 WGS-84 略有差异。同一会话内 Host 与各 IG **不得混用**「一边读瓦片椭球、一边注入默认 WGS-84」；否则同一 LLA 算出的 ECEF 可差**米级**——线上看眼点数字一致，LookAt.eye 却对不齐；肉眼难辨，普通跟拍测试也难覆盖。
+
+第一版 **HELLO 仍不传半径**（与不传 `coordFrame` 同级）；靠部署一致 + 可观测 / 测试兜底：
+
+| 项 | 要求 |
+| --- | --- |
+| 日志 | `initialize` / 场景装配完成（保留或注入 `EllipsoidModel` 之后）打印一次：`radiusEquator`、`radiusPolar`、来源（`model` / `inject-WGS84`），级别至少 `INFO` |
+| 测试 | BDD **显式**覆盖「两端半径不一致」：例如 Host=`readymap`、IG=`coordFrame:Ellipsoid` 无瓦片注入；预期为 **fail**（跟拍 ECEF 超差）或标记 **`[skip]`/文档化已知错配**——二者选一并在用例名写清，禁止默默绿过 |
+| 同端自检（推荐） | 单进程内可 assert 当前 `EllipsoidModel` 半径与期望来源一致；跨进程第一版不强制互查 |
+
+后续若要硬防：可在 HELLO 或首帧附带半径，不符则 ERROR + 计数器（类似 §4.5）；非本迭代必做。
+
+### 2.5 冲突与多通道
+
+| 情况 | 策略 |
+| --- | --- |
+| 模型已有 `EllipsoidModel`，配置为 `"Local"` 或缺省 | **仍按椭球**（几何 / 投影已是地球语义）；打警告，勿静默当本地 XYZ 跟拍 |
+| 模型已有，配置为 `"Ellipsoid"` | 冗余，保持即可 |
+| `coordFrame` 非法值 | 解析失败（方案 A） |
+| Host / 各 IG | **配置意图应一致**（人工 / 部署约束）；最终均应同有或同无场景 `EllipsoidModel`，否则眼点按 §4.5 拒收 |
+
+**HELLO / 握手不携带 `coordFrame`**。跨进程不在 init 互查模式；依赖：(1) 各通道 JSON 部署一致；(2) 线格式 Attach vs Detach 与本机场景不符时拒收（§4.5 / §5）。此为明确假设，不是遗漏实现。
+
+**可观测性（必做，否则拒收会变成静默故障）**：配错时 `readyIgCount` / SOF 计数仍可正常——链路活着，只是眼点被丢、相机不动，多通道下极难查。因此拒收不能只「打个普通 log」；要求见 §4.5。
+
+「World = ECEF」是约定：有 `EllipsoidModel` 后 LookAt / Transform 用地心笛卡尔米制。瓦片只提供地表几何，不是模式开关。
+
+---
+
+## 3. 位姿语义
+
+### 3.1 位置
+
+- **对外 / 线上**：`lat°`、`lon°`、`alt`（米，相对椭球面）
+- **渲染**：`EllipsoidModel::convertLatLongAltitudeToECEF` → `LookAt.eye`（ECEF）
+
+### 3.2 姿态（当地 YPR）
+
+- **参考系**：眼点 LLA 处的 **ENU**（东–北–天），由 `computeLocalToWorldTransform(lla)` 给出。
+- **角度单位**：度；旋转顺序与本地模式一致：`Rz(yaw) * Rx(pitch) * Ry(roll)`，但轴在 **ENU 局部**解释，不是 ECEF 世界轴。
+- **轴约定（钉死实现时以此验收）**：
+
+```text
+ENU 局部：+X = East，+Y = North，+Z = Up（天）
+前向（机头）：局部 +Y（北）
+右侧：局部 +X（东）——右手系：facing +Y、up +Z ⇒ right = +X
+上向：局部 +Z（天）
+yaw=0 → 朝北
+```
+
+- **偏航符号（与本地模式同一套，方案 a）**：旋转仍为右手系 `Rz(+yaw) * Rx(pitch) * Ry(roll)`，**不**为迁就「航空航向顺时针为正」而改成 `Rz(-yaw)`。
+
+```text
+Rz(+θ) * (0,1,0) = (−sin θ, cos θ, 0)
+⇒ yaw = +90° → (−1, 0, 0) = 西 = ENU −X
+⇒ +yaw = 左转（朝西），不是右转朝东
+```
+
+本地世界系已约定同一事实：`Rz(+yaw)` 转向 **−X / 左侧**（见 [多通道同步模块设计.md](./多通道同步模块设计.md) §3.2），故左通道 `offsetDeg.yaw = +hFOV`、右通道 `−hFOV`。椭球 ENU 下沿用：**+yaw → 西 / 左**；邻通道符号不变。  
+若对外需要「航向角顺时针从北起算」的 UI/任务语义，在进出本引擎 YPR 时单独换算（`heading_cw = -yaw` 或等价），**不要**改同步与 `setCameraPoseLla` 内部符号。
+
+- **禁止**：把当地航向角直接塞进现有 `setCameraPose` 的世界轴 YPR（ECEF 的 +Z 是地轴，不是当地天）。同步层禁止在椭球模式下调用 `setCameraPose(lla或ecef, 当地YPR)` 冒充写入。
+- **与 CIGI ICD**：EntityPosition 的 Yaw/Pitch/Roll 在标准文档中常作 Heading（多为顺时针）等，轴系未必等同本节。本项目规定：**线字段按本节（含 +yaw→西）解释，作为应用层约定**；不声称与任意第三方 CIGI 视景姿态一一兼容。
+
+### 3.3 LookAt 构造（椭球）
+
+```text
+R_local = Rz(yaw) * Rx(pitch) * Ry(roll)     // 在 ENU 基下
+forward_enu = R_local * (0, 1, 0)            // 方向，非点
+up_enu      = R_local * (0, 0, 1)
+M = computeLocalToWorldTransform(lla)        // ENU → ECEF
+R = M 的 3×3 线性部分                         // 只旋转方向，勿把方向当点做 M * vec4(dir,1)
+eye     = convertLatLongAltitudeToECEF(lla)
+forward = normalize(R * forward_enu)
+up      = normalize(R * up_enu)
+center  = eye + forward * d                  // d：视线距，见下
+→ LookAt(eye, center, up)
+```
+
+`up` **不得**固定为世界 `(0,0,1)`，也 **不宜**把 `normalize(ecef_eye)` 当作正式天向；正式用 ENU 的 Up 经 `R` 旋转。
+
+#### 视线距 `d`（ECEF 下）
+
+| 说法 | 判定 |
+| --- | --- |
+| `eye≈6.37e6` 时 double 下 `d=1` 精度不够 | **不成立**。double 在该量级 ULP≈1e-9 m，`eye+1` 与 `center-eye` 恢复方向足够 |
+| 若下游用 **float** 存 `eye`/`center` 再做差 | **成立**。float 在 6e6 量级 ULP≈0.5–1 m，`float(eye+1)` 常与 `float(eye)` 相同 → 方向塌缩 |
+| 因此改 `d=1000` 是「零成本保险」 | **不成立**。VSG `Trackball` 用 `length(center-eye)` 作平移/绕转尺度（见相机驱动总结）；`d` 从 1→1000 会把交互半径放大约 1000 倍。椭球 Trackball 还用 `center` 参与贴地等计算 |
+
+**第一版约定**：
+
+- 主路径（`LookAt` / view matrix）保持 **double**；`d` 与本地模式对齐，默认 **`d = 1.0`**（或与现 `setCameraPose` 的 `kLookDistance` 同一常量）。
+- **不要**为 float 隐患盲目改 1000 而不评估 Trackball。若权威窗依赖 Trackball，改 `d` 须单独验收操作手感。
+- 若确有 float 世界算子（阴影、拾取等）直接消费 ECEF 点：靠 **原点回退 / `CoordinateFrame`** 等精度方案，而不是指望加大 `d` 一劳永逸。
+- 实现若发现某条 float 路径必须从 `center-eye` 取方向，可在该处用 double 算方向再窄化，或仅在那条路径用更大临时偏移——与写入 `LookAt` 的 `d` 解耦。
+
+### 3.4 通道 `offsetDeg`
+
+本地模式：偏航相对**世界 Z-up**。椭球模式：偏航相对 **Host 眼点 LLA 的 ENU Up**（不是 ECEF 世界 Z，也不是机体系 Up）。
+
+**合成公式（与现状实现一致）**：
+
+```text
+ypr_ig = ypr_host ⊕ offsetDeg     // 分量相加（度）
+再用 (lla_host, ypr_ig) 写 LookAt
+```
+
+#### 仅 yaw 偏移时：分量相加 = 绕固定 Up 左乘（严格成立）
+
+约定 `R(ypr) = Rz(yaw)*Rx(pitch)*Ry(roll)`。当 `offsetDeg.pitch = offsetDeg.roll = 0`、仅 `δ = offsetDeg.yaw` 时：
+
+```text
+R_ig = Rz(yh+δ)*Rx(ph)*Ry(rh)
+     = Rz(δ) * (Rz(yh)*Rx(ph)*Ry(rh))
+     = Rz(δ) * R_host
+```
+
+即：**在 Host 姿态之上再绕同一套 Up（本地世界 Z / 椭球 ENU Up）转 δ**。`forward`/`up` 均满足 `v_ig = Rz(δ)*v_host`。  
+这与「机体系再偏航」`R_host * Rz(δ)` **不同**；多通道 frustum 要的是前者（共地理垂直轴），不是后者。  
+因此：**Host 有非零 pitch/roll 时，仅叠加 yaw 仍然严格正确**；通道相对地理 Up 的横滚一致，不是「椭球下水平线必然互不平齐」。本地与椭球在这一点上数学相同（只是 Up 轴定义不同）。
+
+#### 第一版约束：`offsetDeg` 仅 yaw 有定义
+
+| 字段 | 第一版 |
+| --- | --- |
+| `offsetDeg.yaw` | 用于邻通道水平拼接（左 `+hFOV`，右 `−hFOV`，符号见 §3.2 / 同步设计 §3.2） |
+| `offsetDeg.pitch` / `roll` | **必须为 0**；非 0 视为未定义行为（欧拉分量相加一般≠绕两轴的复合旋转） |
+
+实现可：解析时若 pitch/roll≠0 则告警或拒绝；测试只覆盖 yaw 偏移。后续若要 pitch/roll 通道偏移，应改为显式旋转复合（例如左乘 `Rz*Rx*Ry(offset)`），不再用三分量相加冒充。
+
+第一版 **不**做通道平移偏移。
+
+### 3.5 采样（LookAt → LLA + YPR）
+
+```text
+lla     = convertECEFToLatLongAltitude(eye)
+M_inv   = computeWorldToLocalTransform(lla)
+用 M_inv 的 3×3 将 ECEF forward/up 变到 ENU
+再按与 §3.2 同一套约定解 yaw/pitch/roll
+```
+
+#### VSG `LocalToWorld` 轴（与 §3.2 一致，实现勿猜）
+
+`EllipsoidModel::computeLocalToWorldTransform`（VSG）：列向量基为 **第 0 列 East、第 1 列 North、第 2 列 Up**（`operator()(column,row)`）。故 ENU 下 `(0,1,0)` 经 `R` 即 North，与「前向 = +Y = 北」一致。
+
+奇异（俯仰 ±90°、近极点）：与本地系一样存在数值问题。验收以**中低纬**容差为主；近极点 / Trackball 任意拖拽后的往返 **不作为第一版硬性保证**（可另加用例标注）。
+
+---
+
+## 4. Engine / SynchronSystem 路径
+
+### 4.1 API
+
+| API | 角色 |
+| --- | --- |
+| `setCameraPose(position, eulerYprDeg)` | **保留**：仅本地模式；或调用方已给出 **当前 World 笛卡尔 + 世界轴 YPR** 的底层写入 |
+| `setCameraPoseLla(lla, eulerYprDeg)`（名称可微调） | **新增**：椭球写入口；`eulerYprDeg` 为 §3.2 当地 YPR；内部按 §3.3 写 LookAt；无 `EllipsoidModel` 时返回 `false` |
+
+同步层在椭球模式下 **必须**走 `setCameraPoseLla`（或内部等价、且姿态已按 ENU→ECEF 处理的路径）。禁止把当地 YPR 直接传入 `setCameraPose`。
+
+`setCameraPoseLla` / 采样换算所需的 `EllipsoidModel`：在 §2.1–§2.2 装配后由 Engine **持有引用**（或每次从 `_scene->getRefObject` 取）；无椭球时 API 返回 `false`。
+
+**权威窗 `offsetDeg`**：须为 **全 0**（与现 `main.json` 一致）。覆盖前采样读的是当前 `LookAt`（上帧已是「权威意图 ⊕ 本通道 offset」）；若权威窗 offset≠0，发出去的「Host 眼点」已含 offset，各 IG 再 ⊕ 会**叠两次**。此为本地路径已有约束，椭球同样适用。
+
+### 4.2 `HostEyePose`（禁止裸 `dvec3` 双语义）
+
+**不要**用同一个 `dvec3 position` 按 `frame` 既表示 XYZ（米）又表示 LLA（度/度/米）。忘查 `frame` 时，会把 lat 当 X 送进 `setCameraPose` 或把 ECEF 大数当经纬——`1e-4` 米与 `1e-4` 度都不会自己报警，属于最难查的一类 bug。
+
+**选定**：专用位置类型 + `variant`（或等价 tagged union），让非法混用在编译期失败：
+
+```text
+struct WorldPos { vsg::dvec3 xyz; };          // 米
+struct LlaPos   { vsg::dvec3 lla; };          // (lat°, lon°, alt m)；也可拆成 lat/lon/alt 字段
+
+struct HostEyePose {
+  vsg::dvec3 eulerYprDeg;                     // 语义随持有的位置类型：世界轴 or 当地 ENU
+  std::variant<WorldPos, LlaPos> position;    // 或 visit / accessor，禁止无判别读写
+};
+```
+
+| 约定 | 说明 |
+| --- | --- |
+| `holds_alternative<WorldPos>` | 本地模式；`eulerYprDeg` = 世界轴 YPR |
+| `holds_alternative<LlaPos>` | 椭球模式；`eulerYprDeg` = 当地 ENU YPR（§3.2） |
+| 与 JSON / 线格式 | `WorldPos` ↔ Attach+XYZ；`LlaPos` ↔ Detach+LLA；`frame` 可由 variant 索引推导，不必再存易漂移的第二份枚举（若保留 `CoordFrame` 枚举，必须与 variant 同步更新） |
+| API | `compose` / `apply` / 采样 / 组包均 `std::visit` 或按类型重载；**禁止** `.position.x` 无标签读写 |
+
+采样、入队、防回声重建 LookAt、组包全程走类型分支；线格式 `EyePose` 仍带显式 AttachState（§5），解包时构造对应 `WorldPos` 或 `LlaPos`。
+
+### 4.3 帧路径（不变相位，换语义）
+
+```text
+update:
+  handleEvents
+  captureAuthorityEye     // 有 EllipsoidModel → LookAt→LLA+当地YPR；写入 frame=LLA
+  SynchronSystem::update  // Host ⊕ offset → setCameraPose / setCameraPoseLla
+postFrame:
+  按本帧采样（或 _lastSent）的位置类型组包扇出（§5）
+```
+
+无新包 / Freeze / ReuseLast / 断线保末帧：逻辑不变，缓存带位置类型的 `HostEyePose`。
+
+#### 场景重建与模式换轨时的缓存
+
+注入须在相机创建前（§2.2）。同一进程换 `-c` / 重载场景 → 重建图形与（可能）切换 Local↔Ellipsoid 时：
+
+| 缓存 | 动作 |
+| --- | --- |
+| `_lastApplied` / `_lastSent` / `_frameSample` / `_cachedHostEye` / pending | **全部清空** |
+| 触发点 | `initGraphics` 成功重建场景后（**不必**整网 `SynchronSystem::shutdown`）；或显式 `SynchronSystem::resetEyeCaches()`（名称实现定）与图形重建同调用链调用 |
+
+当前仅 `shutdown()` 会清缓存不够：热重载 / 测试里只重建图形时必须走上述触发点，否则旧类型缓存残留。
+
+模式切换后第一帧：应重新采样权威眼点（或等用户/注入产生新 pose）再扇出；**禁止**在位置类型已变时重发旧类型的 `_lastSent`。若 `postFrame` 发现 `_lastSent` 类型与当前场景不符 → 丢弃 `_lastSent`，本帧可无眼点或仅发 IGCtrl。
+
+### 4.4 防回声（比较 LookAt，不反解 YPR）
+
+**目的**：权威窗在 `apply` 写回 `Host⊕offset` 后，若用户未再拖动 Trackball，本帧采样不得把「回灌结果」当成新意图发出（否则会回环旧包）。
+
+**选定判据（写死）**：比较 **当前 `LookAt` 与由 `_lastApplied` 重建的期望 `LookAt`**，在 **World 笛卡尔**下比向量——本地模式为本地 XYZ，椭球模式为 **ECEF**。
+
+```text
+若有 _lastApplied:
+  expected = lookAtFromPose(_lastApplied)   // 与 apply 同一套 setCameraPose / setCameraPoseLla
+  actual   = 当前 mainCamera 的 LookAt
+  若 eye、forward、up 均在 ε 内一致:
+    不更新 _frameSample → postFrame 重发 _lastSent
+  否则:
+    从 actual 解出 HostEyePose（本地 XYZ+YPR 或 LLA+当地YPR）写入 _frameSample
+```
+
+| 比较量 | 定义 | ε（第一版可调，测试钉死） |
+| --- | --- | --- |
+| `eye` | 位置（米） | 本地 ~`1e-4`；椭球 ECEF ~`1e-3`～`1e-2`（按实测选定） |
+| `forward` | `normalize(center - eye)` | 方向，如 `1 - dot < 1e-8` 或角 ~`1e-4` rad |
+| `up` | LookAt 的 `up`（可先与 forward 正交化再比） | 同上 |
+
+**不采用**「采样 LLA+YPR，再减 `offsetDeg` 回推 Host 意图再比较」：
+
+- 防回声问的是「相机相对上次回灌有没有动」，应直接比 **apply 的输出**（LookAt），不必回到 Host 意图空间。
+- 减 offset 在 `pitch/roll` 偏移非 0 时不是精确逆（见 §3.4）；即使第一版强制 offset 仅 yaw，反解 YPR 仍受欧拉奇异影响。
+- 比 LookAt 向量：**不反解 YPR**，无奇异；与「是否仍等于上次回灌」语义一致。
+
+**与本地现状**：当前实现是 `lookAtToHostEye` 后比 `position`/`eulerYprDeg` 与 `_lastApplied`（仍经一次欧拉）。椭球路径按上表走 LookAt 向量；本地可保留旧比较，或一并改成同一 LookAt 比较（推荐，实现更对称，非本迭代硬性）。
+
+出站采样（`_frameSample` 内容）仍要解成带 `frame` 的 `HostEyePose` 以便组包；**仅防回声门闩**不依赖 YPR 相等。
+
+### 4.5 Host / IG 模式一致性与拒收可观测性
+
+同一会话内应同为本地或同为椭球。  
+判定「报文模式」：解包得到的 Attach→`WorldPos`，Detach→`LlaPos`（§5）。  
+若与本机场景（有无 `EllipsoidModel`）不一致：**丢弃该眼点**；**不**做静默单位换算；**不得**静默到无人知晓。
+
+Host **组包**取自待发送的 `HostEyePose` 位置类型（来自权威采样或重发缓存），**不**由 IG 猜测，也**不**在 Host 上单独再读一份与采样脱节的配置开关。
+
+#### 拒收时的可观测性（第一版必做）
+
+配错时握手与节拍仍健康（`readyIgCount` 不降、`sofSentCount` 正常），唯一业务症状是相机不跟拍——生产多通道下属于最难查的一类故障。拒收作为容错手段时，**可观测性必须跟上**：
+
+| 项 | 要求 |
+| --- | --- |
+| 日志 | IG（及若 Host 侧也校验时）在收到**首个**模式不符的 EyePose 时打 **`[ERROR]` 一次**（含本机期望 frame、报文 frame / AttachState、channelId）；同一会话内持续不符可降频或只打首次，避免每帧刷屏 |
+| 计数器 | `eyePoseRejectedByFrameMismatch`（`uint64`，进程内累加）；每次因 frame 不符丢弃眼点时 +1 |
+| 暴露 | 可供测试断言；运行期可经现有统计 / debug 出口读取（与 FrameStats 同类即可，具体挂点实现定） |
+| 行为 | 丢弃的是眼点应用；IGCtrl 节拍与 SOF 回执**照常**（与「链路正常、位姿拒收」一致） |
+
+第一版**不**因 mode mismatch 自动断开 TCP/UDP 或把 IG 标为 not-ready（避免与「部署配错」以外的瞬时异常纠缠）；靠 ERROR + 计数器让运维 / 测试发现。若后续要 fail-fast，可再加配置项「首拒收即 abort init / 摘 peer」。
+
+---
+
+## 5. 报文（CIGI）
+
+现状（本地）：`IGCtrl` + `EntityPositionCtrl` **Attach** + `X/Y/Z off` + YPR（过渡约定）。
+
+椭球目标：
+
+| 项 | 约定 |
+| --- | --- |
+| 同 datagram | 仍为 `IGCtrl` +（有眼点时）`EntityPositionCtrl` |
+| 位置 | **Detach** + Lat / Lon / Alt |
+| 姿态 | Yaw / Pitch / Roll = §3.2 当地 YPR（应用约定，见 §3.2） |
+| 模式区分 | **线上仅** Attach / Detach（CIGI 原生）；解包后映射为 `WorldPos` / `LlaPos` |
+| 组包依据 | 待发送 `HostEyePose` 的位置类型（§4.5） |
+| 乱序 | 仍按 `frameCntr` 整包取新 |
+
+**分层（写死，避免「EyePose 加 frame」歧义）**：
+
+| 层 | 是否带 frame / 位置类型 | 说明 |
+| --- | --- | --- |
+| **线格式** | **否**（不另加应用层布尔） | 只走 CIGI `EntityPositionCtrl.AttachState`：Attach=本地 XYZ，Detach=LLA |
+| **`CigiWire::EyePose`（解包后的内部 struct）** | **是** | 携带从 `AttachState` 推出的判别（或直接做成 `variant<WorldPos,LlaPos>` + YPR），供 `SynchronSystem` 使用 |
+| **`HostEyePose`** | **是**（§4.2） | 应用层权威眼点；与 wire 内部 EyePose 可共用类型或薄转换 |
+
+禁止在 UDP 载荷里再塞私有 frame 标志；禁止内部 struct 丢掉 AttachState 只留裸 x/y/z。
+
+精度与合法范围：
+
+- Lat / Lon / Alt：走 CCL **double** 接口（`SetLat` / `SetLon` 等），避免经纬被窄化为 float。
+- Yaw / Pitch / Roll：CCL 多为 **float**；接受量化误差，测试容差覆盖。
+- **CCL 默认开 bound check**：`Lat∈[-90,90]`，`Lon∈[-180,180]`，`Pitch∈[-90,90]`（越界抛异常或返回错误）。组包前必须保证落在范围内：采样后 **normalize lon 到 (-180,180]**，非法 lat/pitch **丢弃本帧眼点**（IGCtrl 仍发）并打日志 / 计数（可与 wire 校验共用或单列 `eyePoseRejectedByRange`）；**不要**关全局 `bndchk` 把脏值发出去。
+
+本地 Attach 路径保留，回归继续覆盖。
+
+#### EntityID / ParentID（设计期写死，不留白）
+
+眼点占用**固定实体槽**；Attach / Detach 只改附着与坐标语义，不换槽。与现本地组包对齐并补齐 Detach 约束：
+
+| 模式 | `AttachState` | `EntityID` | `ParentID` | 位置字段 |
+| --- | --- | --- | --- | --- |
+| 本地 XYZ | **Attach** | **0**（眼点槽，与现状一致） | **1**（合成 parent，与现状一致） | X/Y/Z off |
+| 椭球 LLA | **Detach** | **0**（同一眼点槽） | **0**（独立实体；Detach 下必须为 0） | Lat / Lon / Alt |
+
+依据：
+
+- CIGI：Detach = 独立实体，**不再相对 parent**；`ParentID` 应为 **0**。若 Detach 仍带非 0 `ParentID`，合规 IG / CCL 校验可能拒包或忽略位姿 → 表现为「收不到眼点」。
+- 同一 `EntityID=0` 在帧间从 Attach 切到 Detach（或反向）表示该槽改独立/改附着，**合法**；不要为 LLA 另开未声明的 EntityID，以免与「已 Attach 到其它 parent 的槽」冲突或状态分裂。
+- 本项目 IG 侧按自研解包消费眼点，仍按上表组包，保证与标准约束及日后对接第三方 IG 时一致。
+
+`packHostFrame`：按 `HostEyePose` 分支设置上表组合；`unpack` 校验 Detach⇒`ParentID==0`（不符则拒收该眼点并计入可观测错误，可与 frame mismatch 分列或归入 wire 校验计数）。
+
+---
+
+## 6. 配置
+
+**本迭代最小集**：
+
+- 保持现有顶层 `model`、`offsetDeg`、同步地址字段等（方案 A 不变）。
+- 新增可选顶层 `coordFrame`：`"Local"` \| `"Ellipsoid"`，缺省等价 `"Local"`（见 §2.1）。
+- 椭球来源：模型自带，或 `coordFrame: "Ellipsoid"` 按 §2.2–§2.4 注入。
+- **不**引入 `entity`/`camera` 嵌套、**不**取消 `model`、**不**要求 JSON 双写 local/ellipsoid pose。
+- **不**在 HELLO 中增加 `coordFrame` 字段（见 §2.5）。
+
+示例（普通模型强制椭球同步语义，无瓦片；画面可能不合理，见 §1）：
+
+```json
+{
+  "coordFrame": "Ellipsoid",
+  "model": "models/lz.vsgt",
+  "window": { "x": 0, "y": 0, "width": 640, "height": 1080 }
+}
+```
+
+`readymap` 等自带椭球时可不写 `coordFrame`（仍走 ECEF）；写 `"Ellipsoid"` 亦可。`main` / `left` / `right` 应保持意图与模型椭球来源一致（§2.4）。
+
+#### 椭球初始相机（必做，非可选）
+
+有 `EllipsoidModel` 时，**不得**沿用「AABB + 世界 Z-up」默认视点：ECEF 大数下人眼常为黑屏 / 穿地心，联调第一天就会误判「同步坏了」。
+
+与 §2.2 注入同一阶段完成（见 §9）：装配椭球后、进入帧循环前，用 §3.3 写默认 LLA 初始 `LookAt`。
+
+**默认 LLA（第一版写死，Host/IG 必须相同，避免未同步前首帧各飞各的）**：
+
+```text
+lat = 39.9 °,  lon = 116.4 °,  alt = 500 m
+yaw = pitch = roll = 0          // 朝北，当地水平
+```
+
+（北京附近上空，仅作联调默认；不表示产品绑定该地理位置。后续若要可配，再加配置项，且各通道默认值仍须一致。）
+
+无瓦片、模型未钉 ECEF 时画面仍可能空（§1），但至少地平线/天向合理，便于区分「同步问题」与「没场景」。
+
+---
+
+## 7. 验收要点
+
+在现有 `HostIGTests` 风格上增加椭球分支（可用自挂 `EllipsoidModel` + 简单几何，**不强制**在线瓦片）：
+
+| 用例方向 | 期望 |
+| --- | --- |
+| LLA 往返 | `setCameraPoseLla` → 采样 → LLA/YPR 在容差内回到输入（中低纬） |
+| 跟拍 | Host 注入 LLA 眼点 → IG LookAt.eye 的 ECEF 与换算一致 |
+| `offsetDeg` | 仅 yaw；Host 含 pitch/roll 时左/右通道仍满足 `R_ig=Rz(δ)*R_host`；pitch/roll offset≠0 不测或拒收 |
+| 线契约 | Detach+LLA 与 Attach+XYZ 打包/解包；`AttachState`→位置类型正确；**Detach 时 ParentID=0、EntityID=0**；Attach 时 EntityID=0、ParentID=1；切换 Attach↔Detach 组合合法 |
+| 组包依据 | Host 按 `HostEyePose` 位置类型选择 Attach/Detach；线上无私有 frame 字段 |
+| 模式隔离 | 本地回归全绿；错模式眼点不污染相机；首拒收 `[ERROR]`；`eyePoseRejectedByFrameMismatch` 递增；SOF/ready 仍正常 |
+| 模式装配 | 无 `coordFrame`→Local；`Ellipsoid`+无模型椭球→注入后走 LLA；模型自带→ECEF；注入在相机创建前；默认初始 LLA = (39.9, 116.4, 500)、YPR=0 |
+| 范围校验 | Lat/Lon/Pitch 越界不抛穿；丢弃眼点并计数；lon 归一化到 (-180,180] |
+| 权威 offset | 权威窗 `offsetDeg` 全 0；非 0 不作为第一版支持场景 |
+| 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
+| 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
+| 防回声 / stale | 椭球：LookAt ECEF 的 eye/forward/up 与 `_lastApplied` 重建一致则不采样；不测「减 offset 回推」路径 |
+| 场景换轨 | 同进程重载 / 换配置导致 Local↔Ellipsoid：SynchronSystem 位姿缓存清空；不得用旧类型 `_lastSent` 重发 |
+| `_lastSent` 换轨 | 场景已椭球、缓存仍为 WorldLocal（或反向）时：丢弃旧 `_lastSent`，不触发对端「自己人」frame 拒收 |
+| 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
+
+---
+
+## 8. 不做
+
+| 项 | 原因 |
+| --- | --- |
+| 取消 `model`、引入 `entity`/`camera` 大配置重构 | 与 LLA 传输无关，迁移成本高 |
+| JSON 并行 `pose.local` + `pose.ellipsoid` | 双意图源；同步只需运行时一种权威语义 |
+| 本迭代把普通 `.vsgt` 钉到指定 LLA 作为主交付 | 演示 ECEF 摆模可另开；不挡传眼点（见 §1 不保证项） |
+| 用 `normalize(eye)` 作为正式 `up` | 非正式椭球法向 |
+| 仅 init 写 LookAt、推迟写入口 / 采样 / 报文 | 无法完成帧同步 |
+| 让 `coordFrame` 与场景 `EllipsoidModel` 各判各的、互不驱动 | 只允许 §2「配置意图 → 可选注入 → 场景判据」 |
+| HELLO 携带 / 协商 `coordFrame` | 第一版靠部署一致 + 线格式拒收（§2.5） |
+| 显示 Genlock、精时钟、Host 拆进程上行变更 | 仍属同步文档 P2 / 后期 |
+
+[坐标系统模块设计.md](./坐标系统模块设计.md) 中装配示意（`MatrixTransform(LocalToWorld)`、当地天向初始化）可作实现附录参考；**不作为本传输设计的范围定义**。
+
+---
+
+## 9. 实现顺序
+
+1. 配置解析 `coordFrame`；`loadScene` 后、**相机创建前**按 §2.1–§2.4 注入 / 保留 `EllipsoidModel`；有椭球则写 **默认 LLA 初始相机**（§6，必做）
+2. `setCameraPoseLla` + LookAt↔LLA/YPR 互逆（单测，无网络；方向用 3×3）
+3. **本地路径先迁移** `HostEyePose` → `variant<WorldPos,LlaPos>`（本阶段只产生 / 消费 `WorldPos`）；`compose` / `apply` / `capture` / 防回声 / `_lastSent` / `_lastApplied` 全部分支可读类型；**跑通全部现有本地回归**后再合并
+4. `CigiWire`：内部 `EyePose` 带位置类型（由 **AttachState** 映射，线上不加私有 frame）；本地仍 Attach+XYZ
+5. 椭球分支：`LlaPos` + `setCameraPoseLla`；Detach+double LLA；EntityID/ParentID 按 §5；模式不符拒收 + §4.5 可观测性
+6. 场景重建 / 模式换轨：清空同步位姿缓存；`_lastSent` 类型与场景不符则丢弃（§4.3）
+7. BDD：跟拍、`offsetDeg`、模式装配与初始相机、半径、防回声、换轨缓存、本地回归；本地防回声可改为 LookAt 比较
+8. （可选）瓦片联调；HELLO 传半径等增强
+
+与 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.8 / §9 P1「椭球 / ECEF 相机驱动」对齐；落地后更新该节状态为已实现，并收回「未实现前勿假设 XYZ 眼点在椭球下正确」的警告。
