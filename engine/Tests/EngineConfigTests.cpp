@@ -1,4 +1,5 @@
-﻿#include <catch2/catch_test_macros.hpp>
+﻿#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "engine.h"
 
@@ -12,11 +13,11 @@
 #    define RESOURCE_DIR "."
 #endif
 
-// Tests below encode doc/design/多通道同步模块设计.md §3.1 contracts.
-// They are expected to fail until EngineConfig / load / Engine::init are aligned.
-// Avoid referencing members not yet on EngineChannelConfig (e.g. wire requireIgConnect
-// asserts when the field lands); role is asserted via hasHost/hasIg after init, and via
-// load success/failure for parse rules.
+// Tests below encode doc/design/多通道同步模块设计.md §3.1 contracts, and
+// doc/design/lla位姿传输设计.md §2.1 / §6 / §7 (coordFrame → EllipsoidModel assembly).
+// New LLA/coordFrame cases are expected to fail until parse + inject land.
+// Avoid referencing members not yet on EngineChannelConfig; assert via init-time
+// observables (role, scene/camera semantics, load success/failure).
 
 namespace
 {
@@ -97,6 +98,7 @@ namespace
 
     const char* kMinimalWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
     const char* kMinimalModel = R"("model": "models/lz.vsgt")";
+    const char* kReadymapModel = R"("model": "models/readymap.vsgt")";
 
     std::string jsonIgLocal(int udpRecv = 8003)
     {
@@ -113,7 +115,168 @@ namespace
     {
         return R"("hostLocal": { "addr": "127.0.0.1", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 })";
     }
+
+    // Engine creates EllipsoidPerspective iff scene had EllipsoidModel at camera create
+    // (engine.cpp). Used as the acceptance probe for "scene has EllipsoidModel" until a
+    // public scene() accessor exists.
+    bool sceneHasEllipsoidModel(const Engine& engine)
+    {
+        auto camera = engine.mainCamera();
+        if (!camera || !camera->projectionMatrix)
+            return false;
+        return static_cast<bool>(camera->projectionMatrix.cast<vsg::EllipsoidPerspective>());
+    }
 } // namespace
+
+// =============================================================================
+// 验收：coordFrame → 场景 EllipsoidModel（lla位姿传输设计.md §2.1 / §6 / §7）
+// JSON 意图："Ellipsoid" | "Local"（缺省 Local）；挂到 scene 的对象类型为 EllipsoidModel。
+// =============================================================================
+
+SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has none",
+         "[acceptance][bdd][config][coordFrame]")
+{
+    GIVEN("a channel config that uses lz.vsgt (model has no built-in EllipsoidModel)")
+    {
+        WHEN("coordFrame is set to Ellipsoid")
+        {
+            const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+                                      kMinimalWindow + "}");
+            Engine engine;
+            REQUIRE(engine.loadConfig(file.path()));
+            engine.showWindow = false;
+            REQUIRE(engine.init());
+
+            THEN("the scene carries an EllipsoidModel after init")
+            {
+                REQUIRE(sceneHasEllipsoidModel(engine));
+            }
+        }
+
+        WHEN("coordFrame is omitted (defaults to Local)")
+        {
+            const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow + "}");
+            Engine engine;
+            REQUIRE(engine.loadConfig(file.path()));
+            engine.showWindow = false;
+            REQUIRE(engine.init());
+
+            THEN("the scene has no EllipsoidModel after init")
+            {
+                REQUIRE_FALSE(sceneHasEllipsoidModel(engine));
+            }
+        }
+    }
+}
+
+SCENARIO("model-built-in EllipsoidModel is kept when coordFrame is Local or omitted",
+         "[acceptance][bdd][config][coordFrame]")
+{
+    GIVEN("a channel config that uses readymap.vsgt (model already has EllipsoidModel)")
+    {
+        WHEN("coordFrame is omitted")
+        {
+            const TempConfigFile file(std::string("{") + kReadymapModel + ", " + kMinimalWindow + "}");
+            Engine engine;
+            REQUIRE(engine.loadConfig(file.path()));
+            engine.showWindow = false;
+            REQUIRE(engine.init());
+
+            THEN("the scene still carries EllipsoidModel (runtime stays ellipsoid)")
+            {
+                REQUIRE(sceneHasEllipsoidModel(engine));
+            }
+        }
+
+        WHEN("coordFrame is explicitly Local")
+        {
+            const TempConfigFile file(std::string(R"({ "coordFrame": "Local", )") + kReadymapModel + ", " +
+                                      kMinimalWindow + "}");
+            Engine engine;
+            REQUIRE(engine.loadConfig(file.path()));
+            engine.showWindow = false;
+            REQUIRE(engine.init());
+
+            THEN("the scene still carries EllipsoidModel (Local does not strip model ellipsoid)")
+            {
+                REQUIRE(sceneHasEllipsoidModel(engine));
+            }
+        }
+    }
+}
+
+// lla位姿传输设计.md §2.3 / §7：有 EllipsoidModel 时默认初始 LLA=(39.9,116.4,500)、YPR=0。
+// 覆盖「注入在相机创建前」：lz 无自带椭球，靠 coordFrame 注入后才能建 EllipsoidPerspective + 默认 LLA。
+SCENARIO("coordFrame Ellipsoid injects before camera create with default LLA LookAt",
+         "[acceptance][bdd][config][coordFrame][initial-lla]")
+{
+    GIVEN("lz.vsgt with coordFrame Ellipsoid (inject WGS-84 EllipsoidModel)")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+                                  kMinimalWindow + "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+        REQUIRE(sceneHasEllipsoidModel(engine));
+
+        WHEN("the main camera LookAt is inspected before any tick")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            auto ep = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
+            REQUIRE(ep);
+            REQUIRE(ep->ellipsoidModel);
+
+            THEN("eye matches ECEF of default LLA (39.9, 116.4, 500) with YPR=0 (north, level)")
+            {
+                const vsg::dvec3 defaultLla{39.9, 116.4, 500.0};
+                const vsg::dvec3 expectedEye =
+                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(defaultLla);
+                REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-3);
+
+                const vsg::dmat4 localToWorld =
+                    ep->ellipsoidModel->computeLocalToWorldTransform(defaultLla);
+                // YPR=0 → ENU forward = North = column 1 of LocalToWorld.
+                const vsg::dvec3 expectedForward =
+                    vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
+                const vsg::dvec3 actualForward = vsg::normalize(lookAt->center - lookAt->eye);
+                REQUIRE(vsg::length(actualForward - expectedForward) < 1e-6);
+            }
+        }
+    }
+}
+
+SCENARIO("model-built-in ellipsoid also initializes at default LLA LookAt",
+         "[acceptance][bdd][config][coordFrame][initial-lla]")
+{
+    GIVEN("an Engine initialized with readymap (built-in EllipsoidModel, no inject)")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(std::string("{") + kReadymapModel + ", " + kMinimalWindow + "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+        REQUIRE(sceneHasEllipsoidModel(engine));
+
+        WHEN("the main camera LookAt is inspected before any tick")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            auto ep = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
+            REQUIRE(ep);
+            REQUIRE(ep->ellipsoidModel);
+
+            THEN("eye matches ECEF of default LLA (39.9, 116.4, 500)")
+            {
+                const vsg::dvec3 defaultLla{39.9, 116.4, 500.0};
+                const vsg::dvec3 expectedEye =
+                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(defaultLla);
+                REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-3);
+            }
+        }
+    }
+}
 
 // =============================================================================
 // 验收：默认配置与角色规则（§3.1：默认 default.json，父键决定 enable）

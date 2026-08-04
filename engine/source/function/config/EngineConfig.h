@@ -25,6 +25,13 @@ enum class HostEyeStalePolicy
     FREEZE
 };
 
+/// JSON `coordFrame` intent: inject EllipsoidModel only when scene has none (lla设计 §2).
+enum class CoordFrameIntent
+{
+    LOCAL,
+    ELLIPSOID
+};
+
 /// Per-process Engine channel config (see engine/resources/config/*.json, design §3.1).
 struct EngineChannelConfig
 {
@@ -36,6 +43,7 @@ struct EngineChannelConfig
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
     HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
+    CoordFrameIntent coordFrame = CoordFrameIntent::LOCAL;
     bool requireIgConnect = false;
 
     /// Set when the corresponding JSON object key is present (parent-key enable).

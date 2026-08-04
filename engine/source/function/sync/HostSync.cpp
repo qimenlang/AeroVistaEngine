@@ -166,6 +166,7 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
         eyeWire.yawDeg = eye->yawDeg;
         eyeWire.pitchDeg = eye->pitchDeg;
         eyeWire.rollDeg = eye->rollDeg;
+        eyeWire.frame = eye->isLla ? cigi_wire::EyeFrame::LLA : cigi_wire::EyeFrame::WORLD_LOCAL;
         eyePtr = &eyeWire;
     }
 

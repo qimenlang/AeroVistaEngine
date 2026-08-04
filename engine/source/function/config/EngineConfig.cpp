@@ -456,7 +456,7 @@ namespace
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
         rejectUnknownKeys(root, {"channelId", "offsetDeg", "igLocal", "hostEndpoint", "hostLocal", "model", "window",
-                                 "hostEyeStalePolicy", "requireIgConnect"});
+                                 "hostEyeStalePolicy", "requireIgConnect", "coordFrame"});
 
         EngineChannelConfig cfg;
         cfg.channelId = parseOptionalInt(root, "channelId", cfg.channelId);
@@ -486,6 +486,20 @@ namespace
 
         if (find(root, "hostEyeStalePolicy") != nullptr)
             cfg.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(root, "hostEyeStalePolicy", ""));
+
+        if (const JsonValue* v = find(root, "coordFrame"))
+        {
+            rejectNull(*v, "coordFrame");
+            if (!v->isString())
+                throw std::runtime_error("missing/invalid string: coordFrame");
+            const std::string s = v->asString();
+            if (s == "Local")
+                cfg.coordFrame = CoordFrameIntent::LOCAL;
+            else if (s == "Ellipsoid")
+                cfg.coordFrame = CoordFrameIntent::ELLIPSOID;
+            else
+                throw std::runtime_error("coordFrame must be \"Local\" or \"Ellipsoid\"");
+        }
 
         const bool hasRequireIgConnect = find(root, "requireIgConnect") != nullptr;
         if (hasRequireIgConnect)

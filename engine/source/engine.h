@@ -34,7 +34,12 @@ public:
 
     /// Sync plane only (no Vulkan). For multi-IG tests when device count is limited.
     bool initSync(const SyncRoleConfig& syncRole, bool requireIgConnect = true);
+    /// Load/inject EllipsoidModel for sync mode checks without creating a Vulkan Device.
+    bool initSceneMode(const vsg::Path& modelPath);
     bool initGraphics(const vsg::Path& modelPath);
+    /// True after initSceneMode/initGraphics if scene has EllipsoidModel (lla §2 / §4.5).
+    bool sceneHasEllipsoidModel() const { return _sceneHasEllipsoidModel; }
+    vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel() const;
 
     /// One frame: preFrame → update → render → postFrame.
     bool tickOnFrame();
@@ -51,8 +56,10 @@ public:
 
     /// World / channel camera used by Trackball and Host→IG pose sync (not HUD).
     vsg::ref_ptr<vsg::Camera> mainCamera() const;
-    /// Set LookAt from world position + Euler YPR in degrees (yaw,pitch,roll; Y-forward, Z-up).
+    /// Set LookAt from world position + Euler YPR degrees (yaw,pitch,roll; Y-forward, Z-up).
     bool setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg);
+    /// Set LookAt from LLA (lat°, lon°, alt m) + local ENU YPR degrees. Requires scene EllipsoidModel.
+    bool setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
 private:
     void applyConfigToEngine();
@@ -62,6 +69,19 @@ private:
     bool update();
     void render();
     void postFrame();
+
+    void resetGraphicsResources();
+    bool createVulkanDevice(int& queueFamily);
+    vsg::ref_ptr<vsg::LookAt> createInitialLookAt(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel,
+                                                  const vsg::dvec3& centre, double radius) const;
+    vsg::ref_ptr<vsg::ProjectionMatrix> createInitialProjection(
+        vsg::ref_ptr<vsg::LookAt> lookAt, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel, double radius,
+        double nearFarRatio) const;
+    vsg::ref_ptr<vsg::CommandGraph> buildCommandGraph(vsg::ref_ptr<vsg::Camera> camera,
+                                                      vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel,
+                                                      vsg::ref_ptr<vsg::RenderGraph> offscreenRenderGraph,
+                                                      vsg::ref_ptr<vsg::Commands> colorBufferCapture,
+                                                      int queueFamily);
 
     vsg::ref_ptr<vsg::Options> _options;
     vsg::ref_ptr<vsg::Node> _scene;
@@ -78,6 +98,7 @@ private:
     VkExtent2D _currentExtent{};
     bool _hasRenderedFrame = false;
     bool _reportFrameStats = false;
+    bool _sceneHasEllipsoidModel = false;
     double _lastFrameSeconds = 0.0;
     double _syncSimTimeMs = 0.0;
 

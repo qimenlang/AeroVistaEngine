@@ -289,6 +289,7 @@ void IgSync::update(bool sendSof)
             _receivedEye.yawDeg = frame.eye->yawDeg;
             _receivedEye.pitchDeg = frame.eye->pitchDeg;
             _receivedEye.rollDeg = frame.eye->rollDeg;
+            _receivedEye.isLla = (frame.eye->frame == cigi_wire::EyeFrame::LLA);
             _hasReceivedEye = true;
         }
 

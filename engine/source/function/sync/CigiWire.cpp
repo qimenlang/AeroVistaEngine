@@ -15,6 +15,7 @@
 #include "CigiOutgoingMsg.h"
 #include "CigiSOFV4.h"
 
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -25,6 +26,23 @@ namespace cigi_wire
     {
         // CCL is not thread-safe; Host udpLoop and the engine thread both touch it.
         std::mutex gCigiMutex;
+        std::uint64_t gEyePoseRejectedByRange = 0;
+
+        /// Normalize longitude to (-180, 180] (lla设计 §5).
+        double normalizeLonDeg(double lon)
+        {
+            double x = std::fmod(lon, 360.0);
+            if (x <= -180.0)
+                x += 360.0;
+            if (x > 180.0)
+                x -= 360.0;
+            return x;
+        }
+
+        bool llaEyeInRange(double lat, double /*lon*/, double pitchDeg)
+        {
+            return lat >= -90.0 && lat <= 90.0 && pitchDeg >= -90.0 && pitchDeg <= 90.0;
+        }
 
         constexpr int kCigiBufCount = 1;
         constexpr int kCigiBufLen = 4096;
@@ -66,12 +84,25 @@ namespace cigi_wire
                 if (!ent)
                     return;
                 got = true;
-                eye.x = ent->GetXoff();
-                eye.y = ent->GetYoff();
-                eye.z = ent->GetZoff();
+                eye.entityId = ent->GetEntityID();
+                eye.parentId = ent->GetParentID();
                 eye.yawDeg = ent->GetYaw();
                 eye.pitchDeg = ent->GetPitch();
                 eye.rollDeg = ent->GetRoll();
+                if (ent->GetAttachState() == CigiBaseEntityPositionCtrl::Detach)
+                {
+                    eye.frame = EyeFrame::LLA;
+                    eye.x = ent->GetLat();
+                    eye.y = ent->GetLon();
+                    eye.z = ent->GetAlt();
+                }
+                else
+                {
+                    eye.frame = EyeFrame::WORLD_LOCAL;
+                    eye.x = ent->GetXoff();
+                    eye.y = ent->GetYoff();
+                    eye.z = ent->GetZoff();
+                }
             }
 
             void reset()
@@ -148,6 +179,12 @@ namespace cigi_wire
         return magic == sync_proto::kMagic;
     }
 
+    std::uint64_t eyePoseRejectedByRange()
+    {
+        std::lock_guard lock(gCigiMutex);
+        return gEyePoseRejectedByRange;
+    }
+
     bool packHostFrame(std::uint32_t frameCntr, double simTimeMs, const EyePose* eye,
                        std::vector<unsigned char>& out)
     {
@@ -161,24 +198,47 @@ namespace cigi_wire
         igCtrl.SetTimeStampValid(true);
 
         CigiEntityPositionCtrlV4 ent{};
+        bool includeEye = static_cast<bool>(eye);
         if (eye)
         {
-            // Local world XYZ: Attach offsets from synthetic parent (see design §8).
             ent.SetEntityID(0);
-            ent.SetParentID(1);
-            ent.SetAttachState(CigiBaseEntityPositionCtrl::Attach);
-            ent.SetXoff(eye->x);
-            ent.SetYoff(eye->y);
-            ent.SetZoff(eye->z);
             ent.SetYaw(static_cast<float>(eye->yawDeg), false);
             ent.SetPitch(static_cast<float>(eye->pitchDeg), false);
             ent.SetRoll(static_cast<float>(eye->rollDeg), false);
+
+            if (eye->frame == EyeFrame::LLA)
+            {
+                const double lon = normalizeLonDeg(eye->y);
+                if (!llaEyeInRange(eye->x, lon, eye->pitchDeg))
+                {
+                    ++gEyePoseRejectedByRange;
+                    includeEye = false; // IGCtrl still sent (lla设计 §5)
+                }
+                else
+                {
+                    // Ellipsoid: Detach + LLA, ParentID must be 0 (lla设计 §5).
+                    ent.SetParentID(0);
+                    ent.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+                    ent.SetLat(eye->x, false);
+                    ent.SetLon(lon, false);
+                    ent.SetAlt(eye->z, false);
+                }
+            }
+            else
+            {
+                // Local world XYZ: Attach offsets from synthetic parent (lla设计 §5).
+                ent.SetParentID(1);
+                ent.SetAttachState(CigiBaseEntityPositionCtrl::Attach);
+                ent.SetXoff(eye->x);
+                ent.SetYoff(eye->y);
+                ent.SetZoff(eye->z);
+            }
         }
 
         CigiOutgoingMsg& omsg = rt.host.GetOutgoingMsgMgr();
         omsg.BeginMsg();
         omsg << igCtrl;
-        if (eye)
+        if (includeEye)
             omsg << ent;
 
         Cigi_uint8* buf = nullptr;
@@ -245,7 +305,14 @@ namespace cigi_wire
         outFrame.timeStamp = rt.igCtrlProc.timeStamp;
         outFrame.timeStampValid = rt.igCtrlProc.timeStampValid;
         if (rt.entityPosProc.got)
-            outFrame.eye = rt.entityPosProc.eye;
+        {
+            EyePose eye = rt.entityPosProc.eye;
+            // Detach with non-zero ParentID is illegal for our eye slot — drop eye (lla设计 §5).
+            if (eye.frame == EyeFrame::LLA && eye.parentId != 0)
+                ; // leave outFrame.eye empty
+            else
+                outFrame.eye = eye;
+        }
         return true;
     }
 

@@ -32,6 +32,8 @@ public:
     {
         double x = 0, y = 0, z = 0;
         double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+        /// From wire AttachState (lla设计 §5); true = Detach+LLA.
+        bool isLla = false;
     };
 
     bool initialize(const AddressConfig& local);

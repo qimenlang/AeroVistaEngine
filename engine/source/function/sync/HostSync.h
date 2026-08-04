@@ -39,6 +39,8 @@ public:
     {
         double x = 0, y = 0, z = 0;
         double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
+        /// Maps to cigi_wire::EyeFrame / AttachState (lla设计 §5).
+        bool isLla = false;
     };
     /// Fan-out IGCtrl (+ optional Host eye) to all ready IGs.
     void update(double simTimeMs = 0.0, const EyePose* eye = nullptr);
