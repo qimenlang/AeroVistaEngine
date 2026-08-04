@@ -1,0 +1,47 @@
+﻿---
+description: Cognitive complexity and CCN gates for engine/source (clang-tidy + lizard)
+globs: engine/source/**/*.{cpp,h,hpp}
+alwaysApply: true
+---
+
+# Engine complexity gates
+
+Authority: `doc/notes/代码质量指标.md` §6. Naming/VSG style stays in `cpp-vsg-style.mdc`.
+
+## Thresholds (hard)
+
+| Metric | Tool | Max | Scope |
+| ------ | ---- | --- | ----- |
+| Cognitive complexity | clang-tidy `readability-function-cognitive-complexity` | **20** | `engine/**` TUs (Tests **exempt**) |
+| Cyclomatic CCN | lizard (`scripts/lizard_engine.py`, `-C 15`) | **15** | `engine/source/**/*.cpp` only |
+
+Pre-commit / CI treat over-limit as **failure**. Do not “fix” by silencing the gate.
+
+## Hard bans
+
+- Do **not** add `NOLINT` / `NOLINTNEXTLINE` for these two checks to ship over-limit code.
+- Do **not** leave a new/edited function over threshold “for a follow-up”.
+- Prefer extract **private methods** or **file-local helpers** (anonymous namespace) over deeper nesting.
+- `Network.cpp` / `Network.h` are script-excluded legacy; do not copy that exemption pattern elsewhere.
+
+## When editing `engine/source`
+
+1. Keep each function under both thresholds while writing (early extract if branches pile up).
+2. Before finishing the change, run on touched files:
+
+```text
+python scripts/clang_tidy_engine.py engine/source/path/Foo.cpp
+python scripts/lizard_engine.py engine/source/path/Foo.cpp
+```
+
+3. Need `compile_commands.json` for tidy (e.g. `cmake --preset clang-Ninja` or `ci-debug`). Optional: `AEROVISTA_TIDY_BUILD_DIR`.
+4. Full source scan when unsure: `python scripts/lizard_engine.py --all-source`.
+
+## Fix pattern (preferred)
+
+```cpp
+// ❌ one large init/update with many if/else branches
+// ✅ orchestrator + helpers each under the limits
+bool Engine::initGraphics(const vsg::Path& modelPath);
+bool Engine::createVulkanDevice(int& queueFamily);
+```

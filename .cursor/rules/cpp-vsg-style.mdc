@@ -1,7 +1,7 @@
 ﻿---
 description: VSG-aligned C++ naming and style for AeroVistaEngine (from CONTRIBUTING.md)
 globs: engine/**/*.{h,hpp,cpp}
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Engine C++ style (VSG)
@@ -65,3 +65,4 @@ void renderOneTick();
 2. Enum values are SCREAMING_SNAKE.
 3. Public API names are clear; files match primary type names where applicable.
 4. Unrelated mass renames are out of scope unless asked.
+5. Complexity (cognitive ≤20, CCN ≤15): see `engine-complexity-gates.mdc`; run tidy/lizard on touched `engine/source` files.
