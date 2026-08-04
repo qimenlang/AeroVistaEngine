@@ -7,11 +7,28 @@
 #include "function/sync/SynchronSystem.h"
 #include "vsg/core/ref_ptr.h"
 
+#include <cstddef>
 #include <string>
+#include <unordered_map>
 
 class Engine
 {
 public:
+    struct Entity
+    {
+        int id = 0;
+        std::string name;
+        std::string path;
+        bool hasLocalPose = false;
+        bool hasEllipsoidPose = false;
+        vsg::dvec3 localPosition{};
+        vsg::dvec3 localYpr{};
+        vsg::dvec3 ellipsoidLla{};
+        vsg::dvec3 ellipsoidYpr{};
+        vsg::ref_ptr<vsg::Node> node;
+        vsg::ref_ptr<vsg::MatrixTransform> transform;
+    };
+
     Engine();
     ~Engine();
 
@@ -37,8 +54,7 @@ public:
     /// Load/inject EllipsoidModel for sync mode checks without creating a Vulkan Device.
     bool initSceneMode(const vsg::Path& modelPath);
     bool initGraphics(const vsg::Path& modelPath);
-    /// True after initSceneMode/initGraphics if scene has EllipsoidModel (lla §2 / §4.5).
-    bool sceneHasEllipsoidModel() const { return _sceneHasEllipsoidModel; }
+    /// Scene EllipsoidModel if present (lla §2 / §4.5); null when Local without model ellipsoid.
     vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel() const;
 
     /// One frame: preFrame → update → render → postFrame.
@@ -61,8 +77,20 @@ public:
     /// Set LookAt from LLA (lat°, lon°, alt m) + local ENU YPR degrees. Requires scene EllipsoidModel.
     bool setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
+    bool sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3& eulerYprDeg) const;
+    std::size_t entitySize() const;
+    bool hasEntityId(int id) const;
+    bool entityName(int id, std::string& outName) const;
+    vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
+
 private:
     void applyConfigToEngine();
+    bool initGraphicsFromEntities();
+    bool assembleEntitiesScene();
+    bool ensureEllipsoidModelForFrame();
+    void applyCameraPoseFromConfig();
+    vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;
+    bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
 
     /// Frame phases: orchestrate subsystems and viewer in fixed order.
     void preFrame();
@@ -98,9 +126,9 @@ private:
     VkExtent2D _currentExtent{};
     bool _hasRenderedFrame = false;
     bool _reportFrameStats = false;
-    bool _sceneHasEllipsoidModel = false;
     double _lastFrameSeconds = 0.0;
     double _syncSimTimeMs = 0.0;
 
     vsg::ref_ptr<SynchronSystem> _synchronSystem;
+    std::unordered_map<int, Entity> _entitiesById;
 };

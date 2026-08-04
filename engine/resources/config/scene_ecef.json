@@ -1,0 +1,25 @@
+﻿{
+  "coordFrame": "Ellipsoid",
+  "entities": [
+    {
+      "id": 1,
+      "name": "teapot",
+      "model": "models/teapot.vsgt",
+      "pose": {
+        "ellipsoid": {
+          "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
+          "eulerYprDeg": [0.0, 0.0, 0.0]
+        }
+      }
+    }
+  ],
+  "camera": {
+    "pose": {
+      "ellipsoid": {
+        "lla": { "lat": 39.90852, "lon": 116.3975, "alt": 3.0 },
+        "eulerYprDeg": [0.0, -12.0, 0.0]
+      }
+    }
+  },
+  "window": { "x": 100, "y": 100, "width": 1280, "height": 720 }
+}

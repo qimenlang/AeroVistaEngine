@@ -1,12 +1,14 @@
 ﻿#include "function/config/EngineConfig.h"
 
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <initializer_list>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -27,11 +29,13 @@ namespace
 
         bool isNull() const { return std::holds_alternative<JsonNull>(data); }
         bool isObject() const { return std::holds_alternative<JsonObject>(data); }
+        bool isArray() const { return std::holds_alternative<JsonArray>(data); }
         bool isString() const { return std::holds_alternative<std::string>(data); }
         bool isNumber() const { return std::holds_alternative<double>(data); }
         bool isBool() const { return std::holds_alternative<bool>(data); }
 
         const JsonObject& asObject() const { return std::get<JsonObject>(data); }
+        const JsonArray& asArray() const { return std::get<JsonArray>(data); }
         const std::string& asString() const { return std::get<std::string>(data); }
         double asNumber() const { return std::get<double>(data); }
         bool asBool() const { return std::get<bool>(data); }
@@ -453,10 +457,171 @@ namespace
             throw std::runtime_error("requireIgConnect without igLocal is invalid");
     }
 
+    std::string basenameOfModel(const std::string& modelPath)
+    {
+        const auto slash = modelPath.find_last_of("/\\");
+        return slash == std::string::npos ? modelPath : modelPath.substr(slash + 1);
+    }
+
+    int requireStrictInt(const JsonObject& obj, const char* key)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v)
+            throw std::runtime_error(std::string("missing/invalid int: ") + key);
+        rejectNull(*v, key);
+        if (!v->isNumber())
+            throw std::runtime_error(std::string("missing/invalid int: ") + key);
+        const double n = v->asNumber();
+        if (n != std::floor(n))
+            throw std::runtime_error(std::string("missing/invalid int: ") + key);
+        return static_cast<int>(n);
+    }
+
+    Vec3Config requireVec3Array(const JsonObject& obj, const char* key)
+    {
+        const JsonValue* v = find(obj, key);
+        if (!v)
+            throw std::runtime_error(std::string("missing/invalid array: ") + key);
+        rejectNull(*v, key);
+        if (!v->isArray())
+            throw std::runtime_error(std::string("missing/invalid array: ") + key);
+        const JsonArray& arr = v->asArray();
+        if (arr.size() != 3)
+            throw std::runtime_error(std::string("array length must be 3: ") + key);
+        Vec3Config out;
+        for (std::size_t i = 0; i < 3; ++i)
+        {
+            if (!arr[i].isNumber())
+                throw std::runtime_error(std::string("array elements must be numbers: ") + key);
+        }
+        out.x = arr[0].asNumber();
+        out.y = arr[1].asNumber();
+        out.z = arr[2].asNumber();
+        return out;
+    }
+
+    LocalPoseConfig parseLocalPose(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"position", "eulerYprDeg"});
+        LocalPoseConfig pose;
+        pose.position = requireVec3Array(obj, "position");
+        pose.eulerYprDeg = requireVec3Array(obj, "eulerYprDeg");
+        return pose;
+    }
+
+    EllipsoidPoseConfig parseEllipsoidPose(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"lla", "eulerYprDeg"});
+        const JsonValue* llaValue = find(obj, "lla");
+        if (!llaValue)
+            throw std::runtime_error("missing/invalid object: lla");
+        const JsonObject& llaObj = requireObjectValue(*llaValue, "lla");
+        rejectUnknownKeys(llaObj, {"lat", "lon", "alt"});
+        EllipsoidPoseConfig pose;
+        pose.lla.x = requireNumber(llaObj, "lat");
+        pose.lla.y = requireNumber(llaObj, "lon");
+        pose.lla.z = requireNumber(llaObj, "alt");
+        pose.eulerYprDeg = requireVec3Array(obj, "eulerYprDeg");
+        return pose;
+    }
+
+    void parseDualPose(const JsonObject& poseObj, CoordFrameIntent frame, bool& hasLocal, LocalPoseConfig& local,
+                       bool& hasEllipsoid, EllipsoidPoseConfig& ellipsoid)
+    {
+        rejectUnknownKeys(poseObj, {"local", "ellipsoid"});
+        hasLocal = false;
+        hasEllipsoid = false;
+        if (const JsonValue* v = find(poseObj, "local"))
+        {
+            hasLocal = true;
+            local = parseLocalPose(requireObjectValue(*v, "local"));
+        }
+        if (const JsonValue* v = find(poseObj, "ellipsoid"))
+        {
+            hasEllipsoid = true;
+            ellipsoid = parseEllipsoidPose(requireObjectValue(*v, "ellipsoid"));
+        }
+        if (frame == CoordFrameIntent::LOCAL && !hasLocal)
+            throw std::runtime_error("pose.local required when coordFrame is Local");
+        if (frame == CoordFrameIntent::ELLIPSOID && !hasEllipsoid)
+            throw std::runtime_error("pose.ellipsoid required when coordFrame is Ellipsoid");
+    }
+
+    EntityConfig parseEntityItem(const JsonObject& obj, CoordFrameIntent frame)
+    {
+        rejectUnknownKeys(obj, {"id", "name", "model", "pose"});
+        EntityConfig entity;
+        entity.id = requireStrictInt(obj, "id");
+        entity.model = requireString(obj, "model");
+        if (entity.model.empty())
+            throw std::runtime_error("entities[].model must be non-empty");
+        entity.name = parseOptionalString(obj, "name", basenameOfModel(entity.model));
+        if (const JsonValue* poseValue = find(obj, "pose"))
+        {
+            entity.hasPose = true;
+            parseDualPose(requireObjectValue(*poseValue, "pose"), frame, entity.hasPoseLocal, entity.localPose,
+                          entity.hasPoseEllipsoid, entity.ellipsoidPose);
+        }
+        return entity;
+    }
+
+    std::vector<EntityConfig> parseEntitiesArray(const JsonValue& value, CoordFrameIntent frame)
+    {
+        rejectNull(value, "entities");
+        if (!value.isArray())
+            throw std::runtime_error("entities must be an array");
+        const JsonArray& arr = value.asArray();
+        if (arr.empty())
+            throw std::runtime_error("entities must not be empty");
+
+        std::vector<EntityConfig> entities;
+        entities.reserve(arr.size());
+        std::unordered_set<int> seenIds;
+        for (const JsonValue& item : arr)
+        {
+            const EntityConfig entity = parseEntityItem(requireObjectValue(item, "entities[]"), frame);
+            if (!seenIds.insert(entity.id).second)
+                throw std::runtime_error("duplicate entity id");
+            entities.push_back(entity);
+        }
+        return entities;
+    }
+
+    CameraConfig parseCamera(const JsonObject& obj, CoordFrameIntent frame)
+    {
+        rejectUnknownKeys(obj, {"pose"});
+        CameraConfig camera;
+        if (const JsonValue* poseValue = find(obj, "pose"))
+        {
+            camera.hasPose = true;
+            parseDualPose(requireObjectValue(*poseValue, "pose"), frame, camera.hasPoseLocal, camera.localPose,
+                          camera.hasPoseEllipsoid, camera.ellipsoidPose);
+        }
+        return camera;
+    }
+
+    void parseModelEntityMutex(const JsonObject& root, EngineChannelConfig& cfg)
+    {
+        const bool hasModelKey = find(root, "model") != nullptr;
+        const bool hasEntityKey = find(root, "entity") != nullptr;
+        const bool hasEntitiesKey = find(root, "entities") != nullptr;
+        const int presentCount = static_cast<int>(hasModelKey) + static_cast<int>(hasEntityKey) +
+                                 static_cast<int>(hasEntitiesKey);
+        if (presentCount > 1)
+            throw std::runtime_error("model, entity, and entities are mutually exclusive");
+        if (hasEntityKey)
+            throw std::runtime_error("singular entity is not supported; use entities");
+        if (hasEntitiesKey)
+            cfg.entities = parseEntitiesArray(*find(root, "entities"), cfg.coordFrame);
+        if (hasModelKey)
+            cfg.model = requireString(root, "model");
+    }
+
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
         rejectUnknownKeys(root, {"channelId", "offsetDeg", "igLocal", "hostEndpoint", "hostLocal", "model", "window",
-                                 "hostEyeStalePolicy", "requireIgConnect", "coordFrame"});
+                                 "hostEyeStalePolicy", "requireIgConnect", "coordFrame", "entities", "entity",
+                                 "camera"});
 
         EngineChannelConfig cfg;
         cfg.channelId = parseOptionalInt(root, "channelId", cfg.channelId);
@@ -479,8 +644,6 @@ namespace
         if (const JsonValue* v = find(root, "hostEndpoint"))
             cfg.hostEndpoint = parseHostEndpoint(requireObjectValue(*v, "hostEndpoint"));
 
-        cfg.model = parseOptionalString(root, "model", cfg.model);
-
         if (const JsonValue* v = find(root, "window"))
             cfg.window = parseWindow(requireObjectValue(*v, "window"));
 
@@ -499,6 +662,14 @@ namespace
                 cfg.coordFrame = CoordFrameIntent::ELLIPSOID;
             else
                 throw std::runtime_error("coordFrame must be \"Local\" or \"Ellipsoid\"");
+        }
+
+        parseModelEntityMutex(root, cfg);
+
+        if (const JsonValue* v = find(root, "camera"))
+        {
+            cfg.hasCamera = true;
+            cfg.camera = parseCamera(requireObjectValue(*v, "camera"), cfg.coordFrame);
         }
 
         const bool hasRequireIgConnect = find(root, "requireIgConnect") != nullptr;
@@ -536,6 +707,7 @@ bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, 
         std::ostringstream oss;
         oss << in.rdbuf();
         std::string text = oss.str();
+        // windows上读取json文件时，去掉 UTF-8 文件开头的 BOM，避免解析失败
         if (text.size() >= 3 &&
             static_cast<unsigned char>(text[0]) == 0xEF &&
             static_cast<unsigned char>(text[1]) == 0xBB &&

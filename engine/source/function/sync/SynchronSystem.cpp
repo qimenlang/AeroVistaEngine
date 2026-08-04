@@ -33,8 +33,7 @@ namespace
 
     bool sceneIsEllipsoid(Engine& engine)
     {
-        // Prefer Engine flag (works for sync-only IG without Vulkan Device).
-        return engine.sceneHasEllipsoidModel();
+        return static_cast<bool>(engine.ellipsoidModel());
     }
 
     void enuBasisFromLocalToWorld(const vsg::dmat4& localToWorld, vsg::dvec3& east, vsg::dvec3& north, vsg::dvec3& upAxis)

@@ -340,6 +340,47 @@ namespace
         return false;
     }
 
+    vsg::dvec3 toDVec3(const Vec3Config& v)
+    {
+        return vsg::dvec3{v.x, v.y, v.z};
+    }
+
+    /// R = Rz(yaw)*Rx(pitch)*Ry(roll) as 3×3 (same axis order as setCameraPose / ModelConfigTests).
+    vsg::dmat4 rotationMatrixYpr(const vsg::dvec3& eulerYprDeg)
+    {
+        const vsg::dquat qRoll(vsg::radians(eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0));
+        const vsg::dquat qPitch(vsg::radians(eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0));
+        const vsg::dquat qYaw(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0));
+        const auto rotate = [&](const vsg::dvec3& v) { return qYaw * (qPitch * (qRoll * v)); };
+        const vsg::dvec3 x = rotate(vsg::dvec3(1.0, 0.0, 0.0));
+        const vsg::dvec3 y = rotate(vsg::dvec3(0.0, 1.0, 0.0));
+        const vsg::dvec3 z = rotate(vsg::dvec3(0.0, 0.0, 1.0));
+        vsg::dmat4 m = vsg::dmat4(1.0);
+        m(0, 0) = x.x;
+        m(0, 1) = x.y;
+        m(0, 2) = x.z;
+        m(1, 0) = y.x;
+        m(1, 1) = y.y;
+        m(1, 2) = y.z;
+        m(2, 0) = z.x;
+        m(2, 1) = z.y;
+        m(2, 2) = z.z;
+        return m;
+    }
+
+    bool setupOptions(vsg::ref_ptr<vsg::Options>& options)
+    {
+        options = vsg::Options::create();
+        options->sharedObjects = vsg::SharedObjects::create();
+        options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
+        options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
+        options->add(vsgXchange::all::create());
+#ifdef RESOURCE_DIR
+        options->paths.push_back(vsg::Path(RESOURCE_DIR));
+#endif
+        return true;
+    }
+
 } // namespace
 
 #ifndef RESOURCE_DIR
@@ -426,6 +467,158 @@ vsg::ref_ptr<vsg::EllipsoidModel> Engine::ellipsoidModel() const
     if (!_scene)
         return {};
     return _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
+}
+
+bool Engine::sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3& eulerYprDeg) const
+{
+    const auto it = _entitiesById.find(id);
+    if (it == _entitiesById.end())
+        return false;
+    const Entity& entity = it->second;
+    if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
+    {
+        if (!entity.hasEllipsoidPose)
+            return false;
+        positionOrLla = entity.ellipsoidLla;
+        eulerYprDeg = entity.ellipsoidYpr;
+        return true;
+    }
+    if (!entity.hasLocalPose)
+        return false;
+    positionOrLla = entity.localPosition;
+    eulerYprDeg = entity.localYpr;
+    return true;
+}
+
+std::size_t Engine::entitySize() const
+{
+    return _entitiesById.size();
+}
+
+bool Engine::hasEntityId(int id) const
+{
+    return _entitiesById.find(id) != _entitiesById.end();
+}
+
+bool Engine::entityName(int id, std::string& outName) const
+{
+    const auto it = _entitiesById.find(id);
+    if (it == _entitiesById.end())
+        return false;
+    outName = it->second.name;
+    return true;
+}
+
+vsg::ref_ptr<vsg::MatrixTransform> Engine::entityTransform(int id) const
+{
+    const auto it = _entitiesById.find(id);
+    if (it == _entitiesById.end())
+        return {};
+    return it->second.transform;
+}
+
+vsg::dmat4 Engine::makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const
+{
+    if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
+    {
+        const vsg::dvec3 lla = toDVec3(cfg.ellipsoidPose.lla);
+        const vsg::dvec3 ypr = toDVec3(cfg.ellipsoidPose.eulerYprDeg);
+        return ellipsoid->computeLocalToWorldTransform(lla) * rotationMatrixYpr(ypr);
+    }
+    const vsg::dvec3 position = toDVec3(cfg.localPose.position);
+    const vsg::dvec3 ypr = toDVec3(cfg.localPose.eulerYprDeg);
+    return vsg::translate(position) * rotationMatrixYpr(ypr);
+}
+
+void Engine::applyCameraPoseFromConfig()
+{
+    if (!config.hasCamera || !config.camera.hasPose)
+        return;
+    if (config.coordFrame == CoordFrameIntent::ELLIPSOID && config.camera.hasPoseEllipsoid)
+    {
+        setCameraPoseLla(toDVec3(config.camera.ellipsoidPose.lla), toDVec3(config.camera.ellipsoidPose.eulerYprDeg));
+        return;
+    }
+    if (config.coordFrame == CoordFrameIntent::LOCAL && config.camera.hasPoseLocal)
+        setCameraPose(toDVec3(config.camera.localPose.position), toDVec3(config.camera.localPose.eulerYprDeg));
+}
+
+bool Engine::ensureEllipsoidModelForFrame()
+{
+    auto ellipsoidModel = _scene ? _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel") : vsg::ref_ptr<vsg::EllipsoidModel>{};
+    const char* ellipsoidSource = "model";
+    if (ellipsoidModel)
+    {
+        if (config.coordFrame == CoordFrameIntent::LOCAL)
+        {
+            std::cerr << "[WARN] scene has EllipsoidModel but coordFrame is Local; "
+                         "runtime stays ellipsoid (lla设计 §2.3)\n";
+        }
+    }
+    else if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
+    {
+        ellipsoidModel = vsg::EllipsoidModel::create();
+        _scene->setObject("EllipsoidModel", ellipsoidModel);
+        ellipsoidSource = "inject-WGS84";
+    }
+
+    if (ellipsoidModel)
+    {
+        std::cerr << "[INFO] EllipsoidModel radii equator=" << ellipsoidModel->radiusEquator()
+                  << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
+    }
+    return true;
+}
+
+bool Engine::assembleEntitiesScene()
+{
+    _entitiesById.clear();
+    if (!setupOptions(_options))
+        return false;
+
+    auto root = vsg::Group::create();
+    _scene = root;
+    if (!ensureEllipsoidModelForFrame())
+        return false;
+    auto ellipsoid = ellipsoidModel();
+
+    for (const EntityConfig& cfg : config.entities)
+    {
+        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / cfg.model;
+        vsg::ref_ptr<vsg::Node> loaded;
+        if (!loadScene(modelPath, _options, loaded))
+            return false;
+
+        Entity entity;
+        entity.id = cfg.id;
+        entity.name = cfg.name;
+        entity.path = cfg.model;
+        entity.hasLocalPose = cfg.hasPoseLocal;
+        entity.hasEllipsoidPose = cfg.hasPoseEllipsoid;
+        entity.localPosition = toDVec3(cfg.localPose.position);
+        entity.localYpr = toDVec3(cfg.localPose.eulerYprDeg);
+        entity.ellipsoidLla = toDVec3(cfg.ellipsoidPose.lla);
+        entity.ellipsoidYpr = toDVec3(cfg.ellipsoidPose.eulerYprDeg);
+        entity.node = loaded;
+
+        if (cfg.hasPose)
+        {
+            if (config.coordFrame == CoordFrameIntent::ELLIPSOID && !ellipsoid)
+                return false;
+            auto mt = vsg::MatrixTransform::create();
+            mt->matrix = makeEntityMatrix(cfg, ellipsoid);
+            mt->addChild(loaded);
+            root->addChild(mt);
+            entity.transform = mt;
+        }
+        else
+        {
+            root->addChild(loaded);
+        }
+
+        _entitiesById.emplace(entity.id, std::move(entity));
+    }
+    return true;
 }
 
 bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
@@ -516,6 +709,9 @@ bool Engine::init()
     _synchronSystem->setOffsetDeg(config.offsetDeg);
     _synchronSystem->setHostEyeStalePolicy(config.hostEyeStalePolicy);
 
+    if (!config.entities.empty())
+        return initGraphicsFromEntities();
+
     // model paths in JSON are relative to resources/
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
     return initGraphics(modelPath);
@@ -543,42 +739,11 @@ bool Engine::initSceneMode(const vsg::Path& modelPath)
 {
     try
     {
-        _options = vsg::Options::create();
-        _options->sharedObjects = vsg::SharedObjects::create();
-        _options->fileCache = vsg::getEnv("VSG_FILE_CACHE");
-        _options->paths = vsg::getEnvPaths("VSG_FILE_PATH");
-        _options->add(vsgXchange::all::create());
-#ifdef RESOURCE_DIR
-        _options->paths.push_back(vsg::Path(RESOURCE_DIR));
-#endif
-
+        if (!setupOptions(_options))
+            return false;
         if (!loadScene(modelPath, _options, _scene))
             return false;
-
-        auto ellipsoidModel = _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
-        const char* ellipsoidSource = "model";
-        if (ellipsoidModel)
-        {
-            if (config.coordFrame == CoordFrameIntent::LOCAL)
-            {
-                std::cerr << "[WARN] scene has EllipsoidModel but coordFrame is Local; "
-                             "runtime stays ellipsoid (lla设计 §2.3)\n";
-            }
-        }
-        else if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
-        {
-            ellipsoidModel = vsg::EllipsoidModel::create();
-            _scene->setObject("EllipsoidModel", ellipsoidModel);
-            ellipsoidSource = "inject-WGS84";
-        }
-
-        _sceneHasEllipsoidModel = static_cast<bool>(ellipsoidModel);
-        if (ellipsoidModel)
-        {
-            std::cerr << "[INFO] EllipsoidModel radii equator=" << ellipsoidModel->radiusEquator()
-                      << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
-        }
-        return true;
+        return ensureEllipsoidModelForFrame();
     }
     catch (const vsg::Exception& ve)
     {
@@ -593,6 +758,7 @@ void Engine::resetGraphicsResources()
     if (_synchronSystem)
         _synchronSystem->resetEyeCaches();
 
+    _entitiesById.clear();
     _currentExtent = extent;
     _hasRenderedFrame = false;
     // Drop prior Vulkan graph before allocating a new Device (Catch multi-Engine suites).
@@ -734,6 +900,68 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
     return commandGraph;
 }
 
+bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel)
+{
+    int queueFamily = -1;
+    if (!createVulkanDevice(queueFamily))
+        return false;
+
+    vsg::ComputeBounds computeBounds;
+    _scene->accept(computeBounds);
+    const vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+    const double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
+    constexpr double nearFarRatio = 0.001;
+
+    auto lookAt = createInitialLookAt(ellipsoidModel, centre, radius);
+    auto perspective = createInitialProjection(lookAt, ellipsoidModel, radius, nearFarRatio);
+    auto camera = vsg::Camera::create(perspective, lookAt, vsg::ViewportState::create(_currentExtent));
+    _mainCamera = camera;
+
+    auto colorImageView = createColorImageView(_device, _currentExtent, imageFormat);
+    auto depthImageView = createDepthImageView(_device, _currentExtent, depthFormat);
+    auto renderPass = createOffscreenRenderPass(_device, imageFormat, depthFormat);
+    auto framebuffer = vsg::Framebuffer::create(renderPass, vsg::ImageViews{colorImageView, depthImageView},
+                                                _currentExtent.width, _currentExtent.height, 1);
+
+    vsg::ref_ptr<vsg::Commands> colorBufferCapture;
+    std::tie(colorBufferCapture, _copiedColorBuffer) =
+        createColorCapture(_device, _currentExtent, colorImageView->image, imageFormat);
+
+    auto offscreenRenderGraph = vsg::RenderGraph::create();
+    offscreenRenderGraph->framebuffer = framebuffer;
+    offscreenRenderGraph->renderArea.offset = {0, 0};
+    offscreenRenderGraph->renderArea.extent = _currentExtent;
+    offscreenRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
+
+    auto offscreenView = vsg::View::create(camera, _scene);
+    offscreenView->addChild(vsg::createHeadlight());
+    offscreenRenderGraph->addChild(offscreenView);
+
+    auto commandGraph =
+        buildCommandGraph(camera, ellipsoidModel, offscreenRenderGraph, colorBufferCapture, queueFamily);
+    _viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
+    _viewer->compile();
+    _viewer->start_point() = vsg::clock::now();
+    applyCameraPoseFromConfig();
+    return true;
+}
+
+bool Engine::initGraphicsFromEntities()
+{
+    try
+    {
+        resetGraphicsResources();
+        if (!assembleEntitiesScene())
+            return false;
+        return finishGraphicsAfterScene(ellipsoidModel());
+    }
+    catch (const vsg::Exception& ve)
+    {
+        std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
+        return false;
+    }
+}
+
 bool Engine::initGraphics(const vsg::Path& modelPath)
 {
     try
@@ -741,50 +969,7 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
         resetGraphicsResources();
         if (!initSceneMode(modelPath))
             return false;
-
-        auto ellipsoidModel = _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
-
-        int queueFamily = -1;
-        if (!createVulkanDevice(queueFamily))
-            return false;
-
-        vsg::ComputeBounds computeBounds;
-        _scene->accept(computeBounds);
-        const vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
-        const double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
-        constexpr double nearFarRatio = 0.001;
-
-        auto lookAt = createInitialLookAt(ellipsoidModel, centre, radius);
-        auto perspective = createInitialProjection(lookAt, ellipsoidModel, radius, nearFarRatio);
-        auto camera = vsg::Camera::create(perspective, lookAt, vsg::ViewportState::create(_currentExtent));
-        _mainCamera = camera;
-
-        auto colorImageView = createColorImageView(_device, _currentExtent, imageFormat);
-        auto depthImageView = createDepthImageView(_device, _currentExtent, depthFormat);
-        auto renderPass = createOffscreenRenderPass(_device, imageFormat, depthFormat);
-        auto framebuffer = vsg::Framebuffer::create(renderPass, vsg::ImageViews{colorImageView, depthImageView},
-                                                    _currentExtent.width, _currentExtent.height, 1);
-
-        vsg::ref_ptr<vsg::Commands> colorBufferCapture;
-        std::tie(colorBufferCapture, _copiedColorBuffer) =
-            createColorCapture(_device, _currentExtent, colorImageView->image, imageFormat);
-
-        auto offscreenRenderGraph = vsg::RenderGraph::create();
-        offscreenRenderGraph->framebuffer = framebuffer;
-        offscreenRenderGraph->renderArea.offset = {0, 0};
-        offscreenRenderGraph->renderArea.extent = _currentExtent;
-        offscreenRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
-
-        auto offscreenView = vsg::View::create(camera, _scene);
-        offscreenView->addChild(vsg::createHeadlight());
-        offscreenRenderGraph->addChild(offscreenView);
-
-        auto commandGraph =
-            buildCommandGraph(camera, ellipsoidModel, offscreenRenderGraph, colorBufferCapture, queueFamily);
-        _viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
-        _viewer->compile();
-        _viewer->start_point() = vsg::clock::now();
-        return true;
+        return finishGraphicsAfterScene(ellipsoidModel());
     }
     catch (const vsg::Exception& ve)
     {

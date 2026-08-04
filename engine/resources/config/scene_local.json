@@ -1,0 +1,25 @@
+﻿{
+  "coordFrame": "Local",
+  "entities": [
+    {
+      "id": 1,
+      "name": "teapot",
+      "model": "models/teapot.vsgt",
+      "pose": {
+        "local": {
+          "position": [1.0, 0.0, 0.0],
+          "eulerYprDeg": [0.0, 0.0, 0.0]
+        }
+      }
+    }
+  ],
+  "camera": {
+    "pose": {
+      "local": {
+        "position": [0.0, 0.0, 0.0],
+        "eulerYprDeg": [-90.0, 0.0, 0.0]
+      }
+    }
+  },
+  "window": { "x": 100, "y": 100, "width": 1280, "height": 720 }
+}

@@ -115,17 +115,6 @@ namespace
     {
         return R"("hostLocal": { "addr": "127.0.0.1", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 })";
     }
-
-    // Engine creates EllipsoidPerspective iff scene had EllipsoidModel at camera create
-    // (engine.cpp). Used as the acceptance probe for "scene has EllipsoidModel" until a
-    // public scene() accessor exists.
-    bool sceneHasEllipsoidModel(const Engine& engine)
-    {
-        auto camera = engine.mainCamera();
-        if (!camera || !camera->projectionMatrix)
-            return false;
-        return static_cast<bool>(camera->projectionMatrix.cast<vsg::EllipsoidPerspective>());
-    }
 } // namespace
 
 // =============================================================================
@@ -149,7 +138,7 @@ SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has 
 
             THEN("the scene carries an EllipsoidModel after init")
             {
-                REQUIRE(sceneHasEllipsoidModel(engine));
+                REQUIRE(engine.ellipsoidModel());
             }
         }
 
@@ -163,7 +152,7 @@ SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has 
 
             THEN("the scene has no EllipsoidModel after init")
             {
-                REQUIRE_FALSE(sceneHasEllipsoidModel(engine));
+                REQUIRE_FALSE(engine.ellipsoidModel());
             }
         }
     }
@@ -184,7 +173,7 @@ SCENARIO("model-built-in EllipsoidModel is kept when coordFrame is Local or omit
 
             THEN("the scene still carries EllipsoidModel (runtime stays ellipsoid)")
             {
-                REQUIRE(sceneHasEllipsoidModel(engine));
+                REQUIRE(engine.ellipsoidModel());
             }
         }
 
@@ -199,7 +188,7 @@ SCENARIO("model-built-in EllipsoidModel is kept when coordFrame is Local or omit
 
             THEN("the scene still carries EllipsoidModel (Local does not strip model ellipsoid)")
             {
-                REQUIRE(sceneHasEllipsoidModel(engine));
+                REQUIRE(engine.ellipsoidModel());
             }
         }
     }
@@ -218,7 +207,7 @@ SCENARIO("coordFrame Ellipsoid injects before camera create with default LLA Loo
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
-        REQUIRE(sceneHasEllipsoidModel(engine));
+        REQUIRE(engine.ellipsoidModel());
 
         WHEN("the main camera LookAt is inspected before any tick")
         {
@@ -257,7 +246,7 @@ SCENARIO("model-built-in ellipsoid also initializes at default LLA LookAt",
         const TempConfigFile file(std::string("{") + kReadymapModel + ", " + kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
-        REQUIRE(sceneHasEllipsoidModel(engine));
+        REQUIRE(engine.ellipsoidModel());
 
         WHEN("the main camera LookAt is inspected before any tick")
         {

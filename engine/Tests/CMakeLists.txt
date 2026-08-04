@@ -1,10 +1,11 @@
-﻿set(TARGET_NAME vsgEngineTests)
+set(TARGET_NAME vsgEngineTests)
 
 set(SOURCES
     ImageCompare.cpp
     RenderingTests.cpp
     HostIGTests.cpp
     EngineConfigTests.cpp
+    ModelConfigTests.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})

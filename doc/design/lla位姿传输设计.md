@@ -31,7 +31,7 @@
 | 采样出站 | Host：`LookAt→LLA + 当地 YPR`，避免把 ECEF 大数当本地 XYZ 发出 |
 | 本地模式 | 现有 XYZ + 世界轴 YPR 路径行为不变 |
 
-**不做**（见 §8）：取消顶层 `model`、并行双写 `local`/`ellipsoid` pose、仅为演示把普通模型钉到某 LLA、本迭代强制依赖瓦片。
+**不做**（见 §8）：仅为演示把普通模型钉到某 LLA、本迭代强制依赖瓦片。实体 / 相机配置结构见 [位姿配置设计.md](./位姿配置设计.md)。
 
 成功标准：同一套帧循环下，Host 与全体 IG 在椭球场景中共用眼点；各通道 frustum 仍由本地 `offsetDeg` 区分；本地笛卡尔同步回归不破。
 
@@ -499,23 +499,13 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 
 ## 6. 配置
 
-**本迭代最小集**（`coordFrame` / 注入 / 初始相机 / 半径 / 部署约束的完整语义见 **§2**）：
+本文只覆盖 **LLA 传输语义相关的通道字段**（`coordFrame` 意图、椭球注入、初始相机默认、`offsetDeg`、同步地址等）；实体 / 相机 pose 的 JSON 结构与解析规则见 [位姿配置设计.md](./位姿配置设计.md)。
 
-- 保持现有顶层 `model`、`offsetDeg`、同步地址字段等（方案 A 不变）。
+**本迭代 LLA 侧最小集**（`coordFrame` / 注入 / 初始相机 / 半径 / 部署约束的完整语义见 **§2**）：
+
 - 新增可选顶层 `coordFrame`：`"Local"` \| `"Ellipsoid"`，缺省等价 `"Local"`（§2.2）。
 - 椭球来源与注入：§2.3、§2.4。
-- **不**引入 `entity`/`camera` 嵌套、**不**取消 `model`、**不**要求 JSON 双写 local/ellipsoid pose。
 - **不**在 HELLO 中增加 `coordFrame` 字段（§2.2 / §2.5）。
-
-示例（普通模型强制椭球同步语义，无瓦片；画面可能不合理，见 §1 / §2.6）：
-
-```json
-{
-  "coordFrame": "Ellipsoid",
-  "model": "models/lz.vsgt",
-  "window": { "x": 0, "y": 0, "width": 640, "height": 1080 }
-}
-```
 
 `readymap` 等自带椭球时可不写 `coordFrame`（仍走 ECEF）；写 `"Ellipsoid"` 亦可。各通道意图与模型椭球来源应一致（§2.4–§2.5）。
 
@@ -549,8 +539,6 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 
 | 项 | 原因 |
 | --- | --- |
-| 取消 `model`、引入 `entity`/`camera` 大配置重构 | 与 LLA 传输无关，迁移成本高 |
-| JSON 并行 `pose.local` + `pose.ellipsoid` | 双意图源；同步只需运行时一种权威语义 |
 | 本迭代把普通 `.vsgt` 钉到指定 LLA 作为主交付 | 演示 ECEF 摆模可另开；不挡传眼点（见 §1 不保证项） |
 | 用 `normalize(eye)` 作为正式 `up` | 非正式椭球法向 |
 | 仅 init 写 LookAt、推迟写入口 / 采样 / 报文 | 无法完成帧同步 |

@@ -1542,7 +1542,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 
         auto emA = ellipsoidOf(engineA);
         REQUIRE(emA);
-        REQUIRE(engineB.sceneHasEllipsoidModel());
+        REQUIRE(engineB.ellipsoidModel());
         auto emB = engineB.ellipsoidModel();
         REQUIRE(emB);
         REQUIRE(radiiEqual(*emA, *emB));
@@ -1706,7 +1706,7 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
 
-        REQUIRE(engineB.sceneHasEllipsoidModel());
+        REQUIRE(engineB.ellipsoidModel());
         REQUIRE(radiiEqual(*ellipsoidOf(engineA), *engineB.ellipsoidModel()));
 
         OffsetDeg offsetB{60.0, 0.0, 0.0};
@@ -1822,7 +1822,7 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
             {
                 REQUIRE(emA);
                 REQUIRE(emB);
-                REQUIRE(engineB.sceneHasEllipsoidModel());
+                REQUIRE(engineB.ellipsoidModel());
                 REQUIRE(radiiEqual(*emA, *emB));
             }
         }
@@ -1848,7 +1848,7 @@ SCENARIO("Host ellipsoid vs IG local rejects mismatched eye and keeps SOF health
         REQUIRE(engineA.initGraphics(readymapPath));
         REQUIRE(engineB.initSceneMode(teapotPath));
         REQUIRE(ellipsoidOf(engineA));
-        REQUIRE_FALSE(engineB.sceneHasEllipsoidModel());
+        REQUIRE_FALSE(engineB.ellipsoidModel());
 
         engineA.synchronSystem().setOffsetDeg({});
         engineB.synchronSystem().setOffsetDeg({});
@@ -1996,8 +1996,8 @@ SCENARIO("Host local vs IG ellipsoid rejects mismatched Attach eye and keeps SOF
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(teapotPath));
         REQUIRE(engineB.initSceneMode(readymapPath));
-        REQUIRE_FALSE(engineA.sceneHasEllipsoidModel());
-        REQUIRE(engineB.sceneHasEllipsoidModel());
+        REQUIRE_FALSE(engineA.ellipsoidModel());
+        REQUIRE(engineB.ellipsoidModel());
 
         engineA.synchronSystem().setOffsetDeg({});
         engineB.synchronSystem().setOffsetDeg({});
@@ -2054,8 +2054,8 @@ SCENARIO("local XYZ Host→IG follow remains green under mode-isolation regressi
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
-        REQUIRE_FALSE(engineA.sceneHasEllipsoidModel());
-        REQUIRE_FALSE(engineB.sceneHasEllipsoidModel());
+        REQUIRE_FALSE(engineA.ellipsoidModel());
+        REQUIRE_FALSE(engineB.ellipsoidModel());
 
         engineA.synchronSystem().setOffsetDeg({});
         engineB.synchronSystem().setOffsetDeg({});
@@ -2327,7 +2327,7 @@ SCENARIO("WorldLocal lastSent is discarded on ellipsoid scene and not fanned out
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
         REQUIRE(ellipsoidOf(engineA));
-        REQUIRE(engineB.sceneHasEllipsoidModel());
+        REQUIRE(engineB.ellipsoidModel());
 
         engineA.synchronSystem().setOffsetDeg({});
         engineB.synchronSystem().setOffsetDeg({});
@@ -2380,8 +2380,8 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
-        REQUIRE_FALSE(engineA.sceneHasEllipsoidModel());
-        REQUIRE_FALSE(engineB.sceneHasEllipsoidModel());
+        REQUIRE_FALSE(engineA.ellipsoidModel());
+        REQUIRE_FALSE(engineB.ellipsoidModel());
 
         engineA.synchronSystem().setOffsetDeg({});
         engineB.synchronSystem().setOffsetDeg({});
