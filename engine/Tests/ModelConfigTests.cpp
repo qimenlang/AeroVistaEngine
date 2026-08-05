@@ -3,6 +3,8 @@
 
 #include "engine.h"
 
+#include <vsgXchange/all.h>
+
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -236,6 +238,103 @@ namespace
         auto mt = engine.entityTransform(id);
         REQUIRE(mt);
         requireMatrixNear(mt->matrix, expectedLocalEntityMatrix(position, ypr), eps);
+    }
+
+    vsg::ref_ptr<vsg::Options> testOptions()
+    {
+        auto options = vsg::Options::create();
+        options->sharedObjects = vsg::SharedObjects::create();
+        options->add(vsgXchange::all::create());
+        options->paths.push_back(vsg::Path(RESOURCE_DIR));
+        return options;
+    }
+
+    void requireFiniteLookAt(const vsg::LookAt& lookAt)
+    {
+        for (const double c : {lookAt.eye.x, lookAt.eye.y, lookAt.eye.z, lookAt.center.x, lookAt.center.y,
+                               lookAt.center.z, lookAt.up.x, lookAt.up.y, lookAt.up.z})
+        {
+            REQUIRE(std::isfinite(c));
+        }
+        REQUIRE(vsg::length(lookAt.up) > 1e-9);
+        REQUIRE(vsg::length(lookAt.center - lookAt.eye) > 1e-9);
+    }
+
+    /// Mirror Engine::finishGraphicsAfterScene bounds (centre + radius factor 0.6).
+    void computeNodeCentreRadius(vsg::ref_ptr<vsg::Node> root, vsg::dvec3& centre, double& radius)
+    {
+        vsg::ComputeBounds computeBounds;
+        root->accept(computeBounds);
+        centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+        radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
+        REQUIRE(radius > 0.0);
+    }
+
+    void requireLookAtMatchesLocalAabbDefault(Engine& engine, const vsg::dvec3& entityPosition,
+                                              const vsg::dvec3& entityYpr)
+    {
+        auto options = testOptions();
+        auto loaded = vsg::read_cast<vsg::Node>(vsg::Path(RESOURCE_DIR) / kTeapot, options);
+        REQUIRE(loaded);
+        auto mt = vsg::MatrixTransform::create();
+        mt->matrix = expectedLocalEntityMatrix(entityPosition, entityYpr);
+        mt->addChild(loaded);
+        auto root = vsg::Group::create();
+        root->addChild(mt);
+
+        vsg::dvec3 centre{};
+        double radius = 0.0;
+        computeNodeCentreRadius(root, centre, radius);
+
+        auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+        REQUIRE(lookAt);
+        requireFiniteLookAt(*lookAt);
+        const vsg::dvec3 expectedEye = centre + vsg::dvec3(0.0, -radius * 1.5, 0.0);
+        REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-4);
+        REQUIRE(vsg::length(lookAt->center - centre) < 1e-4);
+        REQUIRE(vsg::length(vsg::normalize(lookAt->up) - vsg::dvec3(0.0, 0.0, 1.0)) < 1e-6);
+    }
+
+    /// 位姿配置设计.md §4 Ellipsoid：eye = centre - north·(1.5 R) + up·(0.35 R)，看向 centre。
+    void requireLookAtMatchesEllipsoidAabbDefault(Engine& engine, const vsg::dvec3& entityLla,
+                                                  const vsg::dvec3& entityYpr)
+    {
+        auto ellipsoid = engine.ellipsoidModel();
+        REQUIRE(ellipsoid);
+
+        auto options = testOptions();
+        auto loaded = vsg::read_cast<vsg::Node>(vsg::Path(RESOURCE_DIR) / kTeapot, options);
+        REQUIRE(loaded);
+        auto mt = vsg::MatrixTransform::create();
+        mt->matrix = expectedEllipsoidEntityMatrix(*ellipsoid, entityLla, entityYpr);
+        mt->addChild(loaded);
+        auto root = vsg::Group::create();
+        root->addChild(mt);
+
+        vsg::dvec3 centre{};
+        double radius = 0.0;
+        computeNodeCentreRadius(root, centre, radius);
+
+        const vsg::dvec3 llaC = ellipsoid->convertECEFToLatLongAltitude(centre);
+        const vsg::dmat4 localToWorld = ellipsoid->computeLocalToWorldTransform(llaC);
+        const vsg::dvec3 north =
+            vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
+        const vsg::dvec3 up =
+            vsg::normalize(vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
+        constexpr double kBack = 1.5;
+        constexpr double kUp = 0.35;
+        const vsg::dvec3 expectedEye = centre - north * (kBack * radius) + up * (kUp * radius);
+
+        auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+        REQUIRE(lookAt);
+        requireFiniteLookAt(*lookAt);
+        auto ep = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
+        REQUIRE(ep);
+        REQUIRE(ep->ellipsoidModel);
+
+        REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1.0); // metre-scale ECEF
+        REQUIRE(vsg::length(lookAt->center - centre) < 1.0);
+        REQUIRE(vsg::length(vsg::normalize(lookAt->up) - up) < 1e-4);
     }
 } // namespace
 
@@ -706,6 +805,62 @@ SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
             {
                 requireLookAtMatchesLlaPose(engine, *ep->ellipsoidModel, vsg::dvec3{39.9, 116.4, 500.0},
                                             vsg::dvec3{0.0, 10.0, 0.0});
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Default camera from scene AABB when camera.pose is omitted (位姿配置设计.md §4)
+// -----------------------------------------------------------------------------
+
+SCENARIO("no camera config: Local default LookAt frames entities AABB",
+         "[acceptance][bdd][config][pose][local][camera][aabb-default]")
+{
+    GIVEN("a Local entities config without camera")
+    {
+        constexpr vsg::dvec3 kPos{2.0, 0.0, 0.0};
+        constexpr vsg::dvec3 kYpr{0.0, 0.0, 0.0};
+        const TempConfigFile cfgFile(
+            channelJson("Local", "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
+        Engine engine;
+        initOffscreen(engine, cfgFile.path());
+
+        WHEN("config and main camera are inspected")
+        {
+            THEN("camera key is absent and LookAt matches AABB default (设计 §4 Local)")
+            {
+                REQUIRE_FALSE(engine.config.hasCamera);
+                REQUIRE_FALSE(engine.config.camera.hasPose);
+                REQUIRE(engine.mainCamera());
+                requireLookAtMatchesLocalAabbDefault(engine, kPos, kYpr);
+            }
+        }
+    }
+}
+
+SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
+         "[acceptance][bdd][config][pose][ellipsoid][camera][aabb-default]")
+{
+    GIVEN("an Ellipsoid entities config without camera, model pinned away from Beijing default")
+    {
+        // Far from hardcoded (39.9,116.4,500) so a Beijing fallback cannot pass by accident.
+        constexpr vsg::dvec3 kLla{-33.8688, 151.2093, 0.0};
+        constexpr vsg::dvec3 kYpr{0.0, 0.0, 0.0};
+        const TempConfigFile cfgFile(
+            channelJson("Ellipsoid", "[" + jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(kLla, kYpr)) + "]"));
+        Engine engine;
+        initOffscreen(engine, cfgFile.path());
+
+        WHEN("config and main camera are inspected")
+        {
+            THEN("camera key is absent and LookAt matches AABB→ENU default (设计 §4 Ellipsoid)")
+            {
+                REQUIRE_FALSE(engine.config.hasCamera);
+                REQUIRE_FALSE(engine.config.camera.hasPose);
+                REQUIRE(engine.mainCamera());
+                REQUIRE(engine.ellipsoidModel());
+                requireLookAtMatchesEllipsoidAabbDefault(engine, kLla, kYpr);
             }
         }
     }
