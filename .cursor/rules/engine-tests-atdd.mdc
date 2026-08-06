@@ -34,11 +34,13 @@ Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observ
 ❌ [bdd] on setCameraPose / resolveConfigPath with no [unit]
 ❌ Title: "queue-injected Host eye…"
 ❌ REQUIRE every main.json literal (8000, 640, …) in acceptance tests
+❌ Reading config files from engine/resources/config/ in tests — tests must be self-contained
 
 ✅ Split connect-fail / connect-ok / host-offline disconnect
 ✅ [unit][camera] TEST_CASE for LookAt pose helper
 ✅ Title: "linked IG applies Host eye…"; queue in comment
 ✅ Compare to loadEngineChannelConfig / engine.config
+✅ Inline JSON constants + TempConfigFile instead of reading resource config files
 ```
 
 ## AI + tests

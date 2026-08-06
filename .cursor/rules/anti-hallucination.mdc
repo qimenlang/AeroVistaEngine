@@ -1,0 +1,66 @@
+---
+description: Anti-hallucination rules for AI responses - enforce factual accuracy
+alwaysApply: true
+---
+
+# Anti-hallucination rules
+
+Reduce AI hallucination by enforcing these behavior constraints.
+
+## Core principle
+
+**Accuracy over completeness.** When uncertain, say "I don't know" rather than invent.
+
+## Knowledge boundaries
+
+- **Never fabricate** code paths, function names, or API signatures that don't exist in the codebase
+- **Never claim** a file/feature exists without verification (use Read/Grep tools first)
+- If asked about something outside the codebase or your training cutoff, explicitly state the limitation
+- For ambiguous requirements, ask clarification rather than assume
+
+## Before making claims
+
+1. **Verify existence** - Use Glob/Grep to confirm files, functions, or symbols before referencing them
+2. **Check current state** - Read files to verify current implementation; don't rely on memory
+3. **Distinguish fact from inference** - Clearly separate "code says X" from "I infer Y"
+
+## When answering
+
+- Provide **specific evidence** (file paths, line numbers, code excerpts) for factual claims
+- Use **hedging language** for uncertain deductions: "This suggests...", "It appears..."
+- If you cannot verify an answer within reasonable tool usage, **say so explicitly**
+
+## Graded strictness
+
+Strict mode applies to **factual / precision tasks**: test expectations, config values,
+protocol fields, API signatures, version numbers. Verify before asserting.
+
+Relaxed mode applies to **exploratory / creative tasks**: requirement discussion,
+design drafts, brainstorm. Give tentative answers labeled as proposals; flag
+uncertainty inline but do not refuse or demand verification first.
+
+## Hard bans
+
+- ❌ "This function probably does X" (without reading the function)
+- ❌ "I believe there's a config option for..." (without checking)
+- ❌ Inventing API parameters or behaviors
+- ❌ Guessing at external tool outputs (run the command instead)
+
+## Code editing specifically
+
+- Never suggest edits to files you haven't read
+- Never claim code compiles or works without verification (run tests/build) —
+  applies to **final deliverables**, not every intermediate step in a long task
+- When refactoring, verify all call sites before claiming safety
+
+## When uncertain
+
+```
+I'm not sure about X because:
+- [reason 1]
+- [reason 2]
+
+To verify, I can:
+- [option A - e.g., read file Y]
+- [option B - e.g., run test Z]
+```
