@@ -94,7 +94,7 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
         → coordFrame == "Ellipsoid" → 注入 EllipsoidModel::create()（WGS-84，§2.4）
         → 缺省 / "Local"           → 不注入 → 本地笛卡尔
 4. 若此时场景有 EllipsoidModel
-   → 写默认 LLA 初始 LookAt（见本小节下文）；禁止再用 AABB + 世界 Z-up
+   → 写默认初始 LookAt（见 [位姿配置设计.md](./位姿配置设计.md) §4）；禁止再用 AABB + 世界 Z-up
 5. 创建 Projection / Trackball
    → 有椭球：EllipsoidPerspective + 椭球 Trackball
    → 无椭球：普通透视
@@ -106,14 +106,7 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
 
 一句话：**只有场景加载完且没有 `EllipsoidModel` 时，才根据 `coordFrame` 决定是否另外注入**；已有则一律保留。
 
-步骤 4 的默认 LLA（第一版写死，Host/IG 必须相同；用 §3.3 构造 LookAt）：
-
-```text
-lat = 39.9 °,  lon = 116.4 °,  alt = 500 m
-yaw = pitch = roll = 0          // 朝北，当地水平
-```
-
-（北京附近上空，仅作联调默认。无瓦片、未摆模时画面仍可能空，见 §1 / §2.6，但地平线/天向应合理。）
+步骤 4 的默认初始相机：见 [位姿配置设计.md](./位姿配置设计.md) §4。按 AABB 计算 centre / radius，分别用 Local 或 Ellipsoid 公式生成 LookAt，不再写死北京为唯一默认。
 
 ### 2.4 椭球半径（Host / IG 一致）
 
@@ -509,6 +502,8 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 
 `readymap` 等自带椭球时可不写 `coordFrame`（仍走 ECEF）；写 `"Ellipsoid"` 亦可。各通道意图与模型椭球来源应一致（§2.4–§2.5）。
 
+**投影 near/far（Ellipsoid 专有）**：`EllipsoidPerspective` **每帧动态计算** near/far，由 eye 海拔和视线角度决定（见 [位姿配置设计.md](./位姿配置设计.md) §4.4）。这高度自适应飞行仿真场景，但会带来深度精度损失和数值边界 corner case 的 trade-off。配置中不直接控制 near/far。
+
 ---
 
 ## 7. 验收要点
@@ -523,7 +518,7 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 | 线契约 | Detach+LLA 与 Attach+XYZ 打包/解包；`AttachState`→位置类型正确；**Detach 时 ParentID=0、EntityID=0**；Attach 时 EntityID=0、ParentID=1；切换 Attach↔Detach 组合合法 |
 | 组包依据 | Host 按 `HostEyePose` 位置类型选择 Attach/Detach；线上无私有 frame 字段 |
 | 模式隔离 | 本地回归全绿；错模式眼点不污染相机；首拒收 `[ERROR]`；`eyePoseRejectedByFrameMismatch` 递增；SOF/ready 仍正常 |
-| 模式装配 | 按 §2：无椭球才看 `coordFrame` 注入；模型自带则保留；注入在相机创建前；默认初始 LLA = (39.9, 116.4, 500)、YPR=0 |
+| 模式装配 | 按 §2：无椭球才看 `coordFrame` 注入；模型自带则保留；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
 | 范围校验 | Lat/Lon/Pitch 越界不抛穿；丢弃眼点并计数；lon 归一化到 (-180,180] |
 | 权威 offset | 权威窗 `offsetDeg` 全 0；非 0 不作为第一版支持场景 |
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |

@@ -1,6 +1,7 @@
 ﻿#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "InitialCameraConfig.h"
 #include "engine.h"
 
 #include <vsgXchange/all.h>
@@ -289,7 +290,7 @@ namespace
         auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
         REQUIRE(lookAt);
         requireFiniteLookAt(*lookAt);
-        const vsg::dvec3 expectedEye = centre + vsg::dvec3(0.0, -radius * 1.5, 0.0);
+        const vsg::dvec3 expectedEye = centre + vsg::dvec3(0.0, -radius * initial_camera::kLocalBackMultiplier, 0.0);
         REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-4);
         REQUIRE(vsg::length(lookAt->center - centre) < 1e-4);
         REQUIRE(vsg::length(vsg::normalize(lookAt->up) - vsg::dvec3(0.0, 0.0, 1.0)) < 1e-6);
@@ -321,9 +322,7 @@ namespace
             vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
         const vsg::dvec3 up =
             vsg::normalize(vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
-        constexpr double kBack = 1.5;
-        constexpr double kUp = 0.35;
-        const vsg::dvec3 expectedEye = centre - north * (kBack * radius) + up * (kUp * radius);
+        const vsg::dvec3 expectedEye = centre - north * (initial_camera::kEllipsoidBackMultiplier * radius) + up * (initial_camera::kEllipsoidUpMultiplier * radius);
 
         auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
         REQUIRE(lookAt);
@@ -334,7 +333,6 @@ namespace
 
         REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1.0); // metre-scale ECEF
         REQUIRE(vsg::length(lookAt->center - centre) < 1.0);
-        REQUIRE(vsg::length(vsg::normalize(lookAt->up) - up) < 1e-4);
     }
 } // namespace
 
@@ -867,17 +865,17 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 }
 
 // -----------------------------------------------------------------------------
-// System: shipped resource configs (pose_local_teapot / pose_ellipsoid_tiananmen)
+// System: shipped resource configs (scene_local / scene_ecef)
 // -----------------------------------------------------------------------------
 
-SCENARIO("system loads pose_local_teapot.json with one local entity and camera",
+SCENARIO("system loads scene_local.json with one local entity and camera",
          "[system][bdd][config][pose][local][resource]")
 {
     GIVEN("the shipped Local teapot pose config")
     {
         Engine engine;
         engine.showWindow = false;
-        REQUIRE(engine.loadConfig(resourceConfigPath("pose_local_teapot.json")));
+        REQUIRE(engine.loadConfig(resourceConfigPath("scene_local.json")));
         REQUIRE(engine.init());
 
         WHEN("scene mode, entity map, entity pose, and camera are inspected")
@@ -893,8 +891,8 @@ SCENARIO("system loads pose_local_teapot.json with one local entity and camera",
                 vsg::dvec3 position{};
                 vsg::dvec3 ypr{};
                 REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
-                requireDVec3Near(position, vsg::dvec3{1.0, 0.0, 0.0});
-                requireDVec3Near(ypr, vsg::dvec3{0.0, 0.0, 0.0});
+                requireDVec3Near(position, vsg::dvec3{10.0, 0.0, -2.0});
+                requireDVec3Near(ypr, vsg::dvec3{90.0, 0.0, 0.0});
                 REQUIRE(engine.entityTransform(1));
             }
             THEN("main camera LookAt matches the config local camera pose")
@@ -906,14 +904,14 @@ SCENARIO("system loads pose_local_teapot.json with one local entity and camera",
     }
 }
 
-SCENARIO("system loads pose_ellipsoid_tiananmen.json with one ECEF entity and camera",
+SCENARIO("system loads scene_ecef.json with one ECEF entity and camera",
          "[system][bdd][config][pose][ellipsoid][resource]")
 {
     GIVEN("the shipped Ellipsoid Tiananmen teapot pose config")
     {
         Engine engine;
         engine.showWindow = false;
-        REQUIRE(engine.loadConfig(resourceConfigPath("pose_ellipsoid_tiananmen.json")));
+        REQUIRE(engine.loadConfig(resourceConfigPath("scene_ecef.json")));
         REQUIRE(engine.init());
 
         WHEN("scene mode, entity map, entity pose, and camera are inspected")

@@ -70,6 +70,9 @@ public:
     /// On-screen vsg window (null when showWindow=false / offscreen).
     vsg::ref_ptr<vsg::Window> mainWindow() const;
 
+    /// Scene root node (for tests to compute AABB, see 位姿配置设计.md §4).
+    vsg::ref_ptr<vsg::Node> mainScene() const { return _scene; }
+
     /// World / channel camera used by Trackball and Host→IG pose sync (not HUD).
     vsg::ref_ptr<vsg::Camera> mainCamera() const;
     /// Set LookAt from world position + Euler YPR degrees (yaw,pitch,roll; Y-forward, Z-up).
@@ -128,6 +131,10 @@ private:
     bool _reportFrameStats = false;
     double _lastFrameSeconds = 0.0;
     double _syncSimTimeMs = 0.0;
+
+    // AABB bounds for initial camera and projection adjustment (位姿配置设计.md §4)
+    vsg::dvec3 _aabbCentre{0.0, 0.0, 0.0};
+    double _aabbRadius = 0.0;
 
     vsg::ref_ptr<SynchronSystem> _synchronSystem;
     std::unordered_map<int, Entity> _entitiesById;

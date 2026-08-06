@@ -1,0 +1,45 @@
+﻿{
+  "coordFrame": "Ellipsoid",
+  "channelId": 0,
+  "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
+  "igLocal": {
+    "addr": "127.0.0.1",
+    "udpPortSend": 8000,
+    "udpPortRecv": 8001
+  },
+  "hostEndpoint": {
+    "addr": "127.0.0.1",
+    "tcpPort": 8100,
+    "udpPortRecv": 8000
+  },
+  "hostLocal": {
+    "addr": "127.0.0.1",
+    "udpPortSend": 8001,
+    "udpPortRecv": 8000,
+    "tcpPort": 8100
+  },
+  "window": { "x": 640, "y": 0, "width": 640, "height": 1080 },
+  "hostEyeStalePolicy": "ReuseLast",
+  "requireIgConnect": true,
+  "entities": [
+    {
+      "id": 1,
+      "name": "teapot",
+      "model": "models/lz.vsgt",
+      "pose": {
+        "ellipsoid": {
+          "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
+          "eulerYprDeg": [0.0, 0.0, 0.0]
+        }
+      }
+    }
+  ],
+  "camera": {
+    "pose": {
+      "ellipsoid": {
+        "lla": { "lat": 39.90852, "lon": 116.3975, "alt": 3.0 },
+        "eulerYprDeg": [0.0, -12.0, 0.0]
+      }
+    }
+  }
+}

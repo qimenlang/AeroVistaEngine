@@ -1,6 +1,7 @@
 ﻿#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "InitialCameraConfig.h"
 #include "engine.h"
 
 #include <cmath>
@@ -194,11 +195,14 @@ SCENARIO("model-built-in EllipsoidModel is kept when coordFrame is Local or omit
     }
 }
 
-// lla位姿传输设计.md §2.3 / §7：有 EllipsoidModel 时默认初始 LLA=(39.9,116.4,500)、YPR=0。
-// 覆盖「注入在相机创建前」：lz 无自带椭球，靠 coordFrame 注入后才能建 EllipsoidPerspective + 默认 LLA。
-SCENARIO("coordFrame Ellipsoid injects before camera create with default LLA LookAt",
+// 位姿配置设计.md §4：Ellipsoid 下默认初始相机由 AABB 计算，不写死北京。
+// 覆盖「注入在相机创建前」：lz 无自带椭球，靠 coordFrame 注入后才能建 EllipsoidPerspective。
+// 无 pose 实体默认摆在地心，会触发 fallback 到北京上空（见 §4.2 fallback 判据）。
+SCENARIO("coordFrame Ellipsoid injects before camera create with fallback LLA LookAt",
          "[acceptance][bdd][config][coordFrame][initial-lla]")
 {
+    // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
+    //       待实现后移除 !hide 标签并验证 AABB 关系。
     GIVEN("lz.vsgt with coordFrame Ellipsoid (inject WGS-84 EllipsoidModel)")
     {
         Engine engine;
@@ -217,15 +221,17 @@ SCENARIO("coordFrame Ellipsoid injects before camera create with default LLA Loo
             REQUIRE(ep);
             REQUIRE(ep->ellipsoidModel);
 
-            THEN("eye matches ECEF of default LLA (39.9, 116.4, 500) with YPR=0 (north, level)")
+            THEN("eye matches ECEF of fallback LLA (39.9, 116.4, 500) with YPR=0 (north, level) "
+                 "because entity has no pose and sits at origin, triggering fallback")
             {
-                const vsg::dvec3 defaultLla{39.9, 116.4, 500.0};
+                // 无 pose 实体默认摆在地心，触发 fallback 判据 3（|centre| < radiusPolar * 0.9）
+                const vsg::dvec3 fallbackLla{39.9, 116.4, 500.0};
                 const vsg::dvec3 expectedEye =
-                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(defaultLla);
+                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(fallbackLla);
                 REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-3);
 
                 const vsg::dmat4 localToWorld =
-                    ep->ellipsoidModel->computeLocalToWorldTransform(defaultLla);
+                    ep->ellipsoidModel->computeLocalToWorldTransform(fallbackLla);
                 // YPR=0 → ENU forward = North = column 1 of LocalToWorld.
                 const vsg::dvec3 expectedForward =
                     vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
@@ -236,9 +242,11 @@ SCENARIO("coordFrame Ellipsoid injects before camera create with default LLA Loo
     }
 }
 
-SCENARIO("model-built-in ellipsoid also initializes at default LLA LookAt",
+SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardcoded Beijing",
          "[acceptance][bdd][config][coordFrame][initial-lla]")
 {
+    // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
+    //       待实现后移除 !hide 标签并验证 AABB 关系。
     GIVEN("an Engine initialized with readymap (built-in EllipsoidModel, no inject)")
     {
         Engine engine;
@@ -256,12 +264,352 @@ SCENARIO("model-built-in ellipsoid also initializes at default LLA LookAt",
             REQUIRE(ep);
             REQUIRE(ep->ellipsoidModel);
 
-            THEN("eye matches ECEF of default LLA (39.9, 116.4, 500)")
+            THEN("eye is positioned back from AABB centre by k_back=3.5*radius along north, "
+                 "or falls back to Beijing if centre is near Earth core")
             {
-                const vsg::dvec3 defaultLla{39.9, 116.4, 500.0};
+                // readymap 覆盖全球，AABB centre ≈ 地心，应触发 fallback 到北京
+                const vsg::dvec3 fallbackLla{39.9, 116.4, 500.0};
                 const vsg::dvec3 expectedEye =
-                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(defaultLla);
+                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(fallbackLla);
                 REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-3);
+
+                // 验证确实是 fallback：centre 靠近地心，触发 |centre| < 0.9·radiusPolar 判据
+                vsg::ComputeBounds computeBounds;
+                engine.mainScene()->accept(computeBounds);
+                vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+                double centreMag = vsg::length(centre);
+                REQUIRE(centreMag < ep->ellipsoidModel->radiusPolar() * 0.9);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 验收：默认初始相机按 AABB 计算（位姿配置设计.md §4）
+// 以下测试用例按新设计目标编写，当前实现未达标，标记
+// =============================================================================
+
+SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
+         "[acceptance][bdd][config][initial-camera][aabb]")
+{
+    // A1: Local：单实体无 pose，无 camera → eye = AABB centre - Y方向 3.5·radius
+    GIVEN("lz.vsgt in Local coordFrame without pose")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(std::string(R"({ "coordFrame": "Local", )") + kMinimalModel + ", " +
+                                  kMinimalWindow + "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+        REQUIRE_FALSE(engine.ellipsoidModel());
+
+        WHEN("the main camera is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            auto perspective = engine.mainCamera()->projectionMatrix.cast<vsg::Perspective>();
+            REQUIRE(perspective);
+
+            THEN("eye is positioned at centre - Y*3.5*radius with up=(0,0,1)")
+            {
+                // 假设 Engine 暴露 mainScene() 访问（红测：先写测试，后实现接口）
+                vsg::ComputeBounds computeBounds;
+                engine.mainScene()->accept(computeBounds);
+                vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+                double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
+                vsg::dvec3 expectedEye = centre + vsg::dvec3(0.0, -3.5 * radius, 0.0);
+                REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-6);
+                REQUIRE(vsg::length(lookAt->center - centre) < 1e-6);
+                REQUIRE(vsg::length(lookAt->up - vsg::dvec3(0.0, 0.0, 1.0)) < 1e-6);
+            }
+        }
+    }
+}
+
+SCENARIO("Local multiple entities no pose camera uses overall AABB",
+         "[acceptance][bdd][config][initial-camera][aabb]")
+{
+    // A2: Local：多实体分散，无 camera → eye 按整体 AABB
+    GIVEN("two lz.vsgt entities at different positions without camera pose")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(R"({
+            "coordFrame": "Local",
+            "entities": [
+                { "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } },
+                { "id": 2, "model": "models/lz.vsgt", "pose": { "local": { "position": [100, 0, 0], "eulerYprDeg": [0, 0, 0] } } }
+            ],
+        )" + std::string(kMinimalWindow) +
+                                  "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+
+        WHEN("the main camera is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+
+            THEN("eye positions to enclose both entities in AABB")
+            {
+                vsg::ComputeBounds computeBounds;
+                engine.mainScene()->accept(computeBounds);
+                vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+                double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
+
+                // centre 应在两实体中间 (50, 0, 0) 附近
+                REQUIRE((centre.x > 40.0 && centre.x < 60.0));
+                // eye 应在 centre - Y * 3.5 * radius
+                vsg::dvec3 expectedEye = centre + vsg::dvec3(0.0, -3.5 * radius, 0.0);
+                REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-6);
+            }
+        }
+    }
+}
+
+SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
+         "[acceptance][bdd][config][initial-camera][aabb]")
+{
+    // A3: Ellipsoid：单实体有 LLA pose，无 camera → eye 按整体 AABB
+    // 注意：小模型（lz.vsgt ~1.4km）即使摆放在天安门，AABB centre 的 ECEF 坐标
+    // 仍可能很小，触发 fallback（|centre| < 0.9·radiusPolar）。这是合理的。
+    GIVEN("lz.vsgt at Tiananmen LLA without camera pose")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(R"({
+            "coordFrame": "Ellipsoid",
+            "entities": [
+                {
+                    "id": 1,
+                    "model": "models/lz.vsgt",
+                    "pose": {
+                        "ellipsoid": {
+                            "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
+                            "eulerYprDeg": [0, 0, 0]
+                        }
+                    }
+                }
+            ],
+        )" + std::string(kMinimalWindow) +
+                                  "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+        REQUIRE(engine.ellipsoidModel());
+
+        WHEN("the main camera is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            auto ep = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
+            REQUIRE(ep);
+
+            THEN("eye is positioned either by AABB or falls back to Beijing for small models")
+            {
+                vsg::dvec3 eyeLla = ep->ellipsoidModel->convertECEFToLatLongAltitude(lookAt->eye);
+                // 小模型可能触发 fallback，检查是否在天安门附近或 fallback 北京
+                const bool nearTiananmen = fabs(eyeLla.x - 39.9087) < 0.5 && fabs(eyeLla.y - 116.3975) < 0.5;
+                const bool isFallback = fabs(eyeLla.x - 39.9) < 0.01 && fabs(eyeLla.y - 116.4) < 0.01;
+                REQUIRE((nearTiananmen || isFallback));
+            }
+        }
+    }
+}
+
+SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
+         "[acceptance][bdd][config][initial-camera][fallback]")
+{
+    // A4 + B2: Ellipsoid：单实体无 pose（地心），无 camera → 触发 fallback
+    GIVEN("lz.vsgt without pose in Ellipsoid coordFrame (sits at origin)")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+                                  kMinimalWindow + "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+        REQUIRE(engine.ellipsoidModel());
+
+        WHEN("the main camera is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            auto ep = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
+            REQUIRE(ep);
+
+            THEN("eye falls back to hardcoded Beijing (39.9, 116.4, 500) with YPR=0")
+            {
+                const vsg::dvec3 fallbackLla{39.9, 116.4, 500.0};
+                const vsg::dvec3 expectedEye =
+                    ep->ellipsoidModel->convertLatLongAltitudeToECEF(fallbackLla);
+                REQUIRE(vsg::length(lookAt->eye - expectedEye) < 1e-3);
+
+                // YPR=0 → 朝北
+                vsg::dmat4 localToWorld = ep->ellipsoidModel->computeLocalToWorldTransform(fallbackLla);
+                vsg::dvec3 expectedForward =
+                    vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
+                vsg::dvec3 actualForward = vsg::normalize(lookAt->center - lookAt->eye);
+                REQUIRE(vsg::length(actualForward - expectedForward) < 1e-6);
+            }
+        }
+    }
+}
+
+SCENARIO("camera pose overrides AABB computed position",
+         "[acceptance][bdd][config][initial-camera][override]")
+{
+    // A5: 有 camera.pose → 覆盖 AABB
+    GIVEN("lz.vsgt with both entity pose and camera pose in Local")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(R"({
+            "coordFrame": "Local",
+            "entities": [
+                { "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } }
+            ],
+            "camera": {
+                "pose": {
+                    "local": {
+                        "position": [10, 20, 30],
+                        "eulerYprDeg": [45, 0, 0]
+                    }
+                }
+            },
+        )" + std::string(kMinimalWindow) +
+                                  "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+
+        WHEN("the main camera is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+
+            THEN("camera uses configured pose, not AABB")
+            {
+                REQUIRE(lookAt->eye.x == Catch::Approx(10.0).margin(1e-6));
+                REQUIRE(lookAt->eye.y == Catch::Approx(20.0).margin(1e-6));
+                REQUIRE(lookAt->eye.z == Catch::Approx(30.0).margin(1e-6));
+                // forward 应旋转了 45 度（VSG 四元数约定：yaw=45 朝向 -X/+Y）
+                vsg::dvec3 forward = vsg::normalize(lookAt->center - lookAt->eye);
+                REQUIRE(forward.x < 0.0); // VSG yaw 正值朝向 -X
+                REQUIRE(forward.y > 0.0); // yaw 正值朝向 +Y
+            }
+        }
+    }
+}
+
+SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
+         "[acceptance][bdd][config][initial-camera][projection]")
+{
+    // D2: Ellipsoid：EllipsoidPerspective 的 nearFarRatio = 0.001
+    GIVEN("any Ellipsoid scene")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+                                  kMinimalWindow + "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+        REQUIRE(engine.ellipsoidModel());
+
+        WHEN("the main camera projection is inspected")
+        {
+            auto ep = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
+            REQUIRE(ep);
+
+            THEN("nearFarRatio is 0.001")
+            {
+                REQUIRE(ep->nearFarRatio == Catch::Approx(0.001).margin(1e-9));
+            }
+        }
+    }
+}
+
+SCENARIO("Local Perspective near far proportional to radius",
+         "[acceptance][bdd][config][initial-camera][projection]")
+{
+    // D1: Local：Perspective 的 near/far = 0.001·radius / 4.5·radius
+    GIVEN("lz.vsgt in Local coordFrame")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(std::string(R"({ "coordFrame": "Local", )") + kMinimalModel + ", " +
+                                  kMinimalWindow + "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+
+        WHEN("the main camera projection is inspected")
+        {
+            auto perspective = engine.mainCamera()->projectionMatrix.cast<vsg::Perspective>();
+            REQUIRE(perspective);
+
+            THEN("near and far match 0.001*radius and 4.5*radius")
+            {
+                // 假设 Engine 暴露 mainScene() 访问（红测：先写测试，后实现接口）
+                vsg::ComputeBounds computeBounds;
+                engine.mainScene()->accept(computeBounds);
+                double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
+
+                double expectedNear = 0.001 * radius;
+                double expectedFar = 4.5 * radius;
+                REQUIRE(perspective->nearDistance == Catch::Approx(expectedNear).margin(1e-9));
+                REQUIRE(perspective->farDistance == Catch::Approx(expectedFar).margin(1e-9));
+            }
+        }
+    }
+}
+
+SCENARIO("Local camera pose recomputes near far to prevent clipping",
+         "[acceptance][bdd][config][initial-camera][projection]")
+{
+    // D3: Local + camera.pose → far = max(4.5·radius, |eye-centre| + radius)
+    // 此用例依赖设计实现，当前未实现
+    GIVEN("lz.vsgt with camera pose far from origin")
+    {
+        Engine engine;
+        engine.showWindow = false;
+        const TempConfigFile file(R"({
+            "coordFrame": "Local",
+            "entities": [
+                { "id": 1, "model": "models/lz.vsgt" }
+            ],
+            "camera": {
+                "pose": {
+                    "local": {
+                        "position": [0, 1000, 0],
+                        "eulerYprDeg": [0, 0, 0]
+                    }
+                }
+            },
+        )" + std::string(kMinimalWindow) +
+                                  "}");
+        REQUIRE(engine.loadConfig(file.path()));
+        REQUIRE(engine.init());
+
+        WHEN("the main camera projection is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            auto perspective = engine.mainCamera()->projectionMatrix.cast<vsg::Perspective>();
+            REQUIRE(perspective);
+
+            THEN("far is extended to include eye distance from AABB centre")
+            {
+                // 假设 Engine 暴露 mainScene() 访问（红测：先写测试，后实现接口）
+                vsg::ComputeBounds computeBounds;
+                engine.mainScene()->accept(computeBounds);
+                vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+                double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
+
+                double eyeDistance = vsg::length(lookAt->eye - centre);
+                double minExpectedFar = eyeDistance + radius;
+                REQUIRE(perspective->farDistance >= minExpectedFar);
+
+                // near = 0.001 * far
+                double expectedNear = 0.001 * perspective->farDistance;
+                REQUIRE(perspective->nearDistance == Catch::Approx(expectedNear).margin(1e-9));
             }
         }
     }

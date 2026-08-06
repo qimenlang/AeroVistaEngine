@@ -1,5 +1,7 @@
 ﻿#include "engine.h"
 
+#include "InitialCameraConfig.h"
+
 #include <vsgXchange/all.h>
 
 #include <chrono>
@@ -540,7 +542,26 @@ void Engine::applyCameraPoseFromConfig()
         return;
     }
     if (config.coordFrame == CoordFrameIntent::LOCAL && config.camera.hasPoseLocal)
+    {
         setCameraPose(toDVec3(config.camera.localPose.position), toDVec3(config.camera.localPose.eulerYprDeg));
+
+        // 位姿配置设计.md §4.1 D3: 重算 near/far 以避免裁切
+        if (_mainCamera)
+        {
+            auto perspective = _mainCamera->projectionMatrix.cast<vsg::Perspective>();
+            if (perspective)
+            {
+                const double eyeDistance = vsg::length(_mainCamera->viewMatrix.cast<vsg::LookAt>()->eye - _aabbCentre);
+                const double minFar = eyeDistance + _aabbRadius;
+                const double defaultFar = 4.5 * _aabbRadius;
+                const double newFar = std::max(defaultFar, minFar);
+                const double newNear = 0.001 * newFar;
+                perspective->nearDistance = newNear;
+                perspective->farDistance = newFar;
+            }
+        }
+        return;
+    }
 }
 
 bool Engine::ensureEllipsoidModelForFrame()
@@ -818,22 +839,57 @@ bool Engine::createVulkanDevice(int& queueFamily)
 vsg::ref_ptr<vsg::LookAt> Engine::createInitialLookAt(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel,
                                                       const vsg::dvec3& centre, double radius) const
 {
+    // Fallback radius threshold (位姿配置设计.md §4)
     if (ellipsoidModel)
     {
-        // lla设计 §2.5 / §7: default initial LLA=(39.9,116.4,500), YPR=0 (north, level).
-        constexpr vsg::dvec3 kDefaultLla{39.9, 116.4, 500.0};
-        constexpr double kLookDistance = 1.0;
-        const vsg::dmat4 localToWorld = ellipsoidModel->computeLocalToWorldTransform(kDefaultLla);
-        const vsg::dvec3 eye = ellipsoidModel->convertLatLongAltitudeToECEF(kDefaultLla);
+        // Ellipsoid: eye = centre_ecef - north·(k_back·radius) + up·(k_up·radius)
+        // 位姿配置设计.md §4.2: k_back = 3.5, k_up = 0.3
+        constexpr vsg::dvec3 kFallbackLla{39.9, 116.4, 500.0};
+
+        // Fallback 判据：radius < 0.1 或 |centre| < 0.9·radiusPolar（场景中心落入地底）
+        const double centreMag = vsg::length(centre);
+        const bool useFallback = radius < initial_camera::kRadiusThreshold ||
+                                 centreMag < ellipsoidModel->radiusPolar() * 0.9;
+
+        if (useFallback)
+        {
+            std::cerr << "[WARN] Ellipsoid AABB triggers fallback: radius=" << radius
+                      << ", |centre|=" << centreMag << " < " << (ellipsoidModel->radiusPolar() * 0.9)
+                      << ", using fallback LLA=(39.9, 116.4, 500)\n";
+
+            const vsg::dmat4 localToWorld = ellipsoidModel->computeLocalToWorldTransform(kFallbackLla);
+            const vsg::dvec3 eye = ellipsoidModel->convertLatLongAltitudeToECEF(kFallbackLla);
+            const vsg::dvec3 north = vsg::normalize(
+                vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
+            const vsg::dvec3 up = vsg::normalize(
+                vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
+            return vsg::LookAt::create(eye, eye + north, up); // YPR=0 朝北
+        }
+
+        // 主路径：按 AABB 计算
+        const vsg::dvec3 centreLla = ellipsoidModel->convertECEFToLatLongAltitude(centre);
+        const vsg::dmat4 localToWorld = ellipsoidModel->computeLocalToWorldTransform(centreLla);
         const vsg::dvec3 north = vsg::normalize(
             vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
         const vsg::dvec3 up = vsg::normalize(
             vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
-        return vsg::LookAt::create(eye, eye + north * kLookDistance, up);
+        const vsg::dvec3 eye = centre - north * (initial_camera::kEllipsoidBackMultiplier * radius) +
+                               up * (initial_camera::kEllipsoidUpMultiplier * radius);
+        return vsg::LookAt::create(eye, centre, up);
     }
 
-    // Local: Camera matches RenderingEngine defaults so golden regression images remain valid.
-    return vsg::LookAt::create(centre + vsg::dvec3(0.0, -radius * 1.5, 0.0), centre,
+    // Local: eye = centre + (0, -k_back·radius, 0), k_back = 3.5
+    // 位姿配置设计.md §4.1
+    // Fallback: radius < 0.1 → eye=(0,0,10), center=(0,0,0), up=(0,0,1)
+    if (radius < initial_camera::kRadiusThreshold)
+    {
+        std::cerr << "[WARN] Local AABB radius=" << radius << " < " << initial_camera::kRadiusThreshold
+                  << ", using fallback eye=(0,0,10)\n";
+        return vsg::LookAt::create(vsg::dvec3(0.0, 0.0, 10.0), vsg::dvec3(0.0, 0.0, 0.0),
+                                   vsg::dvec3(0.0, 0.0, 1.0));
+    }
+
+    return vsg::LookAt::create(centre + vsg::dvec3(0.0, -initial_camera::kLocalBackMultiplier * radius, 0.0), centre,
                                vsg::dvec3(0.0, 0.0, 1.0));
 }
 
@@ -843,9 +899,25 @@ vsg::ref_ptr<vsg::ProjectionMatrix> Engine::createInitialProjection(
 {
     const double aspect =
         static_cast<double>(_currentExtent.width) / static_cast<double>(_currentExtent.height);
+
+    // Fallback radius threshold (位姿配置设计.md §4)
     if (ellipsoidModel)
-        return vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, 30.0, aspect, nearFarRatio, 0.0);
-    return vsg::Perspective::create(30.0, aspect, nearFarRatio * radius, radius * 4.5);
+    {
+        // EllipsoidPerspective 动态计算 near/far，horizonMountainHeight=0
+        return vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, initial_camera::kFieldOfViewDegrees,
+                                                 aspect, nearFarRatio,
+                                                 initial_camera::kEllipsoidHorizonMountainHeight);
+    }
+
+    // Local: near = 0.001·radius, far = 4.5·radius
+    // fallback (radius < 0.1): near=0.1, far=100
+    if (radius < initial_camera::kRadiusThreshold)
+    {
+        return vsg::Perspective::create(30.0, aspect, 0.1, 100.0);
+    }
+
+    return vsg::Perspective::create(initial_camera::kFieldOfViewDegrees, aspect, nearFarRatio * radius,
+                                    radius * initial_camera::kLocalFarMultiplier);
 }
 
 vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
@@ -910,7 +982,11 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
     _scene->accept(computeBounds);
     const vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
     const double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
-    constexpr double nearFarRatio = 0.001;
+    constexpr double nearFarRatio = initial_camera::kNearFarRatio;
+
+    // Save for camera pose adjustment (位姿配置设计.md §4.1 D3)
+    _aabbCentre = centre;
+    _aabbRadius = radius;
 
     auto lookAt = createInitialLookAt(ellipsoidModel, centre, radius);
     auto perspective = createInitialProjection(lookAt, ellipsoidModel, radius, nearFarRatio);
