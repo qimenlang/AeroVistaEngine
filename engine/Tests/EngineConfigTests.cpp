@@ -22,10 +22,11 @@
 
 namespace
 {
-    std::string configPath(const char* fileName)
-    {
-        return std::string(RESOURCE_DIR) + "/config/" + fileName;
-    }
+    const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
+    const char* kMainJson =
+        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"hostLocal":{"addr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
+    const char* kLeftJson =
+        R"({"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8003},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":false})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -625,15 +626,16 @@ SCENARIO("default Engine config matches the default channel file", "[acceptance]
     {
         Engine engine;
 
-        AND_GIVEN("the same settings loaded from default.json")
+        AND_GIVEN("the default channel settings loaded from a config")
         {
+            const TempConfigFile file(kDefaultJson);
             EngineChannelConfig fromFile;
             std::string error;
-            REQUIRE(loadEngineChannelConfig(configPath("default.json"), fromFile, &error));
+            REQUIRE(loadEngineChannelConfig(file.path(), fromFile, &error));
 
             WHEN("the default config is inspected")
             {
-                THEN("it matches default.json")
+                THEN("it matches the default channel settings")
                 {
                     requireConfigEquals(engine.config, fromFile);
                 }
@@ -664,17 +666,17 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
 
 SCENARIO("loading a channel file replaces Engine config with that file", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine and the left channel file")
+    GIVEN("an Engine and a channel file with left IG settings")
     {
         Engine engine;
         EngineChannelConfig fromFile;
         std::string error;
-        const std::string path = configPath("left.json");
-        REQUIRE(loadEngineChannelConfig(path, fromFile, &error));
+        const TempConfigFile file(kLeftJson);
+        REQUIRE(loadEngineChannelConfig(file.path(), fromFile, &error));
 
         WHEN("the Engine loads that channel file")
         {
-            REQUIRE(engine.loadConfig(path));
+            REQUIRE(engine.loadConfig(file.path()));
 
             THEN("Engine config matches the loaded file")
             {
@@ -690,10 +692,11 @@ SCENARIO("loading a channel file replaces Engine config with that file", "[accep
 
 SCENARIO("main channel file starts Host and IG using configured addresses", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine loaded from main.json (hostLocal + igLocal + hostEndpoint)")
+    GIVEN("an Engine loaded from a Host+IG+Endpoint config")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(configPath("main.json")));
+        const TempConfigFile file(kMainJson);
+        REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -713,10 +716,11 @@ SCENARIO("main channel file starts Host and IG using configured addresses", "[ac
 
 SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine loaded from left.json (igLocal + hostEndpoint, no hostLocal)")
+    GIVEN("an Engine loaded from a config with igLocal+hostEndpoint (no hostLocal)")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(configPath("left.json")));
+        const TempConfigFile file(kLeftJson);
+        REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -736,10 +740,11 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
 SCENARIO("channel offset and stale policy are applied to SynchronSystem after init",
          "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine loaded from the left channel file with non-default offset")
+    GIVEN("an Engine loaded from a channel config with non-default offset")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(configPath("left.json")));
+        const TempConfigFile file(kLeftJson);
+        REQUIRE(engine.loadConfig(file.path()));
         REQUIRE_FALSE(nearlyEqual(engine.config.offsetDeg.yaw, 0.0));
         engine.showWindow = false;
 
@@ -809,10 +814,11 @@ SCENARIO("channelId does not start Host when hostLocal is absent", "[acceptance]
 
 SCENARIO("IG-only with requireIgConnect false can init when Host is down", "[acceptance][bdd][config]")
 {
-    GIVEN("left.json (requireIgConnect false) and no Host process")
+    GIVEN("a config with requireIgConnect false and no Host process")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(configPath("left.json")));
+        const TempConfigFile file(kLeftJson);
+        REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -872,10 +878,11 @@ SCENARIO("IG-only with requireIgConnect true fails init when Host is down", "[ac
 
 SCENARIO("main channel requireIgConnect true succeeds when Host is local", "[acceptance][bdd][config]")
 {
-    GIVEN("main.json with Host+IG and requireIgConnect true")
+    GIVEN("a config with Host+IG and requireIgConnect true")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(configPath("main.json")));
+        const TempConfigFile file(kMainJson);
+        REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -895,20 +902,21 @@ SCENARIO("main channel requireIgConnect true succeeds when Host is local", "[acc
 // 单元 / 验收：解析校验（方案 A、跨字段、未知键）
 // =============================================================================
 
-TEST_CASE("resolveConfigPath defaults to default.json when -c is omitted", "[unit][config][cli]")
+TEST_CASE("resolveConfigPath defaults to default config when -c is omitted", "[unit][config][cli]")
 {
     char arg0[] = "engine.exe";
     char* argv[] = {arg0};
-    REQUIRE(Engine::resolveConfigPath(1, argv) == configPath("default.json"));
+    const std::string defaultPath = std::string(RESOURCE_DIR) + "/config/default.json";
+    REQUIRE(Engine::resolveConfigPath(1, argv) == defaultPath);
 }
 
 TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli]")
 {
     char arg0[] = "engine.exe";
     char argC[] = "-c";
-    std::string leftPath = configPath("left.json");
-    char* argv[] = {arg0, argC, leftPath.data()};
-    REQUIRE(Engine::resolveConfigPath(3, argv) == leftPath);
+    const std::string givenPath = std::string(RESOURCE_DIR) + "/config/some-channel.json";
+    char* argv[] = {arg0, argC, const_cast<char*>(givenPath.c_str())};
+    REQUIRE(Engine::resolveConfigPath(3, argv) == givenPath);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects unknown top-level keys", "[unit][config][parse]")
@@ -1046,31 +1054,34 @@ TEST_CASE("loadEngineChannelConfig rejects unknown hostEndpoint.udpPortSend (Hos
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig accepts default.json with only model and window", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts default config with only model and window", "[unit][config][parse]")
 {
+    const TempConfigFile file(kDefaultJson);
     EngineChannelConfig cfg;
     std::string error;
-    REQUIRE(loadEngineChannelConfig(configPath("default.json"), cfg, &error));
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.model == "models/lz.vsgt");
     REQUIRE(cfg.window.width == 1920);
     REQUIRE(cfg.window.height == 1080);
 }
 
-TEST_CASE("loadEngineChannelConfig accepts main.json Host+IG sample", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts Host+IG sample config", "[unit][config][parse]")
 {
+    const TempConfigFile file(kMainJson);
     EngineChannelConfig cfg;
     std::string error;
-    REQUIRE(loadEngineChannelConfig(configPath("main.json"), cfg, &error));
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE_FALSE(cfg.hostLocal.addr.empty());
     REQUIRE_FALSE(cfg.igLocal.addr.empty());
     REQUIRE_FALSE(cfg.hostEndpoint.addr.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig accepts left.json IG-only sample", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][config][parse]")
 {
+    const TempConfigFile file(kLeftJson);
     EngineChannelConfig cfg;
     std::string error;
-    REQUIRE(loadEngineChannelConfig(configPath("left.json"), cfg, &error));
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.hostLocal.addr.empty());
     REQUIRE_FALSE(cfg.igLocal.addr.empty());
     REQUIRE_FALSE(cfg.hostEndpoint.addr.empty());
@@ -1082,10 +1093,11 @@ TEST_CASE("loadEngineChannelConfig accepts left.json IG-only sample", "[unit][co
 
 SCENARIO("on-screen window position and size match the channel config", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine loaded from the main channel file with window shown")
+    GIVEN("an Engine loaded from a channel config with window shown")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(configPath("main.json")));
+        const TempConfigFile file(kMainJson);
+        REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = true;
 
         WHEN("the Engine initializes and creates a window")

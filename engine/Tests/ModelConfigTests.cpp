@@ -139,10 +139,10 @@ namespace
         REQUIRE(engine.init());
     }
 
-    std::string resourceConfigPath(const char* fileName)
-    {
-        return std::string(RESOURCE_DIR) + "/config/" + fileName;
-    }
+    const char* kSceneLocalJson =
+        R"({"coordFrame":"Local","entities":[{"id":1,"name":"teapot","model":"models/teapot.vsgt","pose":{"local":{"position":[10.0,0.0,-2.0],"eulerYprDeg":[90.0,0.0,0.0]}}}],"camera":{"pose":{"local":{"position":[0.0,0.0,0.0],"eulerYprDeg":[-90.0,0.0,0.0]}}},"window":{"x":100,"y":100,"width":1280,"height":720}})";
+    const char* kSceneEcefJson =
+        R"({"coordFrame":"Ellipsoid","entities":[{"id":1,"name":"teapot","model":"models/teapot.vsgt","pose":{"ellipsoid":{"lla":{"lat":39.9087,"lon":116.3975,"alt":0.0},"eulerYprDeg":[0.0,0.0,0.0]}}}],"camera":{"pose":{"ellipsoid":{"lla":{"lat":39.90852,"lon":116.3975,"alt":3.0},"eulerYprDeg":[0.0,-12.0,0.0]}}},"window":{"x":100,"y":100,"width":1280,"height":720}})";
 
     void requireLookAtMatchesLocalPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
     {
@@ -868,14 +868,15 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 // System: shipped resource configs (scene_local / scene_ecef)
 // -----------------------------------------------------------------------------
 
-SCENARIO("system loads scene_local.json with one local entity and camera",
+SCENARIO("system loads scene_local config with one local entity and camera",
          "[system][bdd][config][pose][local][resource]")
 {
-    GIVEN("the shipped Local teapot pose config")
+    GIVEN("a Local teapot pose config")
     {
         Engine engine;
         engine.showWindow = false;
-        REQUIRE(engine.loadConfig(resourceConfigPath("scene_local.json")));
+        const TempConfigFile file(kSceneLocalJson);
+        REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
 
         WHEN("scene mode, entity map, entity pose, and camera are inspected")
@@ -904,14 +905,15 @@ SCENARIO("system loads scene_local.json with one local entity and camera",
     }
 }
 
-SCENARIO("system loads scene_ecef.json with one ECEF entity and camera",
+SCENARIO("system loads scene_ecef config with one ECEF entity and camera",
          "[system][bdd][config][pose][ellipsoid][resource]")
 {
-    GIVEN("the shipped Ellipsoid Tiananmen teapot pose config")
+    GIVEN("an Ellipsoid Tiananmen teapot pose config")
     {
         Engine engine;
         engine.showWindow = false;
-        REQUIRE(engine.loadConfig(resourceConfigPath("scene_ecef.json")));
+        const TempConfigFile file(kSceneEcefJson);
+        REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
 
         WHEN("scene mode, entity map, entity pose, and camera are inspected")

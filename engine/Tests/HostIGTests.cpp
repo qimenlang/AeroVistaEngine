@@ -84,6 +84,34 @@ namespace
         REQUIRE(cigi_wire::unpackSof(sofBuf.data(), static_cast<int>(sofBuf.size()), sofFrame));
         REQUIRE(sofFrame == kFrame);
     }
+
+    class TempConfigFile
+    {
+    public:
+        explicit TempConfigFile(const std::string& jsonBody)
+        {
+            _path = (std::filesystem::temp_directory_path() /
+                     ("ave_hostig_cfg_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".json"))
+                        .string();
+            std::ofstream out(_path, std::ios::binary);
+            REQUIRE(out);
+            out << jsonBody;
+        }
+
+        ~TempConfigFile()
+        {
+            std::error_code ec;
+            std::filesystem::remove(_path, ec);
+        }
+
+        const std::string& path() const { return _path; }
+
+    private:
+        std::string _path;
+    };
+
+    const char* kMainJson =
+        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"hostLocal":{"addr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
 } // namespace
 
 TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
@@ -2150,11 +2178,12 @@ TEST_CASE("CIGI LLA pack normalizes longitude into (-180,180]",
 SCENARIO("authority Host channel keeps offsetDeg at zero",
          "[acceptance][bdd][sync][lla][authority-offset]")
 {
-    GIVEN("main.json as the Host+IG authority channel sample")
+    GIVEN("a Host+IG authority channel config")
     {
         EngineChannelConfig cfg;
         std::string error;
-        REQUIRE(loadEngineChannelConfig(std::string(RESOURCE_DIR) + "/config/main.json", cfg, &error));
+        const TempConfigFile file(kMainJson);
+        REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
 
         WHEN("the authority offset is inspected")
         {
@@ -2167,10 +2196,11 @@ SCENARIO("authority Host channel keeps offsetDeg at zero",
         }
     }
 
-    GIVEN("an Engine loaded from main.json")
+    GIVEN("an Engine loaded from a Host+IG authority config")
     {
         Engine engine;
-        REQUIRE(engine.loadConfig(std::string(RESOURCE_DIR) + "/config/main.json"));
+        const TempConfigFile file(kMainJson);
+        REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
         REQUIRE(engine.init());
 
