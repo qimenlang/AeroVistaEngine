@@ -10,6 +10,8 @@
 #include <fstream>
 #include <string>
 
+#include "Common.h"
+
 #ifndef RESOURCE_DIR
 #    define RESOURCE_DIR "."
 #endif
@@ -72,31 +74,6 @@ namespace
         // When EngineChannelConfig::requireIgConnect exists, also:
         // REQUIRE(actual.requireIgConnect == expected.requireIgConnect);
     }
-
-    class TempConfigFile
-    {
-    public:
-        explicit TempConfigFile(const std::string& jsonBody)
-        {
-            _path = (std::filesystem::temp_directory_path() /
-                     ("ave_engine_cfg_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".json"))
-                        .string();
-            std::ofstream out(_path, std::ios::binary);
-            REQUIRE(out);
-            out << jsonBody;
-        }
-
-        ~TempConfigFile()
-        {
-            std::error_code ec;
-            std::filesystem::remove(_path, ec);
-        }
-
-        const std::string& path() const { return _path; }
-
-    private:
-        std::string _path;
-    };
 
     const char* kMinimalWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
     const char* kMinimalModel = R"("model": "models/lz.vsgt")";

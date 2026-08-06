@@ -6,6 +6,7 @@
 
 #include <vsgXchange/all.h>
 
+#include "Common.h"
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -20,31 +21,6 @@
 
 namespace
 {
-    class TempConfigFile
-    {
-    public:
-        explicit TempConfigFile(const std::string& jsonBody)
-        {
-            _path = (std::filesystem::temp_directory_path() /
-                     ("ave_model_cfg_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".json"))
-                        .string();
-            std::ofstream out(_path, std::ios::binary);
-            REQUIRE(out);
-            out << jsonBody;
-        }
-
-        ~TempConfigFile()
-        {
-            std::error_code ec;
-            std::filesystem::remove(_path, ec);
-        }
-
-        const std::string& path() const { return _path; }
-
-    private:
-        std::string _path;
-    };
-
     const char* kWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
     const char* kTeapot = "models/teapot.vsgt";
     const char* kLz = "models/lz.vsgt";

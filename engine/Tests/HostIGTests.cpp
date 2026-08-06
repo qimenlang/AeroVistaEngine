@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+#include "Common.h"
+
 // 协议分层（测试约定）：
 // - 握手 / 动态端口：仍为自建 sync_proto WireMsg（HELLO / UDP_SYNC）——§1 用例覆盖，本文件不改其方向。
 // - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。
@@ -84,31 +86,6 @@ namespace
         REQUIRE(cigi_wire::unpackSof(sofBuf.data(), static_cast<int>(sofBuf.size()), sofFrame));
         REQUIRE(sofFrame == kFrame);
     }
-
-    class TempConfigFile
-    {
-    public:
-        explicit TempConfigFile(const std::string& jsonBody)
-        {
-            _path = (std::filesystem::temp_directory_path() /
-                     ("ave_hostig_cfg_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".json"))
-                        .string();
-            std::ofstream out(_path, std::ios::binary);
-            REQUIRE(out);
-            out << jsonBody;
-        }
-
-        ~TempConfigFile()
-        {
-            std::error_code ec;
-            std::filesystem::remove(_path, ec);
-        }
-
-        const std::string& path() const { return _path; }
-
-    private:
-        std::string _path;
-    };
 
     const char* kMainJson =
         R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"hostLocal":{"addr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
@@ -1500,31 +1477,6 @@ SCENARIO("three channels share Host eye and differ only by channel offset",
 
 namespace
 {
-    class TempConfigFile
-    {
-    public:
-        explicit TempConfigFile(const std::string& jsonBody)
-        {
-            _path = (std::filesystem::temp_directory_path() /
-                     ("ave_lla_cfg_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".json"))
-                        .string();
-            std::ofstream out(_path, std::ios::binary);
-            REQUIRE(out);
-            out << jsonBody;
-        }
-
-        ~TempConfigFile()
-        {
-            std::error_code ec;
-            std::filesystem::remove(_path, ec);
-        }
-
-        const std::string& path() const { return _path; }
-
-    private:
-        std::string _path;
-    };
-
     vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidOf(Engine& engine)
     {
         auto camera = engine.mainCamera();
