@@ -55,6 +55,10 @@ public:
     void setOffsetDeg(const OffsetDeg& offset);
     const OffsetDeg& offsetDeg() const { return _offsetDeg; }
 
+    /// Compose channel offset onto Host eye as a rigid-array rotation
+    /// R_ig = R_host · R_offset (keeps up axes parallel under Host roll; lla设计 §3.4).
+    static HostEyePose compose(const HostEyePose& host, const OffsetDeg& offset);
+
     void setHostEyeStalePolicy(HostEyeStalePolicy policy);
     HostEyeStalePolicy hostEyeStalePolicy() const { return _stalePolicy; }
 
@@ -82,7 +86,6 @@ public:
 private:
     void applyHostEye(Engine& engine, const HostEyePose& hostEye);
     bool tryAcceptPendingEye(Engine& engine);
-    static HostEyePose compose(const HostEyePose& host, const OffsetDeg& offset);
 
     SyncRoleConfig _role{};
     std::unique_ptr<HostSync> _host;
