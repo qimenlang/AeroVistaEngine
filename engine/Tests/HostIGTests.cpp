@@ -864,11 +864,9 @@ namespace
 
     HostEyePose hostEyePlusOffset(const HostEyePose& host, const OffsetDeg& offset)
     {
-        HostEyePose out = host;
-        out.eulerYprDeg.x += offset.yaw;
-        out.eulerYprDeg.y += offset.pitch;
-        out.eulerYprDeg.z += offset.roll;
-        return out;
+        // Same semantics as SynchronSystem::compose: rigid-array rotation composition
+        // R_ig = R_host · R_offset (lla设计 §3.4), not component-wise YPR addition.
+        return SynchronSystem::compose(host, offset);
     }
 
     // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
@@ -1061,7 +1059,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
 }
 
 // -----------------------------------------------------------------------------
-// 4.3 位姿合成：Host ⊕ offsetDeg
+// 4.3 位姿合成：Host 眼点 ⊕ offsetDeg（旋转复合，刚性阵列，见 lla设计 §3.4）
 // -----------------------------------------------------------------------------
 
 SCENARIO("linked IG with zero offset keeps Host eye unchanged",
@@ -1115,7 +1113,7 @@ SCENARIO("linked IG applies Host eye plus channel offset",
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
 
-            THEN("camera matches Host position and Host euler plus offset")
+            THEN("camera matches Host position composed with channel offset (rigid-array rotation)")
             {
                 requireLookAtMatchesPose(engine, expected.position, expected.eulerYprDeg);
             }
@@ -1123,8 +1121,9 @@ SCENARIO("linked IG applies Host eye plus channel offset",
     }
 }
 
-// lla位姿传输设计.md §3.4 / §7：offsetDeg 仅 yaw；Host 可含 pitch/roll 时 R_ig=Rz(δ)*R_host。
-SCENARIO("yaw-only offset with Host pitch/roll satisfies R_ig equals Rz(delta) times R_host",
+// lla位姿传输设计.md §3.4 / §7：offsetDeg 仅 yaw；多通道刚性阵列偏移 R_ig=R_host*Rz(δ)，
+// yaw 偏移绕 Host 自身 up 轴，roll 下各通道 up 轴保持平行（frustum 贴边）。
+SCENARIO("yaw-only offset with Host pitch/roll keeps channel up parallel to Host up",
          "[acceptance][bdd][sync][hostctrl][offset]")
 {
     GIVEN("a linked Host+IG Engine, Host eye with pitch/roll, channel offset yaw-only")
@@ -1140,6 +1139,7 @@ SCENARIO("yaw-only offset with Host pitch/roll satisfies R_ig equals Rz(delta) t
         OffsetDeg offset{kDeltaYawDeg, 0.0, 0.0};
         engine.synchronSystem().setOffsetDeg(offset);
 
+        // Roll non-zero exercises the rigid-array invariant (up stays parallel).
         const HostEyePose hostPose{{5.0, -3.0, 2.0}, {20.0, 15.0, -8.0}};
 
         WHEN("the Host eye is applied with that yaw-only channel offset")
@@ -1147,19 +1147,18 @@ SCENARIO("yaw-only offset with Host pitch/roll satisfies R_ig equals Rz(delta) t
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
 
-            THEN("LookAt forward/up equal Rz(delta) * Host forward/up (not body-yaw)")
+            THEN("LookAt forward/up equal R_host*Rz(delta) (up stays parallel to Host up)")
             {
                 auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
                 REQUIRE(lookAt);
 
+                // R_ig = R_host·Rz(δ) ⟹ forward_ig = R_host·(Rz(δ)·ŷ), up_ig = R_host·ẑ = up_host.
                 const vsg::dquat rHost = quatFromEulerYprDeg(hostPose.eulerYprDeg);
-                const vsg::dvec3 hostForward = vsg::normalize(rHost * vsg::dvec3(0.0, 1.0, 0.0));
-                const vsg::dvec3 hostUp = vsg::normalize(rHost * vsg::dvec3(0.0, 0.0, 1.0));
-
                 const vsg::dquat rzDelta =
                     vsg::dquat(vsg::radians(kDeltaYawDeg), vsg::dvec3(0.0, 0.0, 1.0));
-                const vsg::dvec3 expectedForward = vsg::normalize(rzDelta * hostForward);
-                const vsg::dvec3 expectedUp = vsg::normalize(rzDelta * hostUp);
+                const vsg::dvec3 expectedForward =
+                    vsg::normalize(rHost * (rzDelta * vsg::dvec3(0.0, 1.0, 0.0)));
+                const vsg::dvec3 expectedUp = vsg::normalize(rHost * vsg::dvec3(0.0, 0.0, 1.0));
 
                 const vsg::dvec3 actualForward = vsg::normalize(lookAt->center - lookAt->eye);
                 const vsg::dvec3 actualUp = vsg::normalize(lookAt->up);
@@ -1497,6 +1496,49 @@ namespace
         std::string _path;
     };
 
+    // 刚性阵列 E2E 的通道配置 JSON。coordFrame 显式声明坐标系（lla设计 §2.2）；
+    // Host+IG 通道（isHost）带 hostLocal + hostEndpoint，纯 IG 只带 hostEndpoint（§3.1）。
+    std::string makeChannelConfigBody(int kBase, int channelId, int udpRecv, double yawOffset, bool isHost,
+                                      const std::string& coordFrame, const std::string& model)
+    {
+        std::string body = std::string(R"({
+              "channelId": )") +
+                           std::to_string(channelId) + R"(,
+              "coordFrame": ")" +
+                           coordFrame + R"(",
+              "offsetDeg": { "yaw": )" +
+                           std::to_string(yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
+              "igLocal": { "addr": "127.0.0.1", "udpPortSend": )" +
+                           std::to_string(kBase) +
+                           R"(, "udpPortRecv": )" + std::to_string(udpRecv) + R"( },)";
+        if (isHost)
+        {
+            body += R"(
+              "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" +
+                    std::to_string(kBase + 100) +
+                    R"(, "udpPortRecv": )" + std::to_string(kBase) + R"( },
+              "hostLocal": { "addr": "127.0.0.1", "udpPortSend": )" +
+                    std::to_string(kBase + 1) +
+                    R"(, "udpPortRecv": )" + std::to_string(kBase) + R"(, "tcpPort": )" +
+                    std::to_string(kBase + 100) + R"( },)";
+        }
+        else
+        {
+            body += R"(
+              "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" +
+                    std::to_string(kBase + 100) +
+                    R"(, "udpPortRecv": )" + std::to_string(kBase) + R"( },)";
+        }
+        body += R"(
+              "model": ")" +
+                model + R"(",
+              "window": { "x": 0, "y": 0, "width": 640, "height": 480 },
+              "requireIgConnect": )" +
+                (isHost ? std::string("true") : std::string("false")) + R"(
+            })";
+        return body;
+    }
+
     vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidOf(Engine& engine)
     {
         auto camera = engine.mainCamera();
@@ -1514,6 +1556,125 @@ namespace
                std::abs(a.radiusPolar() - b.radiusPolar()) <= eps;
     }
 
+    // 三通道刚性阵列 E2E 的公共装载：A（Host+IG，offset 0）+ B/C（IG-only，yaw ±60），
+    // 全部经配置文件驱动，coordFrame 显式声明坐标系。B/C 走 sync + scene mode only。
+    struct RigidArrayHarness
+    {
+        Engine a;
+        Engine b;
+        Engine c;
+
+        RigidArrayHarness(int kBase, const std::string& coordFrame, const std::string& model)
+        {
+            const TempConfigFile hostFile(
+                makeChannelConfigBody(kBase, 0, kBase + 1, 0.0, /*isHost=*/true, coordFrame, model));
+            const TempConfigFile igBFile(
+                makeChannelConfigBody(kBase, 1, kBase + 3, -60.0, /*isHost=*/false, coordFrame, model));
+            const TempConfigFile igCFile(
+                makeChannelConfigBody(kBase, 2, kBase + 5, 60.0, /*isHost=*/false, coordFrame, model));
+
+            a.extent = {1920, 1080};
+            a.showWindow = b.showWindow = c.showWindow = false;
+
+            REQUIRE(a.loadConfig(hostFile.path()));
+            REQUIRE(b.loadConfig(igBFile.path()));
+            REQUIRE(c.loadConfig(igCFile.path()));
+            REQUIRE(a.init());
+            // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
+            REQUIRE(b.initSync(b.config.toSyncRole(), b.config.requireIgConnect));
+            REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
+            b.synchronSystem().setOffsetDeg(b.config.offsetDeg);
+            REQUIRE(c.initSync(c.config.toSyncRole(), c.config.requireIgConnect));
+            REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
+            c.synchronSystem().setOffsetDeg(c.config.offsetDeg);
+
+            REQUIRE(a.synchronSystem().hostSync().readyIgCount() == 3);
+        }
+
+        void tick(const int frames = 2)
+        {
+            for (int i = 0; i < frames; ++i)
+            {
+                REQUIRE(a.tickOnFrame());
+                b.tickSync();
+                c.tickSync();
+            }
+        }
+    };
+
+    // 本地刚性断言：B/C up 轴与 Host up 平行、forward == R_host·Rz(δ)（1e-4，覆盖 CIGI float 量化）。
+    void requireLocalRigidArray(RigidArrayHarness& h, const HostEyePose& intent)
+    {
+        auto lookAtA = h.a.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+        REQUIRE(lookAtA);
+        const vsg::dvec3 hostUp = vsg::normalize(lookAtA->up);
+
+        const vsg::dquat rHost = quatFromEulerYprDeg(intent.eulerYprDeg);
+        const vsg::dvec3 expectedHostUp = vsg::normalize(rHost * vsg::dvec3(0.0, 0.0, 1.0));
+
+        const auto check = [&](const std::optional<HostEyePose>& applied, const OffsetDeg& offset) {
+            REQUIRE(applied.has_value());
+            // B/C 为 sync-only（无相机），从 _lastApplied 的 YPR 计算相机基。
+            const vsg::dvec3 up =
+                vsg::normalize(rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0)));
+            const vsg::dvec3 forward =
+                vsg::normalize(rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0)));
+
+            const vsg::dquat rzDelta = vsg::dquat(vsg::radians(offset.yaw), vsg::dvec3(0.0, 0.0, 1.0));
+            const vsg::dvec3 expectedForward = vsg::normalize(rHost * (rzDelta * vsg::dvec3(0.0, 1.0, 0.0)));
+
+            constexpr double kDirEps = 1e-4;
+            REQUIRE(vsg::length(up - hostUp) < kDirEps);               // 与 Host up 平行（刚性阵列贴边）
+            REQUIRE(vsg::length(up - expectedHostUp) < kDirEps);       // up == R_host·ẑ
+            REQUIRE(vsg::length(forward - expectedForward) < kDirEps); // forward == R_host·Rz(δ)·ŷ
+        };
+        check(h.b.synchronSystem().lastAppliedHostEye(), h.b.config.offsetDeg);
+        check(h.c.synchronSystem().lastAppliedHostEye(), h.c.config.offsetDeg);
+    }
+
+    // ECEF 刚性断言：B/C up（ECEF）与 Host up 平行、forward == R_host·Rz(δ) 经 ENU→ECEF 映射。
+    void requireEcefRigidArray(RigidArrayHarness& h, const vsg::dvec3& lla, const vsg::dvec3& yprHost)
+    {
+        auto emA = ellipsoidOf(h.a);
+        REQUIRE(emA);
+        const vsg::dmat4 localToWorld = emA->computeLocalToWorldTransform(lla);
+
+        // A（offset 0）相机 up（ECEF）由真实 LookAt 读取，代表刚性阵列的 up。
+        auto lookAtA = h.a.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+        REQUIRE(lookAtA);
+        const vsg::dvec3 hostUpEcef = vsg::normalize(lookAtA->up);
+
+        // R_host 在 ENU 中构建（lla §3.2 同一约定）；δ 为通道 yaw offset。
+        const vsg::dquat rHost = quatFromEulerYprDeg(yprHost);
+        const vsg::dvec3 upEnuExpected = vsg::normalize(rHost * vsg::dvec3(0.0, 0.0, 1.0));
+        const vsg::dvec3 upEcefExpected = vsg::normalize(rotateEnuToEcef(localToWorld, upEnuExpected));
+
+        const auto check = [&](const std::optional<HostEyePose>& applied, const OffsetDeg& offset, Engine& ig) {
+            REQUIRE(applied.has_value());
+            REQUIRE(applied->frame == HostEyeCoordFrame::LLA);
+            // B/C 为 sync-only（无相机），从 _lastApplied 的 ENU YPR 经各自椭球转到 ECEF。
+            auto em = ig.ellipsoidModel();
+            REQUIRE(em);
+            const vsg::dmat4 l2w = em->computeLocalToWorldTransform(applied->position);
+            const vsg::dvec3 upEcef =
+                vsg::normalize(rotateEnuToEcef(l2w, rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0))));
+            const vsg::dvec3 forwardEcef =
+                vsg::normalize(rotateEnuToEcef(l2w, rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0))));
+
+            const vsg::dquat rzDelta = vsg::dquat(vsg::radians(offset.yaw), vsg::dvec3(0.0, 0.0, 1.0));
+            const vsg::dvec3 forwardEnuExpected = vsg::normalize(rHost * (rzDelta * vsg::dvec3(0.0, 1.0, 0.0)));
+            const vsg::dvec3 forwardEcefExpected = vsg::normalize(rotateEnuToEcef(l2w, forwardEnuExpected));
+
+            // CIGI YPR 走 float 量化 + ENU→ECEF 换算，方向容差放 1e-4。
+            constexpr double kDirEps = 1e-4;
+            REQUIRE(vsg::length(upEcef - hostUpEcef) < kDirEps);               // 与 Host up 平行（刚性阵列贴边）
+            REQUIRE(vsg::length(upEcef - upEcefExpected) < kDirEps);           // up == R_host·Up（ECEF）
+            REQUIRE(vsg::length(forwardEcef - forwardEcefExpected) < kDirEps); // forward == R_host·Rz(δ)·ŷ（ECEF）
+        };
+        check(h.b.synchronSystem().lastAppliedHostEye(), h.b.config.offsetDeg, h.b);
+        check(h.c.synchronSystem().lastAppliedHostEye(), h.c.config.offsetDeg, h.c);
+    }
+
     vsg::dvec3 lookAtEye(Engine& engine)
     {
         auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
@@ -1521,6 +1682,35 @@ namespace
         return lookAt->eye;
     }
 } // namespace
+
+// lla设计 §3.4 / 多通道同步设计 §4.5：本地笛卡尔（coordFrame: "Local"）下，真 CIGI 报文
+// + Host 非零 roll 时，各通道 up 轴与 Host up 平行（刚性阵列一起 roll、frustum 贴边），
+// 且 forward 满足 R_ig=R_host·Rz(δ)。线上 roll 撕裂 bug 的 E2E 回归。
+SCENARIO("three channels keep up axes parallel to Host when it rolls over live CIGI",
+         "[acceptance][bdd][sync][hostctrl][e2e][multi-ig][cigi][rigid]")
+{
+    GIVEN("Host+IG A and IG-only B/C all on coordFrame Local, yaw offsets -60/+60")
+    {
+        RigidArrayHarness h(19350, "Local", "models/teapot.vsgt");
+        REQUIRE_FALSE(h.a.sceneHasEllipsoidModel());
+        REQUIRE_FALSE(h.b.sceneHasEllipsoidModel());
+        REQUIRE_FALSE(h.c.sceneHasEllipsoidModel());
+
+        // Host 带非零 roll：回归点——刚性阵列必须整体滚转，up 轴保持平行。
+        const HostEyePose intent{{5.0, 6.0, 7.0}, {30.0, 12.0, -18.0}};
+
+        WHEN("A publishes the rolled intent and all channels tick (shared CIGI Attach eye, local offsetDeg)")
+        {
+            REQUIRE(h.a.setCameraPose(intent.position, intent.eulerYprDeg));
+            h.tick();
+
+            THEN("B/C up axes stay parallel to Host up and forwards equal R_host*Rz(delta)")
+            {
+                requireLocalRigidArray(h, intent);
+            }
+        }
+    }
+}
 
 SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
          "[acceptance][bdd][sync][lla][follow]")
@@ -1577,7 +1767,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 }
 
 // -----------------------------------------------------------------------------
-// lla设计 §3.4 / §7：椭球 offsetDeg — 相对 Host LLA 的 ENU Up 叠 yaw；R_ig=Rz(δ)*R_host
+// lla设计 §3.4 / §7：椭球 offsetDeg — 刚性阵列旋转复合 R_ig=R_host·Rz(δ)（绕 Host ENU up）
 // -----------------------------------------------------------------------------
 
 SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
@@ -1641,7 +1831,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
 
-            THEN("LookAt uses Host LLA with ENU YPR = Host ⊕ yaw offset")
+            THEN("LookAt uses Host LLA composed with ENU yaw offset (rigid-array rotation)")
             {
                 REQUIRE(expected.frame == HostEyeCoordFrame::LLA);
                 REQUIRE(vsg::length(expected.position - lla) < 1e-12);
@@ -1651,7 +1841,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
     }
 }
 
-SCENARIO("ellipsoid yaw-only offset with Host pitch/roll satisfies R_ig equals Rz(delta) times R_host about ENU Up",
+SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R_host*Rz(delta))",
          "[acceptance][bdd][sync][lla][offset]")
 {
     GIVEN("a linked Host+IG Engine on readymap; Host LLA eye has pitch/roll; channel yaw-only")
@@ -1671,15 +1861,15 @@ SCENARIO("ellipsoid yaw-only offset with Host pitch/roll satisfies R_ig equals R
         engine.synchronSystem().setOffsetDeg(offset);
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
-        // Non-zero pitch exercises Rz(δ)*R_host; roll=0 keeps ENU↔euler extract exact.
-        const HostEyePose hostPose{lla, {20.0, 15.0, 0.0}, HostEyeCoordFrame::LLA};
+        // Non-zero roll exercises the rigid-array invariant: up stays parallel to Host up.
+        const HostEyePose hostPose{lla, {20.0, 15.0, -8.0}, HostEyeCoordFrame::LLA};
 
         WHEN("the Host LLA eye is applied with that yaw-only channel offset")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
             engine.synchronSystem().update(engine);
 
-            THEN("LookAt matches Host LLA with yaw+=delta (R_ig=Rz(delta)*R_host for yaw-only offset)")
+            THEN("LookAt matches Host LLA composed with R_ig=R_host*Rz(delta) for yaw-only offset")
             {
                 const HostEyePose expected = hostEyePlusOffset(hostPose, offset);
                 requireLookAtMatchesLlaPose(engine, *em, expected.position, expected.eulerYprDeg, 1e-2, 1e-6);
@@ -1733,6 +1923,42 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
                 REQUIRE(applied.has_value());
                 REQUIRE(applied->frame == HostEyeCoordFrame::LLA);
                 requirePoseNear(*applied, expectedB, 1e-3);
+            }
+        }
+    }
+}
+
+// lla设计 §3.4 / 多通道同步设计 §4.5：ECEF/椭球下，真 CIGI 报文 + Host 非零 roll 时，
+// 各通道 up 轴与 Host up 平行（刚性阵列一起 roll、frustum 贴边），且 forward 满足
+// R_ig=R_host·Rz(δ)。本地刚性用例的 ECEF 对应物；同时经配置文件 `coordFrame: "Ellipsoid"`
+// 驱动坐标系选择（lla设计 §2.2 / §2.3：无椭球模型 + Ellipsoid → 注入 WGS-84）。
+SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls over live CIGI",
+         "[acceptance][bdd][sync][lla][offset][e2e][multi-ig][cigi][rigid]")
+{
+    GIVEN("Host+IG A and IG-only B/C all on coordFrame Ellipsoid (inject WGS-84), yaw offsets -60/+60")
+    {
+        RigidArrayHarness h(20120, "Ellipsoid", "models/lz.vsgt");
+
+        REQUIRE(h.a.sceneHasEllipsoidModel());
+        REQUIRE(h.b.sceneHasEllipsoidModel());
+        REQUIRE(h.c.sceneHasEllipsoidModel());
+        auto emA = ellipsoidOf(h.a);
+        REQUIRE(emA);
+        REQUIRE(radiiEqual(*emA, *h.b.ellipsoidModel()));
+        REQUIRE(radiiEqual(*emA, *h.c.ellipsoidModel()));
+
+        const vsg::dvec3 lla{39.9, 116.4, 500.0};
+        // Host 带非零 roll：回归点——刚性阵列必须整体滚转，up 轴保持平行。
+        const vsg::dvec3 yprHost{30.0, 12.0, -18.0};
+
+        WHEN("A publishes the rolled LLA intent and all channels tick (shared CIGI Detach+LLA eye)")
+        {
+            REQUIRE(h.a.setCameraPoseLla(lla, yprHost));
+            h.tick(3);
+
+            THEN("B/C up axes stay parallel to Host up and forwards equal R_host*Rz(delta) in ECEF")
+            {
+                requireEcefRigidArray(h, lla, yprHost);
             }
         }
     }

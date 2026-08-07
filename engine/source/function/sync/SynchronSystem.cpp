@@ -63,14 +63,9 @@ namespace
     }
 
     /// Inverse of Engine::setCameraPose rotation Rz(yaw)*Rx(pitch)*Ry(roll), Y-forward Z-up.
-    bool lookAtToWorldLocalEye(const vsg::LookAt& lookAt, HostEyePose& out)
+    /// Recover YPR (deg) from an orthonormal forward/up basis.
+    bool extractYprDegFromBasis(const vsg::dvec3& forward, const vsg::dvec3& up, vsg::dvec3& eulerYprDegOut)
     {
-        out.frame = HostEyeCoordFrame::WORLD_LOCAL;
-        out.position = lookAt.eye;
-        const vsg::dvec3 forward = vsg::normalize(lookAt.center - lookAt.eye);
-        if (vsg::length(forward) < 1e-12)
-            return false;
-
         const double yawRad = std::atan2(-forward.x, forward.y);
         const double pitchRad = std::asin(clampd(forward.z, -1.0, 1.0));
 
@@ -83,11 +78,21 @@ namespace
             vsg::normalize(vsg::dquat(yawRad, vsg::dvec3(0.0, 0.0, 1.0)) * afterPitchUp);
         const vsg::dvec3 expectedRight =
             vsg::normalize(vsg::dquat(yawRad, vsg::dvec3(0.0, 0.0, 1.0)) * afterPitchRight);
-        const vsg::dvec3 up = vsg::normalize(lookAt.up);
         const double rollRad = std::atan2(vsg::dot(up, expectedRight), vsg::dot(up, expectedUp));
 
-        out.eulerYprDeg = vsg::dvec3(rad2deg(yawRad), rad2deg(pitchRad), rad2deg(rollRad));
+        eulerYprDegOut = vsg::dvec3(rad2deg(yawRad), rad2deg(pitchRad), rad2deg(rollRad));
         return true;
+    }
+
+    /// Inverse of Engine::setCameraPose rotation Rz(yaw)*Rx(pitch)*Ry(roll), Y-forward Z-up.
+    bool lookAtToWorldLocalEye(const vsg::LookAt& lookAt, HostEyePose& out)
+    {
+        out.frame = HostEyeCoordFrame::WORLD_LOCAL;
+        out.position = lookAt.eye;
+        const vsg::dvec3 forward = vsg::normalize(lookAt.center - lookAt.eye);
+        if (vsg::length(forward) < 1e-12)
+            return false;
+        return extractYprDegFromBasis(forward, vsg::normalize(lookAt.up), out.eulerYprDeg);
     }
 
     bool lookAtToLlaEye(const vsg::LookAt& lookAt, const vsg::EllipsoidModel& ellipsoid, HostEyePose& out)
@@ -110,21 +115,7 @@ namespace
 
         const vsg::dvec3 forward = toEnu(forwardEcef);
         const vsg::dvec3 up = toEnu(vsg::normalize(lookAt.up));
-
-        const double yawRad = std::atan2(-forward.x, forward.y);
-        const double pitchRad = std::asin(clampd(forward.z, -1.0, 1.0));
-        const vsg::dvec3 afterPitchUp =
-            vsg::dquat(pitchRad, vsg::dvec3(1.0, 0.0, 0.0)) * vsg::dvec3(0.0, 0.0, 1.0);
-        const vsg::dvec3 afterPitchRight =
-            vsg::dquat(pitchRad, vsg::dvec3(1.0, 0.0, 0.0)) * vsg::dvec3(1.0, 0.0, 0.0);
-        const vsg::dvec3 expectedUp =
-            vsg::normalize(vsg::dquat(yawRad, vsg::dvec3(0.0, 0.0, 1.0)) * afterPitchUp);
-        const vsg::dvec3 expectedRight =
-            vsg::normalize(vsg::dquat(yawRad, vsg::dvec3(0.0, 0.0, 1.0)) * afterPitchRight);
-        const double rollRad = std::atan2(vsg::dot(up, expectedRight), vsg::dot(up, expectedUp));
-
-        out.eulerYprDeg = vsg::dvec3(rad2deg(yawRad), rad2deg(pitchRad), rad2deg(rollRad));
-        return true;
+        return extractYprDegFromBasis(forward, up, out.eulerYprDeg);
     }
 
     bool lookAtMatchesApplied(const vsg::LookAt& actual, const HostEyePose& applied, Engine& engine)
@@ -298,10 +289,32 @@ void SynchronSystem::captureAuthorityEye(Engine& engine)
 
 HostEyePose SynchronSystem::compose(const HostEyePose& host, const OffsetDeg& offset)
 {
+    // Rigid-array channel offset: R_ig = R_host · R_offset (Hamilton). For a yaw-only
+    // offset this rotates the Host's forward about the Host's own up axis, so every
+    // channel's up stays parallel to the Host's — edge-to-edge frustum tiling survives
+    // Host roll. Component-wise YPR addition instead yields Rz(δ)·R_host, which tilts the
+    // up axes apart as soon as roll ≠ 0 (the roll-tiling bug; lla设计 §3.4).
+    //
+    // VSG operator*(a,b) = Hamilton(b⊗a), so write qOffset * qHost to obtain
+    // M(qHost)·M(qOffset) = R_host·R_offset. Each quat is built as Ry(roll)*Rx(pitch)*Rz(yaw)
+    // (VSG) to represent the Hamilton Rz(yaw)*Rx(pitch)*Ry(roll) write convention.
+    const vsg::dquat qHost =
+        vsg::dquat(vsg::radians(host.eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0)) *
+        vsg::dquat(vsg::radians(host.eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
+        vsg::dquat(vsg::radians(host.eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0));
+    const vsg::dquat qOffset =
+        vsg::dquat(vsg::radians(offset.roll), vsg::dvec3(0.0, 1.0, 0.0)) *
+        vsg::dquat(vsg::radians(offset.pitch), vsg::dvec3(1.0, 0.0, 0.0)) *
+        vsg::dquat(vsg::radians(offset.yaw), vsg::dvec3(0.0, 0.0, 1.0));
+    const vsg::dquat qIg = qOffset * qHost;
+
+    const vsg::dvec3 forward = vsg::normalize(qIg * vsg::dvec3(0.0, 1.0, 0.0));
+    const vsg::dvec3 up = vsg::normalize(qIg * vsg::dvec3(0.0, 0.0, 1.0));
+
+    // Re-extract YPR under the same Rz·Rx·Ry convention so applyHostEye's setCameraPose
+    // writes exactly the composed rotation (write↔sample stay inverse).
     HostEyePose out = host;
-    out.eulerYprDeg.x += offset.yaw;
-    out.eulerYprDeg.y += offset.pitch;
-    out.eulerYprDeg.z += offset.roll;
+    extractYprDegFromBasis(forward, up, out.eulerYprDeg);
     return out;
 }
 

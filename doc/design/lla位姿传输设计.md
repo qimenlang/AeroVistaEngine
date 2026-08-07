@@ -168,6 +168,7 @@ yaw = pitch = roll = 0          // 朝北，当地水平
 
 - **参考系**：眼点 LLA 处的 **ENU**（东–北–天），由 `computeLocalToWorldTransform(lla)` 给出。
 - **角度单位**：度；旋转顺序与本地模式一致：`Rz(yaw) * Rx(pitch) * Ry(roll)`，但轴在 **ENU 局部**解释，不是 ECEF 世界轴。
+  - **对向量的生效顺序（钉死）**：先 roll、再 pitch、最后 yaw。**实现禁止**写成 `Qz*Qx*Qy` 连乘（VSG 四元数乘法是 **reverse-Hamilton**，`M(a*b)=M(b)·M(a)`，连乘实际得到 `Ry·Rx·Rz`）；须逐个作用 `roll→pitch→yaw`。同一约定用于写入、采样反解、`offsetDeg` 合成（§3.4）全链路。
 - **轴约定（钉死实现时以此验收）**：
 
 ```text
@@ -226,28 +227,29 @@ center  = eye + forward * d                  // d：视线距，见下
 
 ### 3.4 通道 `offsetDeg`
 
-本地模式：偏航相对**世界 Z-up**。椭球模式：偏航相对 **Host 眼点 LLA 的 ENU Up**（不是 ECEF 世界 Z，也不是机体系 Up）。
-
-**合成公式（与现状实现一致）**：
+**刚性阵列旋转复合（rigid-array）**：offset 在 Host 眼点自身姿态系内旋转（机体系），再按 §3.2 约定反解 YPR 写相机。yaw 偏移绕 **Host 自身 up**（本地世界 Z-up / 椭球 ENU Up 经 Host 姿态旋转后的方向）旋转；因此 Host 有非零 roll 时各通道 up 轴保持平行，frustum 贴边不撕开。
 
 ```text
-ypr_ig = ypr_host ⊕ offsetDeg     // 分量相加（度）
-再用 (lla_host, ypr_ig) 写 LookAt
+R_host = Rz(yaw)*Rx(pitch)*Ry(roll)                  // §3.2 写约定（ENU 基，椭球）
+R_ig   = R_host · Rz(δy) · Rx(δp) · Ry(δr)           // offset 右乘：在 Host 自身系内旋转
+反解 R_ig 得 composed YPR（与写约定同一套）→ 写 LookAt（lla 不变）
 ```
 
-#### 仅 yaw 偏移时：分量相加 = 绕固定 Up 左乘（严格成立）
+实现为 `SynchronSystem::compose`（本地 / 椭球同一套）。左 `+hFOV`、右 `−hFOV` 符号不变（§3.2）。
+
+#### 仅 yaw 偏移：`R_ig = R_host · Rz(δ)`，up 轴平行（严格成立）
 
 约定 `R(ypr) = Rz(yaw)*Rx(pitch)*Ry(roll)`。当 `offsetDeg.pitch = offsetDeg.roll = 0`、仅 `δ = offsetDeg.yaw` 时：
 
 ```text
-R_ig = Rz(yh+δ)*Rx(ph)*Ry(rh)
-     = Rz(δ) * (Rz(yh)*Rx(ph)*Ry(rh))
-     = Rz(δ) * R_host
+R_ig = R_host · Rz(δ)
+up_ig      = R_host · Rz(δ) · Up = R_host · Up = up_host       // Up：写约定下的 up 基（本地 Z / ENU Up）
+forward_ig = R_host · (Rz(δ) · ForwardBase)                     // 绕 Host 自身 up 转 δ
 ```
 
-即：**在 Host 姿态之上再绕同一套 Up（本地世界 Z / 椭球 ENU Up）转 δ**。`forward`/`up` 均满足 `v_ig = Rz(δ)*v_host`。  
-这与「机体系再偏航」`R_host * Rz(δ)` **不同**；多通道 frustum 要的是前者（共地理垂直轴），不是后者。  
-因此：**Host 有非零 pitch/roll 时，仅叠加 yaw 仍然严格正确**；通道相对地理 Up 的横滚一致，不是「椭球下水平线必然互不平齐」。本地与椭球在这一点上数学相同（只是 Up 轴定义不同）。
+即：**在 Host 姿态之上绕同一套 up 轴（显示阵列竖直轴）再转 δ**。各通道 `up` 完全一致，roll 时刚体阵列一起 roll，公共棱线连续。
+
+> **分量相加（`ypr ⊕ offset`）为什么不成立**：它等价于 `Rz(y+δ)*Rx(p)*Ry(r) = Rz(δ)·R_host`，yaw 偏移绕**地理 Up**（世界 Z / ENU Up）左乘。当 Host `roll≠0` 时 `up_ig = Rz(δ)·up_host ≠ up_host`，各通道 up 拧散、frustum 不再贴边——即线上 roll 撕裂 bug。早期实现曾用 `Ry·Rx·Rz` 约定让分量相加巧合等价于 rigid-array；为保证写 / 采遵循同一 `Rz·Rx·Ry` 约定，统一改为显式旋转复合。
 
 #### 第一版约束：`offsetDeg` 仅 yaw 有定义
 
@@ -256,7 +258,7 @@ R_ig = Rz(yh+δ)*Rx(ph)*Ry(rh)
 | `offsetDeg.yaw` | 用于邻通道水平拼接（左 `+hFOV`，右 `−hFOV`，符号见 §3.2 / 同步设计 §3.2） |
 | `offsetDeg.pitch` / `roll` | 有定义要求为 **0**；**≠0 不测试**（未定义行为：欧拉分量相加一般≠绕两轴的复合旋转） |
 
-验收只覆盖「Host 可含 pitch/roll + 通道仅 yaw 偏移」。后续若要 pitch/roll 通道偏移，应改为显式旋转复合（例如左乘 `Rz*Rx*Ry(offset)`），不再用三分量相加冒充。
+验收只覆盖「Host 可含 pitch/roll + 通道仅 yaw 偏移」。实现按显式旋转复合（右乘 `Rz*Rx*Ry(offset)`），pitch/roll 通道偏移语义已由同一公式定义，只是**不测试**。禁止退回三分量相加冒充复合旋转。
 
 第一版 **不**做通道平移偏移。
 
@@ -529,7 +531,7 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 | --- | --- |
 | LLA 本机往返 | **单机、无网络**：`setCameraPoseLla(lla,ypr)` → 从 LookAt 按 §3.5 采样 → `(lla',ypr')` 在容差内回到输入（中低纬） |
 | LLA Host→IG 跟拍 | **跨进程真报文**：Host 发布 LLA 眼点 → IG `LookAt.eye`（ECEF）与 Host 同椭球换算一致（权威窗 `offsetDeg=0`；邻通道另测 ⊕ yaw） |
-| `offsetDeg` | 仅 `yaw` 有定义；Host 眼点可含 pitch/roll，左/右仅 yaw 偏移时仍满足 `R_ig=Rz(δ)*R_host`；`offsetDeg.pitch/roll≠0` → **不测试** |
+| `offsetDeg` | 仅 `yaw` 有定义；Host 眼点可含 pitch/roll，左/右仅 yaw 偏移时仍满足 `R_ig=R_host·Rz(δ)`（各通道 up 轴平行）；`offsetDeg.pitch/roll≠0` → **不测试** |
 | 线契约 | Detach+LLA 与 Attach+XYZ 打包/解包；`AttachState`→位置类型正确；**Detach 时 ParentID=0、EntityID=0**；Attach 时 EntityID=0、ParentID=1；切换 Attach↔Detach 组合合法 |
 | 组包依据 | Host 按 `HostEyePose` 位置类型选择 Attach/Detach；线上无私有 frame 字段 |
 | 模式隔离 | 本地回归全绿；错模式眼点不污染相机；首拒收 `[ERROR]`；`eyePoseRejectedByFrameMismatch` 递增；SOF/ready 仍正常 |
