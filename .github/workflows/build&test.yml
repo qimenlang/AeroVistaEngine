@@ -88,7 +88,7 @@ jobs:
         if: matrix.preset == 'ci-debug'
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "19.1.7"
+          version: "20.1"
 
       # Changed files only (same policy as pre-commit). Fail CI on violations.
       - name: Complexity gates (clang-tidy + lizard on diff)
@@ -101,3 +101,58 @@ jobs:
           pip install lizard
           python scripts/ci_changed_complexity.py --build-dir out/build/ci-debug --ccn 15
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # Mirrors the local clang-Ninja toolchain: clang frontend + MSVC STL/link.exe.
+  # Requires LLVM >= 20 on windows-latest (VS18 STL demands Clang 20+; STL1000).
+  build-clang:
+    name: ci-clang
+    needs: clang-format
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Init submodules
+        shell: bash
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --recursive
+
+      - name: Setup Vulkan SDK and Lavapipe
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.4.321.1
+          install_runtime: true
+          install_lavapipe: true
+          cache: true
+          stripdown: true
+
+      - name: Verify Vulkan (Lavapipe)
+        shell: pwsh
+        run: |
+          vulkaninfoSDK.exe --summary
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # clang on windows-msvc still needs MSVC's STL headers and link.exe.
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install LLVM (clang)
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "20.1"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Configure
+        run: cmake --preset ci-clang
+
+      - name: Build
+        run: cmake --build --preset ci-clang
+
+      - name: Test
+        run: ctest --preset ci-clang --output-on-failure

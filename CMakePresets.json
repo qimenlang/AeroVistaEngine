@@ -52,6 +52,20 @@
                 "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
+        },
+        {
+            "name": "ci-clang",
+            "displayName": "CI Windows Clang Debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/ci-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-clang",
+                "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -68,6 +82,10 @@
         {
             "name": "ci-release",
             "configurePreset": "ci-release"
+        },
+        {
+            "name": "ci-clang",
+            "configurePreset": "ci-clang"
         }
     ],
     "testPresets": [
@@ -81,6 +99,13 @@
         {
             "name": "ci-release",
             "configurePreset": "ci-release",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "ci-clang",
+            "configurePreset": "ci-clang",
             "output": {
                 "outputOnFailure": true
             }
