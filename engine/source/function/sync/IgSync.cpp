@@ -338,6 +338,10 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
 
 void IgSync::update(bool sendSof)
 {
+    // 无论是否仍连接，都检查外推冻结——Host 离线断线后 IG 仍应每帧检查，
+    // 超过阈值后冻结（时间戳停住），而不是随本地流逝无限外推（时钟同步方案.md §4.3）。
+    updateFreeze(nowUs());
+
     refreshConnectionState();
     if (!_initialized || !_udpSynced)
         return;
@@ -381,10 +385,6 @@ void IgSync::update(bool sendSof)
         if (sendSof)
             sendSofPacket(_lastFrameCntr);
     }
-
-    // 每帧检查外推冻结（时钟同步方案.md §4.3）：距最后收到 Host 时间戳的流逝超阈值 → 冻结。
-    // 放在收包循环之后——本帧收包会刷新 lastReceivedAtUs，冻结判断基于「本帧之后」的流逝。
-    updateFreeze(nowUs());
 }
 
 bool IgSync::sendAll(IgSocketHandle s, const void* data, int len)

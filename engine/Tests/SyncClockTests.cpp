@@ -542,3 +542,57 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
         }
     }
 }
+
+SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
+         "[acceptance][bdd][sync][clock][e2e][freeze][host-offline]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets with a short freeze timeout")
+    {
+        constexpr int kBase = 30000;
+        Engine engineA;
+        Engine engineB;
+        engineA.extent = engineB.extent = {640, 480};
+        engineA.showWindow = engineB.showWindow = false;
+
+        REQUIRE(engineA.initSync(makeHostIgRoleE2E(kBase + 1, kBase)));
+        REQUIRE(engineB.initSync(makeIgOnlyRoleE2E(kBase + 3, kBase)));
+        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
+
+        // 极短冻结阈值：真实链路几帧内触发冻结。
+        engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
+
+        WHEN("Host and IG tick normally, then the Host goes offline while the IG keeps ticking")
+        {
+            // 正常 tick：B 收到时间戳、不冻结。
+            for (int i = 0; i < 5; ++i)
+            {
+                REQUIRE(engineA.tickOnFrame());
+                engineB.tickSync();
+            }
+            REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
+            REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
+
+            // A 退出（等价于 Host 关闭 TCP/UDP）：B 继续 tick，流逝超过冻结阈值。
+            engineA.synchronSystem().shutdown();
+
+            for (int i = 0; i < 20; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                engineB.tickSync();
+            }
+
+            THEN("the IG enters frozen state and sim time stops advancing")
+            {
+                IgSync& ig = engineB.synchronSystem().igSync();
+                REQUIRE(ig.frozen());
+
+                // 冻结：simTimeUs 保持恒定（不再随流逝增长）。
+                const std::uint64_t s1 = ig.simTimeUs();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                const std::uint64_t s2 = ig.simTimeUs();
+                REQUIRE(s2 == s1);
+            }
+        }
+    }
+}

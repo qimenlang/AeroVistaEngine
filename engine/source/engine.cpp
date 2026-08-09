@@ -395,6 +395,18 @@ namespace
     {
         return std::string(RESOURCE_DIR) + "/config/default.json";
     }
+
+    std::string formatSimTimeUsParts(std::uint64_t totalUs)
+    {
+        const std::uint64_t sec = totalUs / 1000000;
+        const std::uint64_t msec = (totalUs / 1000) % 1000;
+        const std::uint64_t usec = totalUs % 1000;
+
+        std::ostringstream oss;
+        oss << sec << "," << std::setfill('0') << std::setw(3) << msec << "," << std::setw(3) << usec
+            << std::setfill(' ');
+        return oss.str();
+    }
 } // namespace
 
 Engine::Engine()
@@ -1106,15 +1118,10 @@ bool Engine::update()
 std::string Engine::frameStatsIgCtrlLine() const
 {
     // 调用方已确认 linked（_synchronSystem && hasIg && igCtrlReceivedCount>0）。
-    // 帧号 + 时间戳（simTimeUs 当前 IG 侧仿真时间）→ "IGCtrl: <帧号>：<s>,<ms>,<us>"
-    const std::uint64_t totalUs = _synchronSystem->igSync().simTimeUs();
-    const std::uint64_t sec = totalUs / 1000000;
-    const std::uint64_t msec = (totalUs / 1000) % 1000;
-    const std::uint64_t usec = totalUs % 1000;
-
+    // "IGCtrl: <帧号>：<s>,<ms>,<us>"（ms/us 补零 3 位）。
     std::ostringstream oss;
-    oss << "IGCtrl: " << _synchronSystem->igSync().lastIgCtrlFrameCntr() << ":" << sec << "," << msec << "," << usec
-        << "\n";
+    oss << "IGCtrl: " << _synchronSystem->igSync().lastIgCtrlFrameCntr() << ":"
+        << formatSimTimeUsParts(_synchronSystem->igSync().simTimeUs()) << "\n";
     return oss.str();
 }
 
