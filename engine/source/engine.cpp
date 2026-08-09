@@ -1089,7 +1089,7 @@ bool Engine::update()
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(1);
         if (_synchronSystem && _synchronSystem->hasIg() && _synchronSystem->igSync().igCtrlReceivedCount() > 0)
-            oss << "IGCtrl: " << _synchronSystem->igSync().lastIgCtrlFrameCntr() << "\n";
+            oss << frameStatsIgCtrlLine();
         else
             oss << "IGCtrl: ---\n";
         oss << "FPS: " << instantFps << "\n"
@@ -1101,6 +1101,21 @@ bool Engine::update()
 
     _viewer->update();
     return true;
+}
+
+std::string Engine::frameStatsIgCtrlLine() const
+{
+    // 调用方已确认 linked（_synchronSystem && hasIg && igCtrlReceivedCount>0）。
+    // 帧号 + 时间戳（simTimeUs 当前 IG 侧仿真时间）→ "IGCtrl: <帧号>：<s>,<ms>,<us>"
+    const std::uint64_t totalUs = _synchronSystem->igSync().simTimeUs();
+    const std::uint64_t sec = totalUs / 1000000;
+    const std::uint64_t msec = (totalUs / 1000) % 1000;
+    const std::uint64_t usec = totalUs % 1000;
+
+    std::ostringstream oss;
+    oss << "IGCtrl: " << _synchronSystem->igSync().lastIgCtrlFrameCntr() << ":" << sec << "," << msec << "," << usec
+        << "\n";
+    return oss.str();
 }
 
 void Engine::render()

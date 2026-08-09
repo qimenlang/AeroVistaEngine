@@ -101,6 +101,9 @@ private:
     void render();
     void postFrame();
 
+    /// Frame-stat line "IGCtrl: <frame>:<sec>,<ms>,<us>"（或 "---" 未连接）。
+    std::string frameStatsIgCtrlLine() const;
+
     void resetGraphicsResources();
     bool createVulkanDevice(int& queueFamily);
     vsg::ref_ptr<vsg::LookAt> createInitialLookAt(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel,
