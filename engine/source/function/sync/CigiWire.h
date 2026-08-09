@@ -57,13 +57,13 @@ namespace cigi_wire
     bool unpackSof(const unsigned char* data, int n, std::uint32_t& frameCntrOut);
 
     /// simTimeMs → CIGI TimeStamp (10 µs steps).
+    /// 自然回绕：超出 uint32 上限后取模（时钟同步方案.md §3 决策——第一版直接跨 12h 自然回绕，
+    /// IG 侧相位展开平滑跨过回绕点；不做饱和，否则跨 12h 时间戳停住）。
     inline std::uint32_t simTimeMsToTimeStamp(double simTimeMs)
     {
         if (simTimeMs <= 0.0)
             return 0;
         const double ticks = simTimeMs * 100.0; // ms → 10 µs
-        if (ticks >= 4294967295.0)
-            return 0xffffffffu;
         return static_cast<std::uint32_t>(ticks);
     }
 } // namespace cigi_wire

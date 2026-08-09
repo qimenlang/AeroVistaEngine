@@ -95,6 +95,14 @@ namespace
 #endif
         return interpretPeekResult(n);
     }
+
+    // 本机单调时钟当前时刻，单位 us（时钟同步方案.md §4.2：必须 steady_clock）。
+    std::uint64_t nowUs()
+    {
+        return static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch())
+                .count());
+    }
 } // namespace
 
 IgSync::~IgSync()
@@ -183,6 +191,7 @@ bool IgSync::initialize(const AddressConfig& local)
     _hasReceivedEye = false;
     _receivedEye = {};
     _hostEndpoint = {};
+    resetHostSession();
 
     if (!_udp.openSocket(_local.addr.c_str(), _local.udpPortSend, _local.udpPortRecv))
     {
@@ -234,6 +243,83 @@ std::optional<IgSync::HostEye> IgSync::takeReceivedHostEye()
     return _receivedEye;
 }
 
+bool IgSync::queueHostTimeStamp(const HostTimeStamp& stamp)
+{
+    // 按 frameCntr 裁决：旧帧整包丢弃（含时间戳）。同帧号重发刷新基准（>= 接受）。
+    if (_hasTimeStamp && stamp.frameCntr < _lastFrameCntr)
+        return false;
+
+    _lastFrameCntr = stamp.frameCntr;
+    applyPhaseUnwrap(stamp.rawTimeStamp);
+
+    _lastSimTimeUs = _extendedTimeTicks * 10; // tick → us
+    _lastReceivedAtUs = stamp.receivedAtUs;
+    _hasTimeStamp = true;
+    _frozen = false;
+    return true;
+}
+
+void IgSync::applyPhaseUnwrap(std::uint32_t raw)
+{
+    if (!_hasTimeStamp)
+    {
+        // 首包：保留 Host 绝对基准（时钟同步方案.md §3），不从 0 起。
+        _lastRawTimeStamp = raw;
+        _extendedTimeTicks = raw;
+        return;
+    }
+    // 后续包：模减法跨 2^32 回绕（回绕处仍给出正向增量）。
+    const std::uint32_t delta = static_cast<std::uint32_t>(raw - _lastRawTimeStamp);
+    _extendedTimeTicks += delta;
+    _lastRawTimeStamp = raw;
+}
+
+void IgSync::resetHostSession()
+{
+    // 会话重置（TCP 重连 / Host 重启）：相位展开状态从新基准起，不继承旧会话大值。
+    _hasTimeStamp = false;
+    _lastRawTimeStamp = 0;
+    _extendedTimeTicks = 0;
+    _lastSimTimeUs = 0;
+    _lastReceivedAtUs = 0;
+    _frozen = false;
+}
+
+std::uint64_t IgSync::lastHostSimTimeUs() const
+{
+    return _lastSimTimeUs;
+}
+
+std::uint64_t IgSync::simTimeUs() const
+{
+    return simTimeUsAt(nowUs());
+}
+
+std::uint64_t IgSync::simTimeUsAt(std::uint64_t nowUs) const
+{
+    if (!_hasTimeStamp)
+        return 0;
+    if (_frozen)
+        return _lastSimTimeUs;
+    return _lastSimTimeUs + (nowUs - _lastReceivedAtUs);
+}
+
+void IgSync::setExtrapolateTimeoutUs(std::uint64_t timeoutUs)
+{
+    _extrapolateTimeoutUs = timeoutUs;
+}
+
+void IgSync::updateFreeze(std::uint64_t nowUs)
+{
+    if (_hasTimeStamp && (nowUs - _lastReceivedAtUs) > _extrapolateTimeoutUs)
+        _frozen = true;
+}
+
+bool IgSync::frozen() const
+{
+    return _frozen;
+}
+
 void IgSync::sendSofPacket(std::uint32_t frameCntr)
 {
     if (_hostEndpoint.addr.empty())
@@ -274,11 +360,10 @@ void IgSync::update(bool sendSof)
         if (!cigi_wire::unpackHostFrame(buf, n, frame))
             continue;
 
-        // Drop whole older bundles (FrameCntr strictly less than last processed).
-        if (_igCtrlReceivedCount.load() > 0 && frame.frameCntr < _lastFrameCntr)
+        // 时间戳相位展开 + 基准更新（时钟同步方案.md §3 / §4）；内含 frameCntr 裁决（旧帧丢弃、同号刷新）。
+        const bool accepted = queueHostTimeStamp(HostTimeStamp{frame.frameCntr, frame.timeStamp, nowUs()});
+        if (!accepted)
             continue;
-
-        _lastFrameCntr = frame.frameCntr;
         _igCtrlReceivedCount.fetch_add(1);
 
         if (frame.eye)
@@ -296,6 +381,10 @@ void IgSync::update(bool sendSof)
         if (sendSof)
             sendSofPacket(_lastFrameCntr);
     }
+
+    // 每帧检查外推冻结（时钟同步方案.md §4.3）：距最后收到 Host 时间戳的流逝超阈值 → 冻结。
+    // 放在收包循环之后——本帧收包会刷新 lastReceivedAtUs，冻结判断基于「本帧之后」的流逝。
+    updateFreeze(nowUs());
 }
 
 bool IgSync::sendAll(IgSocketHandle s, const void* data, int len)
@@ -517,6 +606,8 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
             _tcpConnected = true;
             _udpSynced = true;
             _status = IgStatus::RUNNING;
+            // 新会话起点：清空相位展开状态（时钟同步方案.md §3）。
+            resetHostSession();
             return true;
         }
 

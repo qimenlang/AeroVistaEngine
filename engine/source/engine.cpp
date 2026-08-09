@@ -745,7 +745,9 @@ bool Engine::init(const vsg::Path& modelPath)
 
 bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
 {
-    _syncSimTimeMs = 0.0;
+    // 模拟时间轴起点（时钟同步方案.md §5 方案 B）：从 init 时刻起连续推进。
+    _simStartTime = std::chrono::steady_clock::now();
+    _simStartMs = 0.0;
     return _synchronSystem->initialize(syncRole, requireIgConnect);
 }
 
@@ -1113,10 +1115,15 @@ void Engine::render()
 void Engine::postFrame()
 {
     // Subsystems: read final state / fan-out after update+render.
+    // 模拟时间基于 steady_clock 连续推进（时钟同步方案.md §5 方案 B）：
+    // 渲染卡顿时时间戳跟上真实流逝，IG 外推不因 host 帧节奏波动而放大误差。
     if (_synchronSystem)
-        _synchronSystem->postFrame(*this, _syncSimTimeMs);
-
-    _syncSimTimeMs += 1000.0 / 60.0;
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsedMs =
+            std::chrono::duration<double, std::milli>(now - _simStartTime).count();
+        _synchronSystem->postFrame(*this, _simStartMs + elapsedMs);
+    }
 }
 
 void Engine::tickSync()

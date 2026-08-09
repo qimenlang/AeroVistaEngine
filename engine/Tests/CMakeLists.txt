@@ -1,9 +1,10 @@
-set(TARGET_NAME vsgEngineTests)
+﻿set(TARGET_NAME vsgEngineTests)
 
 set(SOURCES
     ImageCompare.cpp
     RenderingTests.cpp
     HostIGTests.cpp
+    SyncClockTests.cpp
     EngineConfigTests.cpp
     ModelConfigTests.cpp
 )
