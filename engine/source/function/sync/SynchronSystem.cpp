@@ -363,6 +363,11 @@ void SynchronSystem::applyHostEye(Engine& engine, const HostEyePose& hostEye)
 
 void SynchronSystem::update(Engine& engine)
 {
+    // 命令执行归主线程（状态同步设计初版.md §4）：命令读循环线程回 RECEIVED 后入队，
+    // 主线程每帧在此执行（场景归属主线程，避免跨线程改场景 / 编译 pipeline）。
+    if (_ig)
+        _ig->runPendingCommands();
+
     const bool linked = igLinked();
 
     if (linked)

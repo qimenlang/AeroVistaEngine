@@ -20,6 +20,8 @@
 #include <memory>
 #include <mutex>
 
+#include <algorithm>
+
 namespace cigi_wire
 {
     namespace
@@ -339,5 +341,69 @@ namespace cigi_wire
             return false;
         frameCntrOut = rt.sofProc.frameCntr;
         return true;
+    }
+
+    bool packCommandMsg(const CommandMsg& msg, std::vector<unsigned char>& out)
+    {
+        out.clear();
+        const std::uint16_t msgSize = static_cast<std::uint16_t>(2 + msg.payload.size());
+        const std::uint16_t variableDataSize = static_cast<std::uint16_t>((msgSize + 7) & ~7);
+        const std::uint16_t packetSize = static_cast<std::uint16_t>(8 + variableDataSize);
+        out.assign(packetSize, 0);
+        out[0] = static_cast<unsigned char>(packetSize & 0xFF);
+        out[1] = static_cast<unsigned char>(packetSize >> 8);
+        out[2] = 0xF0; // PacketID 低：CIGI_IG_MSG_PACKET_ID_V4 = 0x0ff0
+        out[3] = 0x0F;
+        out[4] = static_cast<unsigned char>(msg.msgId & 0xFF); // MsgID
+        out[5] = static_cast<unsigned char>(msg.msgId >> 8);
+        // reserved [6..7] = 0
+        out[8] = static_cast<unsigned char>(msg.seq & 0xFF); // Msg: seq(2,LE)
+        out[9] = static_cast<unsigned char>(msg.seq >> 8);
+        if (!msg.payload.empty())
+            std::copy(msg.payload.begin(), msg.payload.end(), out.begin() + 10);
+        return true;
+    }
+
+    bool unpackCommandMsg(const unsigned char* data, int n, CommandMsg& out)
+    {
+        out = {};
+        if (data == nullptr || n < 8)
+            return false;
+        const std::uint16_t packetSize = static_cast<std::uint16_t>(data[0] | (data[1] << 8));
+        if (n < packetSize)
+            return false; // 不完整
+        const std::uint16_t packetId = static_cast<std::uint16_t>(data[2] | (data[3] << 8));
+        if (packetId != 0x0FF0)
+            return false;
+        out.msgId = static_cast<std::uint16_t>(data[4] | (data[5] << 8));
+        if (packetSize < 10)
+            return false;
+        out.seq = static_cast<std::uint16_t>(data[8] | (data[9] << 8));
+        out.payload.assign(data + 10, data + packetSize);
+        return true;
+    }
+
+    void CommandFrameAssembler::feed(const unsigned char* data, int n,
+                                     const std::function<void(const CommandMsg&)>& onMsg)
+    {
+        if (data != nullptr && n > 0)
+            _buf.insert(_buf.end(), data, data + n);
+
+        std::size_t offset = 0;
+        for (;;)
+        {
+            if (_buf.size() - offset < 8)
+                break; // 头不够，等更多数据
+            const std::uint16_t packetSize =
+                static_cast<std::uint16_t>(_buf[offset] | (_buf[offset + 1] << 8));
+            if (packetSize < 8 || _buf.size() - offset < packetSize)
+                break; // 报文不完整（拆包）
+            CommandMsg msg;
+            if (unpackCommandMsg(_buf.data() + offset, static_cast<int>(packetSize), msg) && onMsg)
+                onMsg(msg);
+            offset += packetSize;
+        }
+        if (offset > 0)
+            _buf.erase(_buf.begin(), _buf.begin() + static_cast<std::ptrdiff_t>(offset));
     }
 } // namespace cigi_wire

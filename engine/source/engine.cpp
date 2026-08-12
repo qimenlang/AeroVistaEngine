@@ -1,32 +1,23 @@
 ﻿#include "engine.h"
 
 #include "InitialCameraConfig.h"
+#include "function/handler/CommandTriggerHandler.h"
+#include "function/handler/FrameStatsHandler.h"
 
 #include <vsgXchange/all.h>
 
 #include <chrono>
+#include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace
 {
-
-    class FrameStatsHandler : public vsg::Inherit<vsg::Visitor, FrameStatsHandler>
-    {
-    public:
-        bool* enabled = nullptr;
-
-        void apply(vsg::KeyPressEvent& keyPress) override
-        {
-            if (!enabled || keyPress.keyBase != vsg::KEY_F2)
-                return;
-
-            *enabled = !*enabled;
-            std::cout << "[FrameStats] " << (*enabled ? "ON" : "OFF") << std::endl;
-        }
-    };
 
     struct FrameStatsHud
     {
@@ -383,6 +374,32 @@ namespace
         return true;
     }
 
+    // 命令载荷小端读取（状态同步设计初版.md §2.2：本机字节序，Windows x86 为 LE）。
+    std::uint32_t readLeU32(const std::vector<std::uint8_t>& p, std::size_t offset)
+    {
+        std::uint32_t v = 0;
+        for (int i = 3; i >= 0; --i)
+            v = static_cast<std::uint32_t>((v << 8) | p[offset + static_cast<std::size_t>(i)]);
+        return v;
+    }
+
+    double readLeF64(const std::vector<std::uint8_t>& p, std::size_t offset)
+    {
+        std::uint64_t v = 0;
+        for (int i = 7; i >= 0; --i)
+            v = (v << 8) | p[offset + static_cast<std::size_t>(i)];
+        double d = 0.0;
+        std::memcpy(&d, &v, sizeof(d));
+        return d;
+    }
+
+    bool pathHasExtension(const std::string& path)
+    {
+        const std::size_t dot = path.find_last_of('.');
+        const std::size_t slash = path.find_last_of("/\\");
+        return dot != std::string::npos && (slash == std::string::npos || dot > slash);
+    }
+
 } // namespace
 
 #ifndef RESOURCE_DIR
@@ -485,8 +502,8 @@ vsg::ref_ptr<vsg::EllipsoidModel> Engine::ellipsoidModel() const
 
 bool Engine::sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3& eulerYprDeg) const
 {
-    const auto it = _entitiesById.find(id);
-    if (it == _entitiesById.end())
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
         return false;
     const Entity& entity = it->second;
     if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
@@ -506,18 +523,18 @@ bool Engine::sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3&
 
 std::size_t Engine::entitySize() const
 {
-    return _entitiesById.size();
+    return _entityMap.size();
 }
 
 bool Engine::hasEntityId(int id) const
 {
-    return _entitiesById.find(id) != _entitiesById.end();
+    return _entityMap.find(id) != _entityMap.end();
 }
 
 bool Engine::entityName(int id, std::string& outName) const
 {
-    const auto it = _entitiesById.find(id);
-    if (it == _entitiesById.end())
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
         return false;
     outName = it->second.name;
     return true;
@@ -525,8 +542,8 @@ bool Engine::entityName(int id, std::string& outName) const
 
 vsg::ref_ptr<vsg::MatrixTransform> Engine::entityTransform(int id) const
 {
-    const auto it = _entitiesById.find(id);
-    if (it == _entitiesById.end())
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
         return {};
     return it->second.transform;
 }
@@ -542,6 +559,166 @@ vsg::dmat4 Engine::makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::E
     const vsg::dvec3 position = toDVec3(cfg.localPose.position);
     const vsg::dvec3 ypr = toDVec3(cfg.localPose.eulerYprDeg);
     return vsg::translate(position) * rotationMatrixYpr(ypr);
+}
+
+void Engine::bindSyncCommandHandler()
+{
+    if (!_synchronSystem || !_synchronSystem->hasIg())
+        return;
+    _synchronSystem->igSync().setCommandHandler(
+        [this](cigi_wire::Command cmd, std::uint16_t /*seq*/,
+               const std::vector<std::uint8_t>& payload) { return executeSyncCommand(cmd, payload); });
+}
+
+bool Engine::executeSyncCommand(cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload)
+{
+    switch (cmd)
+    {
+    case cigi_wire::Command::LOAD_MODEL: return loadModelFromPayload(payload);
+    case cigi_wire::Command::PLACE_MODEL: return placeModelFromPayload(payload);
+    case cigi_wire::Command::MOVE_MODEL: return moveModelFromPayload(payload);
+    default: return false;
+    }
+}
+
+bool Engine::loadModelFromPayload(const std::vector<std::uint8_t>& payload)
+{
+    if (payload.size() < 4)
+        return false;
+    // LOADMODEL 载荷（初版 §2.2）：[id(4B)] [path…]。id 由 Host 在 payload 携带（与 PLACEMODEL 一致），
+    // IG 直接用该 id 组装 Entity 放入实体表，由后续 PLACEMODEL(同 id) 升级位姿。
+    const std::uint32_t id = readLeU32(payload, 0);
+    // path 为变长字符串：从 payload[4] 到末尾（去掉尾部填充 NUL，兼容对齐补零）。
+    std::size_t pathLen = payload.size() - 4;
+    while (pathLen > 0 && payload[4 + pathLen - 1] == 0)
+        --pathLen;
+    const std::string path(payload.begin() + 4, payload.begin() + 4 + static_cast<std::ptrdiff_t>(pathLen));
+    if (path.empty())
+        return false;
+
+    // LOADMODEL 为慢命令（初版 §4/§5.2）：真实加载模型文件，耗时由 IO 决定。
+    auto node = tryLoadModelNode(path);
+    if (!node)
+        return false;
+
+    Entity entity;
+    entity.id = static_cast<int>(id);
+    entity.path = path;
+    entity.node = node;
+    _entityMap[static_cast<int>(id)] = std::move(entity);
+    return true;
+}
+
+vsg::ref_ptr<vsg::Node> Engine::tryLoadModelNode(const std::string& path)
+{
+    auto options = vsg::Options::create();
+    options->paths.push_back(vsg::Path(RESOURCE_DIR));
+    options->add(vsgXchange::all::create());
+
+    vsg::Path target = vsg::Path(RESOURCE_DIR) / "models" / path;
+    if (!pathHasExtension(path))
+    {
+        const vsg::Path alt = vsg::Path(RESOURCE_DIR) / "models" / (path + ".vsgt");
+        if (alt.type() != vsg::FILE_NOT_FOUND)
+            target = alt;
+    }
+    const auto object = vsg::read(target, options);
+    return object.cast<vsg::Node>();
+}
+
+bool Engine::placeModelFromPayload(const std::vector<std::uint8_t>& p)
+{
+    if (p.size() < 52)
+        return false;
+    const std::uint32_t id = readLeU32(p, 0);
+    const vsg::dvec3 pos(readLeF64(p, 4), readLeF64(p, 12), readLeF64(p, 20));
+    const vsg::dvec3 ypr(readLeF64(p, 28), readLeF64(p, 36), readLeF64(p, 44));
+    // PLACEMODEL 目标必须已存在：id=0 升级 LOAD 骨架实体，其他 id 必须已配置/已加载，否则失败。
+    // ECEF 下 pos = LLA（lat°, lon°, alt m），与 eye/EntityConfig 的 ECEF 约定一致（初版 §2.2）。
+    if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
+        return setEntityPoseLla(static_cast<int>(id), pos, ypr);
+    return setEntityPose(static_cast<int>(id), pos, ypr);
+}
+
+bool Engine::moveModelFromPayload(const std::vector<std::uint8_t>& p)
+{
+    if (p.size() < 52)
+        return false;
+    const std::uint32_t id = readLeU32(p, 0);
+    const vsg::dvec3 deltaPosition(readLeF64(p, 4), readLeF64(p, 12), readLeF64(p, 20));
+    const vsg::dvec3 deltaYpr(readLeF64(p, 28), readLeF64(p, 36), readLeF64(p, 44));
+    return moveEntityById(static_cast<int>(id), deltaPosition, deltaYpr);
+}
+
+bool Engine::moveEntityById(int id, const vsg::dvec3& deltaPosition, const vsg::dvec3& deltaYprDeg)
+{
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
+        return false; // MOVEMODEL 目标实体不存在 → RESULT-NACK
+    Entity& entity = it->second;
+    entity.localPosition += deltaPosition;
+    entity.localYpr += deltaYprDeg;
+    recomputeEntityTransform(entity);
+    return true;
+}
+
+bool Engine::setEntityPose(int id, const vsg::dvec3& position, const vsg::dvec3& yprDeg)
+{
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
+        return false; // PLACEMODEL 目标实体不存在 → RESULT-NACK
+    Entity& entity = it->second;
+    entity.localPosition = position;
+    entity.localYpr = yprDeg;
+    entity.hasLocalPose = true;
+    ensureEntityTransform(entity);
+    recomputeEntityTransform(entity);
+    return true;
+}
+
+bool Engine::setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg)
+{
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
+        return false; // PLACEMODEL 目标实体不存在 → RESULT-NACK
+    Entity& entity = it->second;
+    entity.ellipsoidLla = lla;
+    entity.ellipsoidYpr = yprDeg;
+    entity.hasEllipsoidPose = true;
+    ensureEntityTransform(entity);
+    recomputeEntityTransform(entity);
+    return true;
+}
+
+void Engine::ensureEntityTransform(Entity& entity)
+{
+    if (entity.transform)
+        return;
+    auto mt = vsg::MatrixTransform::create();
+    if (entity.node)
+        mt->addChild(entity.node);
+    entity.transform = mt;
+    // 主线程执行（runPendingCommands）：与渲染遍历天然串行，无需锁。
+    // 运行期挂载的模型节点需编译 GPU pipeline：初始场景在 finishGraphicsAfterScene 编译，
+    // 新挂载节点的 GraphicsPipeline::_implementation 为空 → record 时 vk() 越界。
+    if (auto group = _scene.cast<vsg::Group>())
+    {
+        group->addChild(mt);
+        if (_viewer)
+            _viewer->compile();
+    }
+}
+
+void Engine::recomputeEntityTransform(Entity& entity)
+{
+    if (!entity.transform)
+        return;
+    const auto ellipsoid = ellipsoidModel();
+    if (entity.hasEllipsoidPose && ellipsoid)
+        entity.transform->matrix =
+            ellipsoid->computeLocalToWorldTransform(entity.ellipsoidLla) * rotationMatrixYpr(entity.ellipsoidYpr);
+    else
+        entity.transform->matrix = vsg::translate(entity.localPosition) * rotationMatrixYpr(entity.localYpr);
 }
 
 void Engine::applyCameraPoseFromConfig()
@@ -605,7 +782,7 @@ bool Engine::ensureEllipsoidModelForFrame()
 
 bool Engine::assembleEntitiesScene()
 {
-    _entitiesById.clear();
+    _entityMap.clear();
     if (!setupOptions(_options))
         return false;
 
@@ -649,7 +826,7 @@ bool Engine::assembleEntitiesScene()
             root->addChild(loaded);
         }
 
-        _entitiesById.emplace(entity.id, std::move(entity));
+        _entityMap.emplace(entity.id, std::move(entity));
     }
     return true;
 }
@@ -760,7 +937,11 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
     // 模拟时间轴起点（时钟同步方案.md §5 方案 B）：从 init 时刻起连续推进。
     _simStartTime = std::chrono::steady_clock::now();
     _simStartMs = 0.0;
-    return _synchronSystem->initialize(syncRole, requireIgConnect);
+    if (!_synchronSystem->initialize(syncRole, requireIgConnect))
+        return false;
+    // 命令执行桥在同步初始化时绑定（不依赖图形）：IG-only 引擎（测试无 initGraphics）同样可执行命令。
+    bindSyncCommandHandler();
+    return true;
 }
 
 bool Engine::init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole)
@@ -793,7 +974,7 @@ void Engine::resetGraphicsResources()
     if (_synchronSystem)
         _synchronSystem->resetEyeCaches();
 
-    _entitiesById.clear();
+    _entityMap.clear();
     _currentExtent = extent;
     _hasRenderedFrame = false;
     // Drop prior Vulkan graph before allocating a new Device (Catch multi-Engine suites).
@@ -953,6 +1134,14 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
         auto frameStatsHandler = FrameStatsHandler::create();
         frameStatsHandler->enabled = &_reportFrameStats;
         _viewer->addEventHandler(frameStatsHandler);
+
+        // 实机命令触发：仅 Host 引擎（有 ready IG）挂 F3 热键。
+        if (_synchronSystem && _synchronSystem->hasHost())
+        {
+            auto commandHandler = CommandTriggerHandler::create();
+            commandHandler->synchronSystem = _synchronSystem.get();
+            _viewer->addEventHandler(commandHandler);
+        }
 
         auto windowView = vsg::View::create(camera);
         windowView->addChild(vsg::createHeadlight());

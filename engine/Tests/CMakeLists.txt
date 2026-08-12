@@ -5,6 +5,7 @@ set(SOURCES
     RenderingTests.cpp
     HostIGTests.cpp
     SyncClockTests.cpp
+    SyncCommandTests.cpp
     EngineConfigTests.cpp
     ModelConfigTests.cpp
 )

@@ -1,12 +1,17 @@
 ﻿#pragma once
 
+#include "CigiWire.h"
 #include "Network.h"
 #include "SyncConfig.h"
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
+#include <vector>
 
 #ifdef WIN32
 #    ifndef NOMINMAX
@@ -94,11 +99,34 @@ public:
     /// FrameCntr from the most recently processed Host IGCtrl (0 if none yet).
     std::uint32_t lastIgCtrlFrameCntr() const;
 
+    // ===== 命令面（状态同步设计初版.md §6） =====
+
+    /// 测试注入：模拟从 TCP 收到一条命令（cmd, seq, payload），走完整幂等/回执/执行路径。
+    void queueCommand(cigi_wire::Command cmd, std::uint16_t seq, const std::vector<std::uint8_t>& payload);
+
+    /// 测试注入：收到命令后延迟 delayMs 再回 RECEIVED（稳定复现 RECEIVED 超时）。
+    void setCommandReceivedDelayMs(std::uint32_t delayMs);
+
+    /// 业务执行回调：返回 true=成功（回 RESULT-ACK），false=失败（回 RESULT-NACK）。
+    void setCommandHandler(
+        std::function<bool(cigi_wire::Command cmd, std::uint16_t seq,
+                           const std::vector<std::uint8_t>& payload)>
+            handler);
+
+    /// 最近执行的命令（幂等去重后）：测试观测。
+    cigi_wire::Command lastCommandMsgId() const;
+    std::uint16_t lastCommandSeq() const;
+    std::uint32_t commandCount() const;
+
+    /// 主线程每帧执行待办命令（场景归属主线程，状态同步设计初版.md §4）。由 SynchronSystem::update 调用。
+    void runPendingCommands();
+
 private:
     static constexpr int tcpConnectTimeoutMs = 200;
     static constexpr int handshakeTimeoutMs = 1000;
     static constexpr int tcpRetryAttempts = 16;
     static constexpr int handshakeRetryAttempts = 8;
+    static constexpr int commandRecvTimeoutMs = 100;
 
     void closeTcp();
     void drainUdp();
@@ -108,12 +136,17 @@ private:
     bool waitUdpAck(int timeoutMs);
     bool connectOnce(const AddressConfig& hostEndpoint);
     void sendSofPacket(std::uint32_t frameCntr);
-    /// Poll TCP for peer close (Host offline). Clears both plane flags when dead.
-    void refreshConnectionState() const;
-    bool isTcpPeerAlive() const;
     void markDisconnected();
     /// 相位展开：把 raw（uint32, 10µs tick）累进 64 位单调 extendedTime（时钟同步方案.md §3）。
     void applyPhaseUnwrap(std::uint32_t raw);
+
+    // 命令面（初版 §3.1 / §6）：命令读循环线程回 RECEIVED + 入队；主线程取队列执行 + 回 RESULT。
+    void startCommandThread();
+    void stopCommandThread();
+    void commandLoop();
+    void processCommand(cigi_wire::Command cmd, std::uint16_t seq, const std::vector<std::uint8_t>& payload);
+    void enqueueCommand(cigi_wire::Command cmd, std::uint16_t seq, const std::vector<std::uint8_t>& payload);
+    void sendCommandReply(std::uint16_t replyMsgId, std::uint16_t seq);
 
     AddressConfig _local{};
     AddressConfig _hostEndpoint{};
@@ -139,4 +172,28 @@ private:
     std::uint64_t _lastReceivedAtUs = 0;          ///< 收到该包时的本机单调时钟（us）
     std::uint64_t _extrapolateTimeoutUs = 200000; ///< 默认 200ms
     bool _frozen = false;
+
+    // 命令面状态（初版 §2.3 / §6）
+    struct PendingCommand
+    {
+        cigi_wire::Command cmd = cigi_wire::Command::LOAD_MODEL;
+        std::uint16_t seq = 0;
+        std::vector<std::uint8_t> payload;
+    };
+    std::thread _cmdThread;
+    std::atomic<bool> _cmdThreadRunning{false};
+    std::mutex _pendingMutex;
+    std::vector<PendingCommand> _pendingCommands; ///< 命令读循环线程入队，主线程 runPendingCommands 取走
+    std::mutex _cmdSendMutex;                     ///< 命令读循环线程（RECEIVED）与主线程（RESULT）都写 _tcp
+
+    mutable std::mutex _cmdStateMutex;
+    bool _hasCmdState = false;
+    std::uint16_t _cmdMaxSeq = 0;
+    cigi_wire::Command _lastCmdMsgId = cigi_wire::Command::LOAD_MODEL;
+    std::uint16_t _lastCmdSeq = 0;
+    std::uint32_t _cmdCount = 0;
+    std::uint32_t _cmdReceivedDelayMs = 0;
+    std::function<bool(cigi_wire::Command cmd, std::uint16_t seq,
+                       const std::vector<std::uint8_t>& payload)>
+        _cmdHandler;
 };

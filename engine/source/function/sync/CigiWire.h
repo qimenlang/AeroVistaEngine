@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -34,6 +35,49 @@ namespace cigi_wire
         std::uint32_t timeStamp = 0;
         bool timeStampValid = false;
         std::optional<EyePose> eye;
+    };
+
+    /// Command-plane message（状态同步设计初版.md §2）：msgId 指令/回执码，seq 全局递增，payload 不含 seq。
+    struct CommandMsg
+    {
+        std::uint16_t msgId = 0;
+        std::uint16_t seq = 0;
+        std::vector<std::uint8_t> payload;
+    };
+
+    // 指令码（状态同步设计初版.md §2.2）：Host→IG 命令类型。
+    // 枚举值遵循 SCREAMING_SNAKE（.clang-tidy EnumConstantCase=UPPER_CASE / cpp-vsg-style.mdc）。
+    enum class Command : std::uint16_t
+    {
+        LOAD_MODEL = 0x0001,
+        PLACE_MODEL = 0x0002,
+        MOVE_MODEL = 0x0003
+    };
+
+    // 回执基码（编码规则 RECEIVED=0x7000|cmd、RESULT-ACK=0x8000|cmd、RESULT-NACK=0x9000|cmd）：
+    // 回执 MsgID = 基码 | 指令码，是线格式计算常量（不属于命令枚举，回执码 = base | cmd）。
+    inline constexpr std::uint16_t kReceivedReplyBase = 0x7000;
+    inline constexpr std::uint16_t kResultAckBase = 0x8000;
+    inline constexpr std::uint16_t kResultNackBase = 0x9000;
+
+    /// Pack CommandMsg into a CIGI V4 IGMsg wire frame（初版 §3.2 / CigiIGMsgV4::Pack）：
+    /// [PacketSize(2,LE)][PacketID=0x0ff0(2,LE)][MsgID(2,LE)][reserved(2)][Msg=seq(2)+payload，8 对齐]。
+    bool packCommandMsg(const CommandMsg& msg, std::vector<unsigned char>& out);
+
+    /// Unpack one complete CIGI V4 IGMsg wire frame. False on malformed / incomplete buffer.
+    bool unpackCommandMsg(const unsigned char* data, int n, CommandMsg& out);
+
+    /// TCP 流分帧器（初版 §3.2）：任意分块喂入，按 PacketSize 切出完整 IGMsg 并回调。粘包/拆包均覆盖。
+    class CommandFrameAssembler
+    {
+    public:
+        /// 喂入一段 recv 字节；对每条切出的完整报文调用 onMsg。
+        void feed(const unsigned char* data, int n, const std::function<void(const CommandMsg&)>& onMsg);
+
+        bool bufferEmpty() const { return _buf.empty(); }
+
+    private:
+        std::vector<unsigned char> _buf;
     };
 
     /// True if buffer starts with sync_proto AVSY magic (handshake plane).

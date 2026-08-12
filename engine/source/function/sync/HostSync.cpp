@@ -153,8 +153,6 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
     // FreeRun: never block on SOF. Barrier reserved for later.
     (void)_pace;
 
-    pollUdp();
-
     const std::uint32_t frameCntr = _frameCounter++;
     cigi_wire::EyePose eyeWire{};
     const cigi_wire::EyePose* eyePtr = nullptr;
@@ -273,6 +271,12 @@ void HostSync::shutdown()
     _status = HostStatus::IDLE;
     closeSocket(_listenSocket);
 
+    // 先关 peer socket（唤醒阻塞 recv 的命令读循环），再 join 客户端线程。
+    {
+        std::lock_guard lock(_peersMutex);
+        for (auto& p : _peers)
+            closeSocket(p.tcp);
+    }
     if (_acceptThread.joinable())
         _acceptThread.join();
     if (_udpThread.joinable())
@@ -281,11 +285,10 @@ void HostSync::shutdown()
 
     {
         std::lock_guard lock(_peersMutex);
-        for (auto& p : _peers)
-            closeSocket(p.tcp);
         _peers.clear();
         _earlyUdpSyncByPort.clear();
     }
+    clearReceivedAcks();
 
     if (_udp.isValid())
         _udp.closeSocket();
@@ -381,6 +384,180 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
         _udp.sendTo(peerIp.c_str(), static_cast<int>(hello.udpRecvPort),
                     reinterpret_cast<const unsigned char*>(&udpAck), sizeof(udpAck));
     }
+
+    commandReadLoop(client);
+    markPeerDisconnected(client);
+    closeSocket(client);
+}
+
+void HostSync::commandReadLoop(SocketHandle client)
+{
+    // 命令读循环（初版 §3.1）：持续读 peer TCP → 分帧 → 解析 RECEIVED/RESULT。
+    // 本线程是该 socket 的唯一 recv 者；EOF（recv 返回 0）即判定断线。
+    cigi_wire::CommandFrameAssembler assembler;
+    unsigned char cmdBuf[4096];
+    for (;;)
+    {
+#ifdef WIN32
+        const int n = recv(client, reinterpret_cast<char*>(cmdBuf), sizeof(cmdBuf), 0);
+        if (n == 0)
+            break; // EOF：IG 主动断开
+        if (n < 0)
+        {
+            const int err = WSAGetLastError();
+            if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK)
+                continue; // 读超时（SO_RCVTIMEO）≠ 断线
+            break;
+        }
+#else
+        const int n = static_cast<int>(::recv(client, cmdBuf, sizeof(cmdBuf), 0));
+        if (n == 0)
+            break;
+        if (n < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+                continue;
+            break;
+        }
+#endif
+        assembler.feed(cmdBuf, n, [this, client](const cigi_wire::CommandMsg& msg) {
+            handleCommandReply(client, msg);
+        });
+    }
+}
+
+void HostSync::handleCommandReply(SocketHandle client, const cigi_wire::CommandMsg& msg)
+{
+    const std::uint16_t kind = static_cast<std::uint16_t>(msg.msgId & 0xF000);
+    if (kind == cigi_wire::kReceivedReplyBase)
+    {
+        // RECEIVED：记录该 peer 已确认的 seq，唤醒阻塞等 RECEIVED 的 sendCommand。
+        std::lock_guard lock(_cmdMutex);
+        _receivedSeqByPeer[client].insert(msg.seq);
+        _cmdCv.notify_all();
+        return;
+    }
+    if (kind == cigi_wire::kResultAckBase || kind == cigi_wire::kResultNackBase)
+    {
+        const bool ack = (kind == cigi_wire::kResultAckBase);
+        const auto cmd = static_cast<cigi_wire::Command>(msg.msgId & 0x0FFF);
+        std::function<void(bool, std::uint16_t, cigi_wire::Command)> callback;
+        {
+            std::lock_guard lock(_resultMutex);
+            _lastResultSeq = msg.seq;
+            _lastResultAck = ack;
+            callback = _resultCallback;
+        }
+        if (callback)
+            callback(ack, msg.seq, cmd);
+    }
+}
+
+bool HostSync::sendCommand(cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload,
+                           std::uint32_t receivedTimeoutMs)
+{
+    std::vector<SocketHandle> targets;
+    {
+        std::lock_guard lock(_peersMutex);
+        for (const auto& p : _peers)
+        {
+            if (p.tcpReady && p.udpReady)
+                targets.push_back(p.tcp);
+        }
+    }
+    if (targets.empty())
+        return false; // 无 ready peer：无人收到命令（初版 §5.2 返回值语义）
+
+    const std::uint16_t seq = static_cast<std::uint16_t>(++_cmdSeq);
+    cigi_wire::CommandMsg msg;
+    msg.msgId = static_cast<std::uint16_t>(cmd);
+    msg.seq = seq;
+    msg.payload = payload;
+    std::vector<unsigned char> wire;
+    if (!cigi_wire::packCommandMsg(msg, wire))
+        return false;
+
+    bool allDelivered = true;
+    for (const SocketHandle sock : targets)
+    {
+        if (!sendAllTcp(sock, wire.data(), static_cast<int>(wire.size())))
+        {
+            allDelivered = false;
+            continue;
+        }
+        if (!waitReceivedAck(sock, seq, receivedTimeoutMs))
+            allDelivered = false;
+    }
+    return allDelivered;
+}
+
+bool HostSync::waitReceivedAck(SocketHandle client, std::uint16_t seq, std::uint32_t timeoutMs)
+{
+    std::unique_lock lock(_cmdMutex);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (_receivedSeqByPeer[client].count(seq) == 0)
+    {
+        if (_cmdCv.wait_until(lock, deadline) == std::cv_status::timeout)
+            return _receivedSeqByPeer[client].count(seq) > 0;
+    }
+    return true;
+}
+
+bool HostSync::sendAllTcp(SocketHandle s, const void* data, int len)
+{
+    const char* p = static_cast<const char*>(data);
+    int sent = 0;
+    while (sent < len)
+    {
+#ifdef WIN32
+        const int n = send(s, p + sent, len - sent, 0);
+#else
+        const int n = static_cast<int>(::send(s, p + sent, static_cast<size_t>(len - sent), 0));
+#endif
+        if (n <= 0)
+            return false;
+        sent += n;
+    }
+    return true;
+}
+
+void HostSync::markPeerDisconnected(SocketHandle client)
+{
+    std::lock_guard lock(_peersMutex);
+    for (auto it = _peers.begin(); it != _peers.end(); ++it)
+    {
+        if (it->tcp == client)
+        {
+            closeSocket(it->tcp);
+            _peers.erase(it);
+            return;
+        }
+    }
+}
+
+void HostSync::clearReceivedAcks()
+{
+    std::lock_guard lock(_cmdMutex);
+    _receivedSeqByPeer.clear();
+}
+
+std::uint16_t HostSync::lastCommandResultSeq() const
+{
+    std::lock_guard lock(_resultMutex);
+    return _lastResultSeq;
+}
+
+bool HostSync::lastCommandResultAck() const
+{
+    std::lock_guard lock(_resultMutex);
+    return _lastResultAck;
+}
+
+void HostSync::setCommandResultCallback(
+    std::function<void(bool ack, std::uint16_t seq, cigi_wire::Command cmd)> callback)
+{
+    std::lock_guard lock(_resultMutex);
+    _resultCallback = std::move(callback);
 }
 
 void HostSync::processUdpDatagram(const unsigned char* buf, int n, const char* fromIp)

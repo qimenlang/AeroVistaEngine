@@ -1,14 +1,18 @@
 ﻿#pragma once
 
+#include "CigiWire.h"
 #include "Network.h"
 #include "SyncConfig.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifdef WIN32
@@ -55,6 +59,22 @@ public:
     std::uint32_t igCtrlSentCount() const;
     std::uint32_t sofReceivedCount() const;
 
+    // ===== 命令面（状态同步设计初版.md §5） =====
+
+    /// 下发命令到所有 ready IG（串行逐 peer）。返回 true 当且仅当
+    /// 每个 ready peer 都在 receivedTimeoutMs 内回 RECEIVED（任一超时/无 ready peer → false）。
+    bool sendCommand(cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload,
+                     std::uint32_t receivedTimeoutMs = 1000);
+
+    /// 最近收到的 RESULT（peer 线程写，测试主线程读）：seq > 0 表示已收到。
+    std::uint16_t lastCommandResultSeq() const;
+    /// 最近 RESULT 是否为 ACK（true=RESULT-ACK，false=RESULT-NACK）。
+    bool lastCommandResultAck() const;
+
+    /// 命令结果回调（初版 §5.1 onCommandResult）：ack=true 成功 / false 失败。
+    void setCommandResultCallback(
+        std::function<void(bool ack, std::uint16_t seq, cigi_wire::Command cmd)> callback);
+
 private:
     struct IgPeer
     {
@@ -68,11 +88,19 @@ private:
     void acceptLoop();
     void udpLoop();
     void handleClient(SocketHandle client, std::string peerIp);
+    void commandReadLoop(SocketHandle client);
     void closeSocket(SocketHandle& s);
     void joinClientThreads();
     int countReadyUnlocked() const;
     void processUdpDatagram(const unsigned char* buf, int n, const char* fromIp);
     void pollUdp();
+
+    // 命令面辅助（初版 §5.2 / §3.1）
+    void handleCommandReply(SocketHandle client, const cigi_wire::CommandMsg& msg);
+    bool waitReceivedAck(SocketHandle client, std::uint16_t seq, std::uint32_t timeoutMs);
+    bool sendAllTcp(SocketHandle s, const void* data, int len);
+    void markPeerDisconnected(SocketHandle client);
+    void clearReceivedAcks();
 
     AddressConfig _local{};
     SyncPaceConfig _pace{};
@@ -96,4 +124,14 @@ private:
     std::atomic<std::uint32_t> _igCtrlSentCount{0};
     std::atomic<std::uint32_t> _sofReceivedCount{0};
     std::uint32_t _frameCounter = 0;
+
+    // 命令面状态（初版 §5）
+    std::uint16_t _cmdSeq = 0;
+    std::mutex _cmdMutex;
+    std::condition_variable _cmdCv;
+    std::unordered_map<SocketHandle, std::unordered_set<std::uint16_t>> _receivedSeqByPeer;
+    mutable std::mutex _resultMutex;
+    std::uint16_t _lastResultSeq = 0;
+    bool _lastResultAck = false;
+    std::function<void(bool ack, std::uint16_t seq, cigi_wire::Command cmd)> _resultCallback;
 };

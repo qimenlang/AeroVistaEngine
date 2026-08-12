@@ -3,13 +3,16 @@
 #include <vsg/all.h>
 
 #include "function/config/EngineConfig.h"
+#include "function/sync/CigiWire.h"
 #include "function/sync/SyncConfig.h"
 #include "function/sync/SynchronSystem.h"
 #include "vsg/core/ref_ptr.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class Engine
 {
@@ -86,6 +89,9 @@ public:
     bool entityName(int id, std::string& outName) const;
     vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
 
+    /// MOVEMODEL 累加移动（状态同步设计初版.md §11）：实体不存在 → false。
+    bool moveEntityById(int id, const vsg::dvec3& deltaPosition, const vsg::dvec3& deltaYprDeg);
+
 private:
     void applyConfigToEngine();
     bool initGraphicsFromEntities();
@@ -94,6 +100,21 @@ private:
     void applyCameraPoseFromConfig();
     vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;
     bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
+
+    // 命令面执行桥（状态同步设计初版.md §6：IG 命令读循环 → 引擎场景操作）
+    void bindSyncCommandHandler();
+    bool executeSyncCommand(cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload);
+    bool loadModelFromPayload(const std::vector<std::uint8_t>& payload);
+    bool placeModelFromPayload(const std::vector<std::uint8_t>& payload);
+    bool moveModelFromPayload(const std::vector<std::uint8_t>& payload);
+    /// 实体已存在 → 更新位姿 + transform；不存在 → false。
+    bool setEntityPose(int id, const vsg::dvec3& position, const vsg::dvec3& yprDeg);
+    /// ECEF：实体已存在 → 更新 LLA 位姿 + transform；不存在 → false。
+    bool setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg);
+    /// 实体无 transform 时创建（挂 node，scene 存在则 addChild）。
+    void ensureEntityTransform(Entity& entity);
+    void recomputeEntityTransform(Entity& entity);
+    vsg::ref_ptr<vsg::Node> tryLoadModelNode(const std::string& path);
 
     /// Frame phases: orchestrate subsystems and viewer in fixed order.
     void preFrame();
@@ -143,5 +164,6 @@ private:
     double _aabbRadius = 0.0;
 
     vsg::ref_ptr<SynchronSystem> _synchronSystem;
-    std::unordered_map<int, Entity> _entitiesById;
+    /// 实体表：id → Entity（命令面 LOAD/PLACE 与配置实体共用）。
+    std::unordered_map<int, Entity> _entityMap;
 };

@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include "function/sync/SyncConfig.h"
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -28,3 +30,55 @@ public:
 private:
     std::string _path;
 };
+
+// =============================================================================
+// 测试共用：Host/IG 网络角色辅助（E2E 用）。
+// 各测试文件调用时传不同 base 隔离端口，避免并行冲突。
+// 命名 makeTest*，避免与 HostIGTests 握手期专用（无 base）的 makeHostLocal 冲突。
+// =============================================================================
+
+inline AddressConfig makeTestHostLocal(int base)
+{
+    return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
+}
+
+inline AddressConfig makeTestIgLocal(int udpRecvPort, int base)
+{
+    return AddressConfig{"127.0.0.1", base, udpRecvPort, base + 100};
+}
+
+inline AddressConfig makeTestHostEndpoint(int base)
+{
+    return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
+}
+
+inline SyncRoleConfig makeTestHostIgRole(int igUdpRecv, int base)
+{
+    SyncRoleConfig role{};
+    role.enableHost = true;
+    role.enableIg = true;
+    role.hostLocal = makeTestHostLocal(base);
+    role.igLocal = makeTestIgLocal(igUdpRecv, base);
+    role.hostEndpoint = makeTestHostEndpoint(base);
+    return role;
+}
+
+inline SyncRoleConfig makeTestIgOnlyRole(int igUdpRecv, int base)
+{
+    SyncRoleConfig role{};
+    role.enableHost = false;
+    role.enableIg = true;
+    role.igLocal = makeTestIgLocal(igUdpRecv, base);
+    role.hostEndpoint = makeTestHostEndpoint(base);
+    return role;
+}
+
+inline SyncRoleConfig makeTestHostOnlyRole(int base)
+{
+    SyncRoleConfig role{};
+    role.enableHost = true;
+    role.enableIg = false;
+    role.hostLocal = makeTestHostLocal(base);
+    role.hostEndpoint = makeTestHostEndpoint(base);
+    return role;
+}

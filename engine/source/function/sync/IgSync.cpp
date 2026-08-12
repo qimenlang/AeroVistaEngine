@@ -36,66 +36,6 @@ namespace
     }
 #endif
 
-    // Isolate Winsock FD_* macros: their expansion inflates clang-tidy cognitive complexity.
-    void fdSetOne(IgSocketHandle sock, fd_set& set)
-    {
-        FD_SET(sock, &set);
-    }
-
-    bool fdIsSet(IgSocketHandle sock, fd_set& set)
-    {
-        return FD_ISSET(sock, &set) != 0;
-    }
-
-    int selectReadableOrException(IgSocketHandle sock, fd_set& rfds, fd_set& efds)
-    {
-        FD_ZERO(&rfds);
-        FD_ZERO(&efds);
-        fdSetOne(sock, rfds);
-        fdSetOne(sock, efds);
-        timeval tv{};
-        tv.tv_sec = 0;
-        tv.tv_usec = 0;
-#ifdef WIN32
-        return select(0, &rfds, nullptr, &efds, &tv);
-#else
-        return select(static_cast<int>(sock) + 1, &rfds, nullptr, &efds, &tv);
-#endif
-    }
-
-    bool interpretPeekResult(int n)
-    {
-        if (n == 0)
-            return false;
-        if (n > 0)
-            return true;
-#ifdef WIN32
-        return WSAGetLastError() == WSAEWOULDBLOCK;
-#else
-        return errno == EAGAIN || errno == EWOULDBLOCK;
-#endif
-    }
-
-    // Peek without blocking: Host FIN → recv returns 0; pending bytes / EWOULDBLOCK → still alive.
-    bool peekTcpStillAlive(IgSocketHandle sock)
-    {
-#ifdef WIN32
-        u_long nonBlock = 1;
-        ioctlsocket(sock, FIONBIO, &nonBlock);
-        char peek = 0;
-        const int n = recv(sock, &peek, 1, MSG_PEEK);
-        u_long block = 0;
-        ioctlsocket(sock, FIONBIO, &block);
-#else
-        const int flags = fcntl(sock, F_GETFL, 0);
-        fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-        char peek = 0;
-        const int n = static_cast<int>(::recv(sock, &peek, 1, MSG_PEEK));
-        fcntl(sock, F_SETFL, flags);
-#endif
-        return interpretPeekResult(n);
-    }
-
     // 本机单调时钟当前时刻，单位 us（时钟同步方案.md §4.2：必须 steady_clock）。
     std::uint64_t nowUs()
     {
@@ -138,43 +78,13 @@ void IgSync::markDisconnected()
     _status = IgStatus::IDLE;
 }
 
-bool IgSync::isTcpPeerAlive() const
-{
-    if (!isValidSock(_tcp))
-        return false;
-
-    fd_set rfds;
-    fd_set efds;
-    const int sel = selectReadableOrException(_tcp, rfds, efds);
-    if (sel < 0)
-        return false;
-    if (sel == 0)
-        return true;
-    if (fdIsSet(_tcp, efds))
-        return false;
-    if (!fdIsSet(_tcp, rfds))
-        return true;
-    return peekTcpStillAlive(_tcp);
-}
-
-void IgSync::refreshConnectionState() const
-{
-    if (!_tcpConnected.load())
-        return;
-    if (isTcpPeerAlive())
-        return;
-    const_cast<IgSync*>(this)->markDisconnected();
-}
-
 bool IgSync::tcpConnected() const
 {
-    refreshConnectionState();
     return _tcpConnected;
 }
 
 bool IgSync::udpSynced() const
 {
-    refreshConnectionState();
     return _udpSynced;
 }
 
@@ -206,6 +116,11 @@ bool IgSync::initialize(const AddressConfig& local)
 void IgSync::shutdown()
 {
     closeTcp();
+    stopCommandThread();
+    {
+        std::lock_guard lock(_pendingMutex);
+        _pendingCommands.clear();
+    }
     _tcpConnected = false;
     _udpSynced = false;
     _status = IgStatus::IDLE;
@@ -216,7 +131,6 @@ void IgSync::shutdown()
 
 IgStatus IgSync::status() const
 {
-    refreshConnectionState();
     return _status.load();
 }
 
@@ -342,7 +256,6 @@ void IgSync::update(bool sendSof)
     // 超过阈值后冻结（时间戳停住），而不是随本地流逝无限外推（时钟同步方案.md §4.3）。
     updateFreeze(nowUs());
 
-    refreshConnectionState();
     if (!_initialized || !_udpSynced)
         return;
 
@@ -592,6 +505,7 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
     for (int attempt = 0; attempt < tcpRetryAttempts; ++attempt)
     {
         closeTcp();
+        stopCommandThread();
         drainUdp();
 
         if (!tcpConnect(hostEndpoint.addr, hostEndpoint.tcpPort, tcpConnectTimeoutMs))
@@ -608,6 +522,7 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
             _status = IgStatus::RUNNING;
             // 新会话起点：清空相位展开状态（时钟同步方案.md §3）。
             resetHostSession();
+            startCommandThread();
             return true;
         }
 
@@ -621,4 +536,189 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
     _tcpConnected = false;
     _udpSynced = false;
     return false;
+}
+
+// =============================================================================
+// 命令面（状态同步设计初版.md §3.1 / §4 / §6）
+// =============================================================================
+
+void IgSync::startCommandThread()
+{
+    stopCommandThread();
+    _cmdThreadRunning = true;
+    _cmdThread = std::thread(&IgSync::commandLoop, this);
+}
+
+void IgSync::stopCommandThread()
+{
+    if (_cmdThreadRunning.exchange(false))
+    {
+        if (_cmdThread.joinable())
+            _cmdThread.join();
+    }
+}
+
+void IgSync::commandLoop()
+{
+#ifdef WIN32
+    DWORD timeoutMs = commandRecvTimeoutMs;
+    setsockopt(_tcp, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
+#else
+    timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = commandRecvTimeoutMs * 1000;
+    setsockopt(_tcp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+
+    cigi_wire::CommandFrameAssembler assembler;
+    unsigned char buf[4096];
+    while (_cmdThreadRunning)
+    {
+        if (!isValidSock(_tcp))
+            break;
+#ifdef WIN32
+        const int n = recv(_tcp, reinterpret_cast<char*>(buf), sizeof(buf), 0);
+        if (n == 0)
+            break; // Host 断开
+        if (n < 0)
+        {
+            const int err = WSAGetLastError();
+            if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK)
+                continue; // 读超时：检查退出标志
+            break;
+        }
+#else
+        const int n = static_cast<int>(::recv(_tcp, buf, sizeof(buf), 0));
+        if (n == 0)
+            break;
+        if (n < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+                continue;
+            break;
+        }
+#endif
+        assembler.feed(buf, n, [this](const cigi_wire::CommandMsg& msg) {
+            processCommand(static_cast<cigi_wire::Command>(msg.msgId), msg.seq, msg.payload);
+        });
+    }
+    // recv EOF/错误退出 = Host 断开（TCP 存活检测并入命令读循环线程，§3.3）。
+    // 主动 shutdown（_cmdThreadRunning 被置 false）时跳过——shutdown 已处理连接状态。
+    if (_cmdThreadRunning.load())
+        markDisconnected();
+}
+
+void IgSync::processCommand(cigi_wire::Command cmd, std::uint16_t seq,
+                            const std::vector<std::uint8_t>& payload)
+{
+    const std::uint16_t replyCmd = static_cast<std::uint16_t>(cmd);
+
+    bool execute = true;
+    {
+        std::lock_guard lock(_cmdStateMutex);
+        if (_hasCmdState && seq <= _cmdMaxSeq)
+            execute = false; // 幂等：重发同 seq 只回 RECEIVED，不重复执行（初版 §2.3）
+        else
+        {
+            _cmdMaxSeq = seq; // 收到即更新
+            _hasCmdState = true;
+        }
+    }
+    if (!execute)
+    {
+        sendCommandReply(static_cast<std::uint16_t>(cigi_wire::kReceivedReplyBase | replyCmd), seq);
+        return;
+    }
+
+    // 观测（收到即记录，执行入队）：测试断言 commandCount/lastCommandMsgId/lastCommandSeq。
+    {
+        std::lock_guard lock(_cmdStateMutex);
+        _lastCmdMsgId = cmd;
+        _lastCmdSeq = seq;
+        ++_cmdCount;
+    }
+
+    // RECEIVED：命令读循环线程立即回执（可注入延迟复现「回执迟到」），不等待执行。
+    if (_cmdReceivedDelayMs > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(_cmdReceivedDelayMs));
+    sendCommandReply(static_cast<std::uint16_t>(cigi_wire::kReceivedReplyBase | replyCmd), seq);
+
+    enqueueCommand(cmd, seq, payload);
+}
+
+void IgSync::enqueueCommand(cigi_wire::Command cmd, std::uint16_t seq,
+                            const std::vector<std::uint8_t>& payload)
+{
+    PendingCommand pending;
+    pending.cmd = cmd;
+    pending.seq = seq;
+    pending.payload = payload;
+    std::lock_guard lock(_pendingMutex);
+    _pendingCommands.push_back(std::move(pending));
+}
+
+void IgSync::runPendingCommands()
+{
+    std::vector<PendingCommand> pending;
+    {
+        std::lock_guard lock(_pendingMutex);
+        pending.swap(_pendingCommands);
+    }
+    for (const auto& cmd : pending)
+    {
+        const std::uint16_t replyCmd = static_cast<std::uint16_t>(cmd.cmd);
+        const bool ack = _cmdHandler ? _cmdHandler(cmd.cmd, cmd.seq, cmd.payload) : true;
+        const std::uint16_t resultBase = ack ? cigi_wire::kResultAckBase : cigi_wire::kResultNackBase;
+        sendCommandReply(static_cast<std::uint16_t>(resultBase | replyCmd), cmd.seq);
+    }
+}
+
+void IgSync::sendCommandReply(std::uint16_t replyMsgId, std::uint16_t seq)
+{
+    cigi_wire::CommandMsg msg;
+    msg.msgId = replyMsgId;
+    msg.seq = seq;
+    std::vector<unsigned char> wire;
+    if (!cigi_wire::packCommandMsg(msg, wire))
+        return;
+    std::lock_guard lock(_cmdSendMutex);
+    if (isValidSock(_tcp))
+        sendAll(_tcp, wire.data(), static_cast<int>(wire.size()));
+}
+
+void IgSync::queueCommand(cigi_wire::Command cmd, std::uint16_t seq,
+                          const std::vector<std::uint8_t>& payload)
+{
+    processCommand(cmd, seq, payload);
+}
+
+void IgSync::setCommandReceivedDelayMs(std::uint32_t delayMs)
+{
+    _cmdReceivedDelayMs = delayMs;
+}
+
+void IgSync::setCommandHandler(
+    std::function<bool(cigi_wire::Command cmd, std::uint16_t seq,
+                       const std::vector<std::uint8_t>& payload)>
+        handler)
+{
+    _cmdHandler = std::move(handler);
+}
+
+cigi_wire::Command IgSync::lastCommandMsgId() const
+{
+    std::lock_guard lock(_cmdStateMutex);
+    return _lastCmdMsgId;
+}
+
+std::uint16_t IgSync::lastCommandSeq() const
+{
+    std::lock_guard lock(_cmdStateMutex);
+    return _lastCmdSeq;
+}
+
+std::uint32_t IgSync::commandCount() const
+{
+    std::lock_guard lock(_cmdStateMutex);
+    return _cmdCount;
 }
