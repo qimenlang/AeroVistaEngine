@@ -1,0 +1,89 @@
+﻿---
+description: Clean Code 语义性约束（注释纪律 / 函数只做一件事 / 错误处理与空值 / 参数精简），工具查不了，AI 自查 + review 复核
+globs: engine/**/*.{h,hpp,cpp}
+alwaysApply: true
+---
+
+# Clean code guardrails (engine)
+
+语义性约束：工具查不了，靠 AI 自觉 + review 复核。
+互补关系：`engine-complexity-gates` 管结构（认知 ≤20 / CCN ≤15），本规则管语义。每条都带 ❌/✅ 例子。
+
+## 1. Comments 注释纪律
+
+- 注释解释 **why / 意图 / 约束**，禁止逐行复述代码做了什么。
+- 坏代码先重构，**不靠注释解释**；注释不能替烂代码挡刀。
+
+```cpp
+// ❌ 逐行复述，无信息量
+n++;
+// increment counter
+
+// ✅ 解释 why / 意图
+// depth-first so children appear before parent in the sort
+traverse(children, Traversal::DEPTH_FIRST);
+```
+
+## 2. Functions 函数只做一件事 + 单一抽象层级
+
+- 一个函数一个抽象层级；明显可拆就拆（提取私有方法 / 文件内 helper）。
+- 函数内部出现两条明显不同的行为路径（`if (flag) {...} else {...}`）通常是「做两件事」的信号。
+- 偏好卫语句提前返回，减少嵌套（嵌套本身由认知复杂度门禁兜底）。
+
+```cpp
+// ❌ 一个函数既校验又上传还报告状态
+bool uploadAndReport(File& f, bool verbose) { /* ... */ }
+
+// ✅ 职责清晰，每段一个抽象层级
+bool upload(File& f);
+void reportResult(bool ok);
+```
+
+## 3. Errors & null 错误处理与空值策略
+
+- 遵循模块既定错误策略（异常或错误码），**不吞异常**；错误信息带上下文。
+- **不裸返回 null / 空指针**；优先 `std::optional` / `vsg::ref_ptr`。
+- 结果即状态：把「结果」和「失败状态」拆成两个地方是 C 风格遗留，会增加调用方负担。
+
+```cpp
+// ❌ 吞掉失败，调用方无从感知
+if (!trySend(cmd)) { /* silently ignore */ }
+
+// ✅ 结果即状态，错误带上下文
+std::optional<SendResult> send(cigi_wire::Command cmd);
+if (!result) { log("send failed: " + result.errorContext()); return; }
+```
+
+## 4. Parameters 参数精简
+
+- **bool 返回值没有问题**——`isEmpty()`、`contains()` 这类谓词函数是好设计。
+- **避免 boolean 入参**：调用处 `true`/`false` 无语义，且通常暗示函数做两件事。
+- **优先返回值**；输出参数仅限**性能热路径**（复用缓冲区）或**对接 C 风格第三方 API** 时使用，参数名带 `out` / `result` 前缀。
+
+```cpp
+// ❌ boolean 入参，调用处不可读，函数内部必然分两路
+void render(SceneNode& node, bool picked);
+placeModelFromPayload(payload, true);
+
+// ✅ 拆函数 / 带语义的枚举
+void renderPicked(SceneNode& node);
+void placeModelForeground(payload);
+
+// ❌ 输出参数，调用处看不出 name 是结果
+bool entityName(int id, std::string& outName) const;
+
+// ✅ 结果即状态，测试更好断言
+std::optional<std::string> entityName(int id) const;
+
+// ✅ 性能 / 第三方 API 场景允许输出参数，但命名带 out/result
+bool createVulkanDevice(int& outQueueFamily);
+```
+
+注意：**测试不应决定 API 形状**，API 由调用语义决定。接受性测试断言可观察的结果（值、副作用），`optional` / `expected` 比 `bool` 断言得更准。
+
+## Before finishing an edit
+
+1. 注释：无逐行复述噪音；新注释解释 why/意图。
+2. 函数：无「做两件事」的大函数；抽象层级单一；参数无 boolean 入参、无裸输出参数（例外见 §4）。
+3. 错误与空值：不吞异常；错误带上下文；无裸返回 null。
+4. 若后续某条能机械化（如参数上限 ≤5），迁移到 clang-tidy / 脚本并从本规则移除。

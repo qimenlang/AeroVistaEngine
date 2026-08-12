@@ -1271,7 +1271,7 @@ bool Engine::update()
 
     _viewer->handleEvents();
 
-    // Host¡úIG: sample authority eye before overwrite, then apply Host eye ¨ offset.
+    // Host→IG：先采样权威眼（在覆盖前），再应用 Host 眼 ⊕ offset。
     if (_synchronSystem)
     {
         if (_synchronSystem->hasHost())
