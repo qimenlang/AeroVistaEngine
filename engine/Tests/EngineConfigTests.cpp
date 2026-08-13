@@ -1088,7 +1088,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit
 }
 
 // =============================================================================
-// loadHostConfig：viewhost / 独立 Host 进程的 sync 库入口（sync模块化设计.md §8）
+// loadHostConfig：viewhost / 独立 Host 进程的 sync 库入口（sync模块化设计.md §4.0）
 // =============================================================================
 
 TEST_CASE("loadHostConfig parses a host-only config file", "[unit][config][sync][host]")
@@ -1122,7 +1122,7 @@ TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sy
 }
 
 // =============================================================================
-// loadIgConfig：独立 IG 进程 / 外部引擎的 sync 库入口（sync模块化设计.md §8.1）
+// loadIgConfig：独立 IG 进程 / 外部引擎的 sync 库入口（sync模块化设计.md §4.1）
 // =============================================================================
 
 TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig]")

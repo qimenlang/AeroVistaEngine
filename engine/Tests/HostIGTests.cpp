@@ -2627,7 +2627,7 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
 
 // =============================================================================
 // viewhost E2E：独立 Host 进程入口（loadHostConfig → SynchronSystem）与带 IG 的
-// Engine 真实 TCP/UDP/CIGI 收发（sync模块化设计.md §8.1）。
+// Engine 真实 TCP/UDP/CIGI 收发（sync模块化设计.md §4.1）。
 // =============================================================================
 
 SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
@@ -2698,7 +2698,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 // =============================================================================
 // 独立 IG 配置 E2E：host 与 IG 双侧都走 sync 库独立配置文件
 // （loadHostConfig / loadIgConfig → 各自 SynchronSystem），装配参数程序化注入。
-// 验证外部 engine 脱离引擎整体配置使用 sync 的完整路径（sync模块化设计.md §8.1/§8.2）。
+// 验证外部 engine 脱离引擎整体配置使用 sync 的完整路径（sync模块化设计.md §4.1/§4.2）。
 // =============================================================================
 
 SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
