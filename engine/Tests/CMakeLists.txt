@@ -22,4 +22,4 @@ target_link_libraries(${TARGET_NAME}
 
 install(TARGETS ${TARGET_NAME} RUNTIME DESTINATION bin)
 
-add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME} -s)
+add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
