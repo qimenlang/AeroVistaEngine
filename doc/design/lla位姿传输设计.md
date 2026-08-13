@@ -317,8 +317,8 @@ struct HostEyePose {
 ```text
 update:
   handleEvents
-  captureAuthorityEye     // 有 EllipsoidModel → LookAt→LLA+当地YPR；写入 frame=LLA
-  SynchronSystem::update  // Host ⊕ offset → setCameraPose / setCameraPoseLla
+  captureAuthorityEye(lookAt)   // 宿主喂入 LookAt；有 EllipsoidModel → LLA+当地YPR，写入 frame=LLA
+  SynchronSystem::update()      // 决策；宿主取 takePendingCameraPose → setCameraPose / setCameraPoseLla
 postFrame:
   按本帧采样（或 _lastSent）的位置类型组包扇出（§5）
 ```

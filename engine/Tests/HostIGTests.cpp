@@ -5,6 +5,8 @@
 #include "function/sync/CigiWire.h"
 #include "function/sync/HostSync.h"
 #include "function/sync/IgSync.h"
+#include "function/sync/SyncConfig.h"
+#include "function/sync/SynchronSystem.h"
 
 #include <chrono>
 #include <cmath>
@@ -2603,6 +2605,162 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
             {
                 REQUIRE_FALSE(engineA.synchronSystem().lastSentHostEye().has_value());
                 REQUIRE(engineB.synchronSystem().eyePoseRejectedByFrameMismatch() == rejectedBefore);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// viewhost E2E：独立 Host 进程入口（loadHostConfig → SynchronSystem）与带 IG 的
+// Engine 真实 TCP/UDP/CIGI 收发（sync模块化设计.md §8.1）。
+// =============================================================================
+
+SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
+         "[acceptance][bdd][sync][viewhost][cigi]")
+{
+    GIVEN("a viewhost SynchronSystem loaded from a host-only config file, and an IG engine targeting it")
+    {
+        constexpr int kBase = 21000;
+
+        // viewhost 配置：与 makeTestIgOnlyRole 的 target（tcp=base+100, udpRecv=base）对齐。
+        const TempConfigFile viewhostFile(
+            std::string(R"({ "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
+            R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
+
+        HostConfig host;
+        std::string error;
+        REQUIRE(loadHostConfig(viewhostFile.path(), host, &error));
+
+        auto viewhost = SynchronSystem::create();
+        SyncRoleConfig role;
+        role.enableHost = true;
+        role.hostConfig = host;
+        REQUIRE(viewhost->initialize(role, /*requireIgConnect=*/false));
+
+        // 带 IG 的 engine（纯 IG，连 viewhost）。
+        Engine engineIg;
+        engineIg.extent = {640, 480};
+        engineIg.showWindow = false;
+        REQUIRE(engineIg.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
+
+        WHEN("both link over TCP and UDP handshake")
+        {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
+            while (viewhost->hostSync().readyIgCount() < 1 &&
+                   std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+
+            THEN("viewhost sees one ready IG")
+            {
+                REQUIRE(viewhost->hostSync().readyIgCount() == 1);
+                REQUIRE(engineIg.synchronSystem().igLinked());
+            }
+
+            THEN("CIGI IGCtrl flows Host→IG and SOF flows IG→Host")
+            {
+                const std::uint32_t sentBefore = viewhost->hostSync().igCtrlSentCount();
+                const std::uint32_t recvBefore = engineIg.synchronSystem().igSync().igCtrlReceivedCount();
+                const std::uint32_t sofBefore = viewhost->hostSync().sofReceivedCount();
+
+                constexpr int kTicks = 5;
+                for (int i = 0; i < kTicks; ++i)
+                {
+                    viewhost->postFrame(i * 16.667); // 无渲染节拍：viewhost 扇出
+                    engineIg.tickSync();             // IG 收包 + 回 SOF
+                }
+
+                REQUIRE(viewhost->hostSync().igCtrlSentCount() > sentBefore);
+                REQUIRE(engineIg.synchronSystem().igSync().igCtrlReceivedCount() > recvBefore);
+                REQUIRE(viewhost->hostSync().sofReceivedCount() > sofBefore);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 独立 IG 配置 E2E：host 与 IG 双侧都走 sync 库独立配置文件
+// （loadHostConfig / loadIgConfig → 各自 SynchronSystem），装配参数程序化注入。
+// 验证外部 engine 脱离引擎整体配置使用 sync 的完整路径（sync模块化设计.md §8.1/§8.2）。
+// =============================================================================
+
+SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
+         "[acceptance][bdd][sync][standalone][cigi]")
+{
+    GIVEN("host SynchronSystem from hostConfig file, and IG SynchronSystem from igConfig file")
+    {
+        constexpr int kBase = 22000;
+
+        // host 独立配置（udpSend=base+1, udpRecv=base, tcp=base+100）。
+        const TempConfigFile hostFile(
+            std::string(R"({ "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
+            R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
+        // IG 独立配置（本地 udpRecv=base+3，target 指向 host 的 tcp=base+100 / udpRecv=base）。
+        const TempConfigFile igFile(
+            std::string(R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
+            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( } })");
+
+        HostConfig host;
+        std::string hostError;
+        REQUIRE(loadHostConfig(hostFile.path(), host, &hostError));
+        IgConfig ig;
+        std::string igError;
+        REQUIRE(loadIgConfig(igFile.path(), ig, &igError));
+
+        // 两侧各自 SynchronSystem：host-only / ig-only。
+        auto hostSync = SynchronSystem::create();
+        SyncRoleConfig hostRole;
+        hostRole.enableHost = true;
+        hostRole.hostConfig = host;
+        REQUIRE(hostSync->initialize(hostRole, /*requireIgConnect=*/false));
+
+        auto igSync = SynchronSystem::create();
+        SyncRoleConfig igRole;
+        igRole.enableIg = true;
+        igRole.igConfig = ig;
+        // 装配参数程序化注入（外部 engine 不经 syncSystem 配置文件时的路径）。
+        igSync->setChannelId(2);
+        igSync->setOffsetDeg(OffsetDeg{5.0, 0.0, 0.0});
+        igSync->setHostEyeStalePolicy(HostEyeStalePolicy::REUSE_LAST);
+        REQUIRE(igSync->initialize(igRole, /*requireIgConnect=*/false));
+
+        WHEN("IG connects to host and both link")
+        {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
+            while (hostSync->hostSync().readyIgCount() < 1 &&
+                   std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+
+            THEN("host sees the standalone IG and IG is linked")
+            {
+                REQUIRE(hostSync->hostSync().readyIgCount() == 1);
+                REQUIRE(igSync->igLinked());
+            }
+
+            THEN("CIGI IGCtrl and SOF flow both ways over TCP/UDP")
+            {
+                const std::uint32_t sentBefore = hostSync->hostSync().igCtrlSentCount();
+                const std::uint32_t recvBefore = igSync->igSync().igCtrlReceivedCount();
+                const std::uint32_t sofBefore = hostSync->hostSync().sofReceivedCount();
+
+                constexpr int kTicks = 5;
+                for (int i = 0; i < kTicks; ++i)
+                {
+                    hostSync->postFrame(i * 16.667); // host 扇出 IGCtrl
+                    igSync->preFrame();              // IG 收 IGCtrl + 回 SOF
+                    igSync->update();
+                }
+
+                REQUIRE(hostSync->hostSync().igCtrlSentCount() > sentBefore);
+                REQUIRE(igSync->igSync().igCtrlReceivedCount() > recvBefore);
+                REQUIRE(hostSync->hostSync().sofReceivedCount() > sofBefore);
             }
         }
     }

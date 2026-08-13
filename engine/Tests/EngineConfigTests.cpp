@@ -3,6 +3,7 @@
 
 #include "InitialCameraConfig.h"
 #include "engine.h"
+#include "function/sync/SyncConfig.h"
 
 #include <cmath>
 #include <cstdint>
@@ -1037,6 +1038,125 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     REQUIRE(cfg.hostConfig.bindAddr.empty());
     REQUIRE_FALSE(cfg.igConfig.bindAddr.empty());
     REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
+}
+
+TEST_CASE("loadEngineChannelConfig parses syncSystem group and mirrors flat fields",
+          "[unit][config][parse][syncSystem]")
+{
+    const TempConfigFile file(
+        R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
+        R"("hostEyeStalePolicy": "Freeze", "requireIgConnect": true }, )"
+        R"("igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8003, )"
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
+        R"("model": "models/lz.vsgt" })");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    // syncSystem 组值
+    REQUIRE(cfg.syncSystem.channelId == 3);
+    REQUIRE(offsetEquals(cfg.syncSystem.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
+    REQUIRE(cfg.syncSystem.hostEyeStalePolicy == HostEyeStalePolicy::FREEZE);
+    REQUIRE(cfg.syncSystem.requireIgConnect);
+    // 旧扁平字段同步（旧访问点保持可用）
+    REQUIRE(cfg.channelId == 3);
+    REQUIRE(offsetEquals(cfg.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
+    REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::FREEZE);
+    REQUIRE(cfg.requireIgConnect);
+}
+
+TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group", "[unit][config][parse][syncSystem]")
+{
+    const TempConfigFile file(R"({ "syncSystem": { "channelId": 0, "bogus": 1 }, "model": "models/lz.vsgt" })");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit][config][parse][syncSystem]")
+{
+    const TempConfigFile file(R"({ "syncSystem": { "offsetDeg": { "yaw": 1.0 } }, "model": "models/lz.vsgt" })");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+// =============================================================================
+// loadHostConfig：viewhost / 独立 Host 进程的 sync 库入口（sync模块化设计.md §8）
+// =============================================================================
+
+TEST_CASE("loadHostConfig parses a host-only config file", "[unit][config][sync][host]")
+{
+    const TempConfigFile file(R"({ "hostConfig": { "bindAddr": "0.0.0.0", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } })");
+    HostConfig cfg;
+    std::string error;
+    REQUIRE(loadHostConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.bindAddr == "0.0.0.0");
+    REQUIRE(cfg.udpPortSend == 8001);
+    REQUIRE(cfg.udpPortRecv == 8000);
+    REQUIRE(cfg.tcpPort == 8100);
+}
+
+TEST_CASE("loadHostConfig rejects unknown top-level keys", "[unit][config][sync][host]")
+{
+    const TempConfigFile file(R"({ "hostConfig": { "bindAddr": "0.0.0.0", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 }, "igConfig": { "bindAddr": "127.0.0.1" } })");
+    HostConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadHostConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sync][host]")
+{
+    const TempConfigFile file(R"({ "hostConfig": { "bindAddr": "0.0.0.0", "udpPortSend": 8001 } })");
+    HostConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadHostConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+// =============================================================================
+// loadIgConfig：独立 IG 进程 / 外部引擎的 sync 库入口（sync模块化设计.md §8.1）
+// =============================================================================
+
+TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig]")
+{
+    const TempConfigFile file(
+        R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8005, )"
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } })");
+    IgConfig cfg;
+    std::string error;
+    REQUIRE(loadIgConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.bindAddr == "127.0.0.1");
+    REQUIRE(cfg.udpPortSend == 8000);
+    REQUIRE(cfg.udpPortRecv == 8005);
+    REQUIRE(cfg.targetAddr == "127.0.0.1");
+    REQUIRE(cfg.targetTcpPort == 8100);
+    REQUIRE(cfg.targetUdpPortRecv == 8000);
+}
+
+TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][ig]")
+{
+    const TempConfigFile file(
+        R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8005, )"
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
+        R"("hostConfig": { "bindAddr": "0.0.0.0" } })");
+    IgConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadIgConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][ig]")
+{
+    const TempConfigFile file(
+        R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8005, )"
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100 } })");
+    IgConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadIgConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
 }
 
 // =============================================================================

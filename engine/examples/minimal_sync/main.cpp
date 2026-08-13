@@ -1,77 +1,56 @@
-﻿// 最小接入示例：另一个 vsg 项目如何复用 aerovistaSync。
+// 最小接入示例：viewhost（Host-only）如何复用 aerovistaSync。
 //
-// 宿主只需做三件事：
-//   1. 创建 SynchronSystem 并 initialize（传 SyncRoleConfig）；
-//   2. 每帧调用 update()，用 takePendingCameraPose() 取位姿驱动自己的相机；
-//   3. Host 引擎在 update 前把当前相机 LookAt 喂给 captureAuthorityEye()。
+// viewhost 场景：独立 Host 进程，无渲染，只等 IG 连接 + 发命令。
+//   1. 用 sync 库的 loadHostConfig 读取独立配置文件（只含 hostConfig）；
+//   2. 构造 SyncRoleConfig{ enableHost=true } 并 initialize；
+//   3. 按目标 fps 驱动 postFrame 扇出（无渲染节拍）。
 //
-// 本示例不启动真实渲染循环，只演示 sync 库的数据流接入契约。
 // 构建：add_subdirectory(aerovistaSync) 后链接。
 
-#include <vsg/all.h>
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <thread>
 
 #include "SyncConfig.h"
 #include "SynchronSystem.h"
 
-int main()
+int main(int argc, char** argv)
 {
-    // 1) 相机（宿主自己的场景对象）
-    vsg::ref_ptr<vsg::Camera> camera = vsg::Camera::create();
-    camera->viewMatrix = vsg::LookAt::create(
-        vsg::dvec3(0.0, 0.0, 10.0), vsg::dvec3(0.0, 0.0, 0.0), vsg::dvec3(0.0, 0.0, 1.0));
+    const std::string configPath =
+        argc > 1 ? argv[1] : "viewhost.json";
 
-    // 2) sync 门面：作为 IG 连接 Host（或 enableHost 做 Host）
+    // 1) 独立配置文件 → hostConfig（sync 库内解析，不依赖引擎）
+    HostConfig host;
+    std::string error;
+    if (!loadHostConfig(configPath, host, &error))
+    {
+        std::cerr << "loadHostConfig failed: " << error << "\n";
+        return 1;
+    }
+
+    // 2) Host-only 角色
     SyncRoleConfig role;
-    role.enableIg = true;
-    role.igConfig.bindAddr = "127.0.0.1";
-    role.igConfig.udpPortSend = 0;
-    role.igConfig.udpPortRecv = 8003;
-    role.igConfig.targetAddr = "127.0.0.1";
-    role.igConfig.targetTcpPort = 8100;
-    role.igConfig.targetUdpPortRecv = 8001;
+    role.enableHost = true;
+    role.hostConfig = host;
 
     auto sync = SynchronSystem::create();
     if (!sync->initialize(role, /*requireIgConnect=*/false))
         return 1;
 
-    // 场景模式注入（本地模式传 false、空椭球；椭球模式传 true + EllipsoidModel）。
-    sync->setSceneIsEllipsoid(false);
-    sync->setEllipsoidModel({});
-    sync->setChannelId(1);
+    std::cout << "[viewhost] Host waiting on UDP "
+              << host.udpPortRecv << " / TCP " << host.tcpPort << "\n";
 
-    // 3) 帧驱动：采样(仅 Host) → update → 应用位姿 → postFrame
-    for (int frame = 0; frame < 100; ++frame)
+    // 3) 无渲染节拍：按 60fps 驱动 postFrame 扇出（HostSync 线程已自启，扇出需外部驱动）
+    constexpr double kFrameMs = 16.667;
+    const auto start = std::chrono::steady_clock::now();
+    for (int frame = 0; frame < 600; ++frame)
     {
-        if (sync->hasHost())
-        {
-            // Host 引擎：覆盖前把当前相机 LookAt 喂给采样（防回声由门面处理）。
-            if (auto lookAt = camera->viewMatrix.cast<vsg::LookAt>())
-                sync->captureAuthorityEye(*lookAt);
-        }
-
-        sync->update();
-
-        // 取本帧应写相机的位姿，宿主自己驱动相机（每帧一次）。
-        if (auto pose = sync->takePendingCameraPose())
-        {
-            if (pose->frame == HostEyeCoordFrame::LLA)
-            {
-                // 需要椭球模型 → ECEF LookAt（此处省略，见 SynchronSystem 语义）。
-                (void)pose;
-            }
-            else
-            {
-                const vsg::dvec3 forward =
-                    vsg::dquat(vsg::radians(pose->eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0)) *
-                    vsg::dquat(vsg::radians(pose->eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
-                    vsg::dquat(vsg::radians(pose->eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0)) *
-                    vsg::dvec3(0.0, 1.0, 0.0);
-                camera->viewMatrix = vsg::LookAt::create(
-                    pose->position, pose->position + forward, vsg::dvec3(0.0, 0.0, 1.0));
-            }
-        }
-
-        sync->postFrame(frame * 16.667);
+        const double elapsedMs =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        sync->postFrame(elapsedMs);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     sync->shutdown();

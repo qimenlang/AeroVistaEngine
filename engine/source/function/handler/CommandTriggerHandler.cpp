@@ -64,7 +64,7 @@ void CommandTriggerHandler::apply(vsg::KeyPressEvent& keyPress)
         return;
     HostSync& host = synchronSystem->hostSync();
 
-    if (keyPress.keyBase == vsg::KEY_F3)
+    if (keyPress.keyBase == vsg::KEY_F9)
     {
         const bool loadOk = host.sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadModelPayload(7, "teapot"));
         const bool placeOk = host.sendCommand(cigi_wire::Command::PLACE_MODEL,
@@ -73,7 +73,7 @@ void CommandTriggerHandler::apply(vsg::KeyPressEvent& keyPress)
         return;
     }
 
-    if (keyPress.keyBase == vsg::KEY_F4)
+    if (keyPress.keyBase == vsg::KEY_F10)
     {
         // MOVEMODEL：向上移动 0.1 m（Y+，本坐标系 Z-up 时向上为 Y+；增量无姿态变化）。
         const bool moveOk = host.sendCommand(cigi_wire::Command::MOVE_MODEL,

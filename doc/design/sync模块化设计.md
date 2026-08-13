@@ -165,6 +165,9 @@ void postFrame(double simTimeMs);
 | `SynchronSystem` 解耦（Phase 2，数据流：注入/采样喂入/产出位姿） | **已实现** |
 | 门面并入库（Phase 3，`SynchronSystem` 并入 `aerovistaSync`） | **已实现** |
 | 最小接入示例 `aerovistaSyncExample`（`AEROVISTA_BUILD_SYNC_EXAMPLE` 开关，默认 OFF） | **已实现** |
+| `loadHostConfig` 库内入口 + `SyncJson` 解析器（viewhost 独立读配置） | **已实现** |
+| `loadIgConfig` 库内入口（独立 IG 进程 / 外部引擎） | **已实现** |
+| `syncSystem` 配置组（装配属性分组 + 旧扁平字段兼容回退） | **已实现** |
 | 文档同步与最终验收（Phase 4） | **已实现** |
 
 ## 7. 实施后记（与初版规划的偏差）
@@ -203,3 +206,76 @@ void postFrame(double simTimeMs);
 **校验变化**：原「igLocal 需 hostEndpoint 配对」的三个用例删除（合并后无配对概念）；保留 `requireIgConnect` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。
 
 **C++ 类型**：`IgConfig`（6 字段）/ `HostConfig`（4 字段）替代 `AddressConfig`；`SyncRoleConfig` = `{enableHost, enableIg, hostConfig, igConfig}`。
+
+### 8.1 host/ig 独立读取配置（viewhost / 独立 IG 进程，写死）
+
+**目标**：viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引擎整体配置）分别从**独立配置文件**读取各自的传输参数初始化，不依赖引擎侧配置。
+
+**实现**：
+- `aerovistaSync` 库内置 JSON 解析器（`SyncJson.h`，纯标准库，零 vsg 零引擎依赖）。
+- 库内两个对称入口：
+  - `loadHostConfig(path, HostConfig&, error)`：解析只含 `hostConfig` 块的文件。
+  - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件。
+- viewhost 用法：
+
+```cpp
+HostConfig host;
+loadHostConfig("viewhost.json", host, &error);
+SyncRoleConfig role; role.enableHost = true; role.hostConfig = host;
+SynchronSystem::create()->initialize(role);
+```
+
+- 独立 IG 用法（外部 engine 挂载，可自由选择配置来源）：
+
+```cpp
+IgConfig ig;
+loadIgConfig("ig.json", ig, &error);
+SyncRoleConfig role; role.enableIg = true; role.igConfig = ig;
+SynchronSystem::create()->initialize(role);
+```
+
+**配置形态**（schema 与 engine 侧块一致，包裹方案）：
+```jsonc
+{ "hostConfig": { "bindAddr": "0.0.0.0", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
+{ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8005,
+                "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
+```
+
+**解析器单一事实源**：`SyncJson.h` 的 `JsonParser` + 通用辅助（`find`/`requireString`/`requireInt`/`rejectUnknownKeys` 等）全部归 sync 库，`loadHostConfig`/`loadIgConfig` 与引擎侧 `EngineConfig.cpp` **共用**。引擎不再自带 parser 和通用辅助，也不重复实现 `parseHostConfig`/`parseIgConfig`（直接调用 sync 库公开 API）。
+
+**`requireInt` 严格整数（写死）**：整数字段（端口等）拒绝小数，sync 侧与引擎侧行为一致。
+
+**验收测试**：
+- `HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → `SynchronSystem::create()` → `initialize(enableHost=true)` 拉起 HostSync，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
+- `HostIGTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（`loadHostConfig`/`loadIgConfig` → 各自 `SynchronSystem`），IG 侧装配参数程序化注入（`setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`），双通道 CIGI 收发。
+- `EngineConfigTests.cpp` 的 `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝）。
+
+### 8.2 `syncSystem` 配置组（SynchronSystem 装配属性，写死）
+
+**动机**：`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect` 是 **SynchronSystem 的属性**，与 engine 渲染属性、host/ig 传输属性正交。独立成组后 engine 属性 / syncSystem 属性 / ig·host 属性三类分明，配置项可自由组合成不同配置文件。
+
+**配置形态**：
+```jsonc
+{
+  "syncSystem": {
+    "channelId": 0,
+    "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
+    "hostEyeStalePolicy": "ReuseLast",
+    "requireIgConnect": true
+  },
+  "igConfig": { ... },
+  "hostConfig": { ... },
+  "model": ..., "window": ...     // engine 渲染属性，不进 syncSystem
+}
+```
+
+**归属边界**（写死）：
+- `syncSystem` 组 = SynchronSystem 装配属性（IG 侧消费为主：offset/stale/requireIgConnect；channelId 两端标识）。
+- `hostConfig`/`igConfig` = 传输参数（sync 库，§8.1）。
+- `model`/`window`/`entities`/`camera`/`coordFrame` = engine 渲染属性（不进 sync）。
+
+**平滑迁移（写死）**：JSON 顶层保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect`）作为**兼容回退**。解析规则：
+- 有 `syncSystem` 组 → 用之，并**同步到旧扁平字段**（旧访问点 `config.channelId` 等保持可用）。
+- 无 `syncSystem` 组 → 按旧扁平字段解析（旧配置完全兼容）。
+
+**消费路径**：engine 从 `config.syncSystem`（或回退的扁平字段）注入 `SynchronSystem`（`setChannelId`/`setOffsetDeg`/`setHostEyeStalePolicy`/`initialize(requireIgConnect)`）。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。

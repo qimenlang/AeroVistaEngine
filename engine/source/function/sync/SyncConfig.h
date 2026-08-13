@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SyncJson.h"
+
 #include <string>
 
 /// Channel offset applied on top of the Host eye (rigid-array rotation, lla设计 §3.4).
@@ -75,3 +77,18 @@ struct SyncRoleConfig
     HostConfig hostConfig{};
     IgConfig igConfig{};
 };
+
+/// Parse a config file containing only the `hostConfig` block (viewhost / standalone
+/// Host process). Unknown top-level keys are rejected. See sync模块化设计.md §8.
+bool loadHostConfig(const std::string& path, HostConfig& out, std::string* error = nullptr);
+
+/// Parse a config file containing only the `igConfig` block (standalone IG process /
+/// external engine using sync without the engine config). Unknown top-level keys rejected.
+/// Symmetric to loadHostConfig. See sync模块化设计.md §8.1.
+bool loadIgConfig(const std::string& path, IgConfig& out, std::string* error = nullptr);
+
+/// Parse the `hostConfig` block from an already-parsed JSON object (shared with engine side).
+HostConfig parseHostConfig(const sync_json::JsonObject& obj);
+
+/// Parse the `igConfig` block from an already-parsed JSON object (shared with engine side).
+IgConfig parseIgConfig(const sync_json::JsonObject& obj);

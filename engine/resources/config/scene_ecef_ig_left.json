@@ -1,7 +1,11 @@
-﻿{
+{
+  "syncSystem": {
+    "channelId": 1,
+    "offsetDeg": { "yaw": 18.05, "pitch": 0.0, "roll": 0.0 },
+    "hostEyeStalePolicy": "ReuseLast",
+    "requireIgConnect": false
+  },
   "coordFrame": "Ellipsoid",
-  "channelId": 1,
-  "offsetDeg": { "yaw": 18.05, "pitch": 0.0, "roll": 0.0 },
   "igConfig": {
     "bindAddr": "127.0.0.1",
     "udpPortSend": 8000,
@@ -11,8 +15,6 @@
     "targetUdpPortRecv": 8000
   },
   "window": { "x": 0, "y": 0, "width": 640, "height": 1080 },
-  "hostEyeStalePolicy": "ReuseLast",
-  "requireIgConnect": false,
   "entities": [
     {
       "id": 1,

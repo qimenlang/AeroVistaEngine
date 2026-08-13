@@ -1,9 +1,11 @@
-﻿# sync 多通道同步模块 — 独立库。
+# sync 多通道同步模块 — 独立库。
 # 依赖方向单向：vsgEngineLib → aerovistaSync；库不得反向依赖引擎。
 # 分层：传输层零 vsg；门面层（SynchronSystem）依赖 vsg，不依赖 Engine。
 # 见 doc/design/sync模块化设计.md。
 
 add_library(aerovistaSync STATIC
+    SyncJson.h
+    SyncConfig.cpp
     UdpSocket.cpp
     CigiWire.cpp
     EventProcess.cpp

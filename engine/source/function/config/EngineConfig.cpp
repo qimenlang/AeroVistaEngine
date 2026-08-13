@@ -1,6 +1,8 @@
 ﻿#include "function/config/EngineConfig.h"
 
-#include <cctype>
+#include "function/sync/SyncConfig.h"
+#include "function/sync/SyncJson.h"
+
 #include <cmath>
 #include <fstream>
 #include <initializer_list>
@@ -12,356 +14,25 @@
 #include <variant>
 #include <vector>
 
+using sync_json::JsonArray;
+using sync_json::JsonObject;
+using sync_json::JsonParser;
+using sync_json::JsonValue;
+
+// 通用 JSON 辅助（find/require*/rejectUnknownKeys）与 hostConfig/igConfig 解析
+// 均来自 sync 库（SyncJson.h / SyncConfig.h），引擎侧不再重复实现。
+using sync_json::find;
+using sync_json::rejectNull;
+using sync_json::rejectUnknownKeys;
+using sync_json::requireBool;
+using sync_json::requireInt;
+using sync_json::requireNumber;
+using sync_json::requireObjectValue;
+using sync_json::requireString;
+using sync_json::requireValue;
+
 namespace
 {
-    struct JsonNull
-    {
-    };
-
-    struct JsonValue;
-    using JsonObject = std::unordered_map<std::string, JsonValue>;
-    using JsonArray = std::vector<JsonValue>;
-
-    struct JsonValue
-    {
-        using Storage = std::variant<JsonNull, bool, double, std::string, JsonArray, JsonObject>;
-        Storage data;
-
-        bool isNull() const { return std::holds_alternative<JsonNull>(data); }
-        bool isObject() const { return std::holds_alternative<JsonObject>(data); }
-        bool isArray() const { return std::holds_alternative<JsonArray>(data); }
-        bool isString() const { return std::holds_alternative<std::string>(data); }
-        bool isNumber() const { return std::holds_alternative<double>(data); }
-        bool isBool() const { return std::holds_alternative<bool>(data); }
-
-        const JsonObject& asObject() const { return std::get<JsonObject>(data); }
-        const JsonArray& asArray() const { return std::get<JsonArray>(data); }
-        const std::string& asString() const { return std::get<std::string>(data); }
-        double asNumber() const { return std::get<double>(data); }
-        bool asBool() const { return std::get<bool>(data); }
-    };
-
-    class JsonParser
-    {
-    public:
-        explicit JsonParser(std::string text) :
-            _text(std::move(text)) {}
-
-        JsonValue parse()
-        {
-            skipWs();
-            auto value = parseValue();
-            skipWs();
-            if (_pos != _text.size())
-                throw std::runtime_error("trailing data after JSON value");
-            return value;
-        }
-
-    private:
-        std::string _text;
-        std::size_t _pos = 0;
-
-        void skipWs()
-        {
-            while (_pos < _text.size() && std::isspace(static_cast<unsigned char>(_text[_pos])))
-                ++_pos;
-        }
-
-        char peek() const
-        {
-            if (_pos >= _text.size())
-                throw std::runtime_error("unexpected end of JSON");
-            return _text[_pos];
-        }
-
-        char get()
-        {
-            const char c = peek();
-            ++_pos;
-            return c;
-        }
-
-        bool match(char expected)
-        {
-            skipWs();
-            if (_pos < _text.size() && _text[_pos] == expected)
-            {
-                ++_pos;
-                return true;
-            }
-            return false;
-        }
-
-        void expect(char expected)
-        {
-            skipWs();
-            if (!match(expected))
-                throw std::runtime_error(std::string("expected '") + expected + "'");
-        }
-
-        JsonValue parseValue()
-        {
-            skipWs();
-            const char c = peek();
-            if (c == '{')
-                return JsonValue{parseObject()};
-            if (c == '[')
-                return JsonValue{parseArray()};
-            if (c == '"')
-                return JsonValue{parseString()};
-            if (c == 't' || c == 'f')
-                return JsonValue{parseBool()};
-            if (c == 'n')
-            {
-                parseLiteral("null");
-                return JsonValue{JsonNull{}};
-            }
-            if (c == '-' || std::isdigit(static_cast<unsigned char>(c)))
-                return JsonValue{parseNumber()};
-            throw std::runtime_error("invalid JSON value");
-        }
-
-        JsonObject parseObject()
-        {
-            expect('{');
-            JsonObject obj;
-            skipWs();
-            if (match('}'))
-                return obj;
-
-            while (true)
-            {
-                skipWs();
-                const std::string key = parseString();
-                expect(':');
-                obj.emplace(key, parseValue());
-                skipWs();
-                if (match('}'))
-                    break;
-                expect(',');
-            }
-            return obj;
-        }
-
-        JsonArray parseArray()
-        {
-            expect('[');
-            JsonArray arr;
-            skipWs();
-            if (match(']'))
-                return arr;
-
-            while (true)
-            {
-                arr.push_back(parseValue());
-                skipWs();
-                if (match(']'))
-                    break;
-                expect(',');
-            }
-            return arr;
-        }
-
-        std::string parseString()
-        {
-            expect('"');
-            std::string out;
-            while (true)
-            {
-                if (_pos >= _text.size())
-                    throw std::runtime_error("unterminated string");
-                const char c = get();
-                if (c == '"')
-                    break;
-                if (c == '\\')
-                {
-                    if (_pos >= _text.size())
-                        throw std::runtime_error("unterminated escape");
-                    const char e = get();
-                    switch (e)
-                    {
-                    case '"':
-                    case '\\':
-                    case '/':
-                        out.push_back(e);
-                        break;
-                    case 'b':
-                        out.push_back('\b');
-                        break;
-                    case 'f':
-                        out.push_back('\f');
-                        break;
-                    case 'n':
-                        out.push_back('\n');
-                        break;
-                    case 'r':
-                        out.push_back('\r');
-                        break;
-                    case 't':
-                        out.push_back('\t');
-                        break;
-                    default:
-                        throw std::runtime_error("unsupported escape");
-                    }
-                }
-                else
-                {
-                    out.push_back(c);
-                }
-            }
-            return out;
-        }
-
-        bool curIs(char c) const
-        {
-            return _pos < _text.size() && _text[_pos] == c;
-        }
-
-        bool curIsDigit() const
-        {
-            return _pos < _text.size() && std::isdigit(static_cast<unsigned char>(_text[_pos]));
-        }
-
-        void skipDigits()
-        {
-            while (curIsDigit())
-                ++_pos;
-        }
-
-        void parseFractionPart()
-        {
-            if (!curIs('.'))
-                return;
-            ++_pos;
-            skipDigits();
-        }
-
-        void parseExponentPart()
-        {
-            if (!curIs('e') && !curIs('E'))
-                return;
-            ++_pos;
-            if (curIs('+'))
-                ++_pos;
-            else if (curIs('-'))
-                ++_pos;
-            skipDigits();
-        }
-
-        double parseNumber()
-        {
-            skipWs();
-            const std::size_t begin = _pos;
-            if (curIs('-'))
-                ++_pos;
-            skipDigits();
-            parseFractionPart();
-            parseExponentPart();
-            if (begin == _pos)
-                throw std::runtime_error("invalid number");
-            return std::stod(_text.substr(begin, _pos - begin));
-        }
-
-        bool parseBool()
-        {
-            if (_text.compare(_pos, 4, "true") == 0)
-            {
-                _pos += 4;
-                return true;
-            }
-            if (_text.compare(_pos, 5, "false") == 0)
-            {
-                _pos += 5;
-                return false;
-            }
-            throw std::runtime_error("invalid boolean");
-        }
-
-        void parseLiteral(const char* lit)
-        {
-            const std::size_t n = std::char_traits<char>::length(lit);
-            if (_text.compare(_pos, n, lit) != 0)
-                throw std::runtime_error(std::string("expected ") + lit);
-            _pos += n;
-        }
-    };
-
-    const JsonValue* find(const JsonObject& obj, const char* key)
-    {
-        const auto it = obj.find(key);
-        return it == obj.end() ? nullptr : &it->second;
-    }
-
-    void rejectUnknownKeys(const JsonObject& obj, std::initializer_list<const char*> allowed)
-    {
-        for (const auto& entry : obj)
-        {
-            bool ok = false;
-            for (const char* key : allowed)
-            {
-                if (entry.first == key)
-                {
-                    ok = true;
-                    break;
-                }
-            }
-            if (!ok)
-                throw std::runtime_error("unknown key: " + entry.first);
-        }
-    }
-
-    void rejectNull(const JsonValue& v, const char* key)
-    {
-        if (v.isNull())
-            throw std::runtime_error(std::string("null not allowed: ") + key);
-    }
-
-    double requireNumber(const JsonObject& obj, const char* key)
-    {
-        const JsonValue* v = find(obj, key);
-        if (!v)
-            throw std::runtime_error(std::string("missing/invalid number: ") + key);
-        rejectNull(*v, key);
-        if (!v->isNumber())
-            throw std::runtime_error(std::string("missing/invalid number: ") + key);
-        return v->asNumber();
-    }
-
-    int requireInt(const JsonObject& obj, const char* key)
-    {
-        return static_cast<int>(requireNumber(obj, key));
-    }
-
-    std::string requireString(const JsonObject& obj, const char* key)
-    {
-        const JsonValue* v = find(obj, key);
-        if (!v)
-            throw std::runtime_error(std::string("missing/invalid string: ") + key);
-        rejectNull(*v, key);
-        if (!v->isString())
-            throw std::runtime_error(std::string("missing/invalid string: ") + key);
-        return v->asString();
-    }
-
-    bool requireBool(const JsonObject& obj, const char* key)
-    {
-        const JsonValue* v = find(obj, key);
-        if (!v)
-            throw std::runtime_error(std::string("missing/invalid bool: ") + key);
-        rejectNull(*v, key);
-        if (!v->isBool())
-            throw std::runtime_error(std::string("missing/invalid bool: ") + key);
-        return v->asBool();
-    }
-
-    const JsonObject& requireObjectValue(const JsonValue& v, const char* key)
-    {
-        rejectNull(v, key);
-        if (!v.isObject())
-            throw std::runtime_error(std::string("missing/invalid object: ") + key);
-        return v.asObject();
-    }
-
     HostEyeStalePolicy parseStalePolicy(const std::string& text)
     {
         if (text == "ReuseLast")
@@ -369,31 +40,6 @@ namespace
         if (text == "Freeze")
             return HostEyeStalePolicy::FREEZE;
         throw std::runtime_error("invalid hostEyeStalePolicy: " + text);
-    }
-
-    HostConfig parseHostConfig(const JsonObject& obj)
-    {
-        rejectUnknownKeys(obj, {"bindAddr", "udpPortSend", "udpPortRecv", "tcpPort"});
-        HostConfig cfg;
-        cfg.bindAddr = requireString(obj, "bindAddr");
-        cfg.udpPortSend = requireInt(obj, "udpPortSend");
-        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
-        cfg.tcpPort = requireInt(obj, "tcpPort");
-        return cfg;
-    }
-
-    IgConfig parseIgConfig(const JsonObject& obj)
-    {
-        rejectUnknownKeys(obj, {"bindAddr", "udpPortSend", "udpPortRecv", "targetAddr", "targetTcpPort",
-                                "targetUdpPortRecv"});
-        IgConfig cfg;
-        cfg.bindAddr = requireString(obj, "bindAddr");
-        cfg.udpPortSend = requireInt(obj, "udpPortSend");
-        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
-        cfg.targetAddr = requireString(obj, "targetAddr");
-        cfg.targetTcpPort = requireInt(obj, "targetTcpPort");
-        cfg.targetUdpPortRecv = requireInt(obj, "targetUdpPortRecv");
-        return cfg;
     }
 
     OffsetDeg parseOffsetDeg(const JsonObject& obj)
@@ -605,17 +251,48 @@ namespace
             cfg.model = requireString(root, "model");
     }
 
+    SyncSystemConfig parseSyncSystemConfig(const JsonObject& obj)
+    {
+        rejectUnknownKeys(obj, {"channelId", "offsetDeg", "hostEyeStalePolicy", "requireIgConnect"});
+        SyncSystemConfig ss;
+        ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
+        if (const JsonValue* v = find(obj, "offsetDeg"))
+            ss.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
+        if (find(obj, "hostEyeStalePolicy") != nullptr)
+            ss.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(obj, "hostEyeStalePolicy", ""));
+        if (find(obj, "requireIgConnect") != nullptr)
+            ss.requireIgConnect = requireBool(obj, "requireIgConnect");
+        return ss;
+    }
+
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
-        rejectUnknownKeys(root, {"channelId", "offsetDeg", "igConfig", "hostConfig", "model", "window",
+        rejectUnknownKeys(root, {"syncSystem", "channelId", "offsetDeg", "igConfig", "hostConfig", "model", "window",
                                  "hostEyeStalePolicy", "requireIgConnect", "coordFrame", "entities", "entity",
                                  "camera"});
 
         EngineChannelConfig cfg;
-        cfg.channelId = parseOptionalInt(root, "channelId", cfg.channelId);
 
-        if (const JsonValue* v = find(root, "offsetDeg"))
-            cfg.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
+        // syncSystem 组（新）：存在则用之，并同步到旧扁平字段（旧访问点不变）。
+        if (const JsonValue* v = find(root, "syncSystem"))
+        {
+            cfg.syncSystem = parseSyncSystemConfig(requireObjectValue(*v, "syncSystem"));
+            cfg.channelId = cfg.syncSystem.channelId;
+            cfg.offsetDeg = cfg.syncSystem.offsetDeg;
+            cfg.hostEyeStalePolicy = cfg.syncSystem.hostEyeStalePolicy;
+            cfg.requireIgConnect = cfg.syncSystem.requireIgConnect;
+        }
+        // 旧扁平字段（兼容回退）：仅当无 syncSystem 组时按旧逻辑解析。
+        if (find(root, "syncSystem") == nullptr)
+        {
+            cfg.channelId = parseOptionalInt(root, "channelId", cfg.channelId);
+            if (const JsonValue* v = find(root, "offsetDeg"))
+                cfg.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
+            if (find(root, "hostEyeStalePolicy") != nullptr)
+                cfg.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(root, "hostEyeStalePolicy", ""));
+            if (find(root, "requireIgConnect") != nullptr)
+                cfg.requireIgConnect = requireBool(root, "requireIgConnect");
+        }
 
         if (const JsonValue* v = find(root, "hostConfig"))
         {
@@ -631,9 +308,6 @@ namespace
 
         if (const JsonValue* v = find(root, "window"))
             cfg.window = parseWindow(requireObjectValue(*v, "window"));
-
-        if (find(root, "hostEyeStalePolicy") != nullptr)
-            cfg.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(root, "hostEyeStalePolicy", ""));
 
         if (const JsonValue* v = find(root, "coordFrame"))
         {
@@ -657,11 +331,7 @@ namespace
             cfg.camera = parseCamera(requireObjectValue(*v, "camera"), cfg.coordFrame);
         }
 
-        const bool hasRequireIgConnect = find(root, "requireIgConnect") != nullptr;
-        if (hasRequireIgConnect)
-            cfg.requireIgConnect = requireBool(root, "requireIgConnect");
-
-        validateIgEndpointPairing(cfg, hasRequireIgConnect);
+        validateIgEndpointPairing(cfg, cfg.requireIgConnect);
         return cfg;
     }
 } // namespace

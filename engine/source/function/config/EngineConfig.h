@@ -61,9 +61,24 @@ struct CameraConfig
     EllipsoidPoseConfig ellipsoidPose{};
 };
 
+/// SynchronSystem 装配属性（sync模块化设计.md §8.2）。
+/// IG 侧消费为主（offset/stale/requireIgConnect），channelId 两端标识。
+struct SyncSystemConfig
+{
+    int channelId = 0;
+    OffsetDeg offsetDeg{};
+    HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
+    bool requireIgConnect = false;
+};
+
 /// Per-process Engine channel config (see engine/resources/config/*.json, design §3.1).
 struct EngineChannelConfig
 {
+    // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect。
+    // 解析时若 JSON 有 `syncSystem` 组则用之；否则回退下面的旧扁平字段（平滑迁移，见 sync模块化设计.md §8.2）。
+    SyncSystemConfig syncSystem{};
+
+    // 旧扁平字段（兼容）：解析回退目标 + 旧访问点保持可用。
     int channelId = 0;
     OffsetDeg offsetDeg{};
     HostConfig hostConfig{};
