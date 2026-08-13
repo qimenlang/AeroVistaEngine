@@ -59,7 +59,7 @@ def main() -> int:
     parser.add_argument(
         "--build-dir",
         type=Path,
-        default=ROOT / "out" / "build" / "ci-debug",
+        default=ROOT / "out" / "build" / "ci-clang",
         help="compile_commands.json build dir for clang-tidy",
     )
     parser.add_argument("--ccn", type=int, default=15, help="lizard CCN threshold")

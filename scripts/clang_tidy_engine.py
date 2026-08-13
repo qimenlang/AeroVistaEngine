@@ -19,10 +19,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# clang-tidy needs clang's compile_commands.json: MSVC maps CMAKE_CXX_STANDARD 23
+# to /std:c++latest, which clang-tidy cannot resolve to a concrete version.
+# List clang-frontend build dirs only (clang-Ninja + ci-clang).
 BUILD_CANDIDATES = (
     ROOT / "out" / "build" / "clang-Ninja",
-    ROOT / "out" / "build" / "ci-debug",
-    ROOT / "out" / "build" / "ci-release",
+    ROOT / "out" / "build" / "ci-clang",
 )
 
 EXCLUDE_REL_PARTS = ()

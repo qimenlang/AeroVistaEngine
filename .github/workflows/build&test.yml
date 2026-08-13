@@ -41,9 +41,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          # Need merge-base history for complexity gates (changed files only).
-          fetch-depth: 0
 
       - name: Init submodules
         shell: bash
@@ -84,24 +81,6 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
-      - name: Install LLVM (clang-tidy)
-        if: matrix.preset == 'ci-debug'
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "20.1"
-
-      # Changed files only (same policy as pre-commit). Fail CI on violations.
-      - name: Complexity gates (clang-tidy + lizard on diff)
-        if: matrix.preset == 'ci-debug'
-        shell: pwsh
-        env:
-          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-        run: |
-          pip install lizard
-          python scripts/ci_changed_complexity.py --build-dir out/build/ci-debug --ccn 15
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
   # Mirrors the local clang-Ninja toolchain: clang frontend + MSVC STL/link.exe.
   # Requires LLVM >= 20 on windows-latest (VS18 STL demands Clang 20+; STL1000).
   build-clang:
@@ -112,6 +91,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Need merge-base history for complexity gates (changed files only).
+          fetch-depth: 0
 
       - name: Init submodules
         shell: bash
@@ -140,7 +122,7 @@ jobs:
         with:
           arch: x64
 
-      - name: Install LLVM (clang)
+      - name: Install LLVM (clang + clang-tidy)
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "20.1"
@@ -156,3 +138,17 @@ jobs:
 
       - name: Test
         run: ctest --preset ci-clang --output-on-failure
+
+      # Changed files only (same policy as pre-commit). Fail CI on violations.
+      # Runs on clang (not MSVC ci-debug) because clang-tidy needs clang's
+      # compile_commands.json: MSVC maps CMAKE_CXX_STANDARD 23 -> /std:c++latest,
+      # which clang-tidy cannot resolve to a concrete standard version.
+      - name: Complexity gates (clang-tidy + lizard on diff)
+        shell: pwsh
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          pip install lizard
+          python scripts/ci_changed_complexity.py --build-dir out/build/ci-clang --ccn 15
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

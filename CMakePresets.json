@@ -31,10 +31,12 @@
         },
         {
             "name": "ci-debug",
-            "displayName": "CI Windows Debug",
+            "displayName": "CI Windows Debug (MSVC + Ninja)",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/ci-debug",
             "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe",
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-debug",
                 "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF",
@@ -43,10 +45,12 @@
         },
         {
             "name": "ci-release",
-            "displayName": "CI Windows Release",
+            "displayName": "CI Windows Release (MSVC + Ninja)",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/ci-release",
             "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe",
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/ci-release",
                 "AEROVISTA_BUILD_VSG_EXAMPLES": "OFF",
@@ -55,7 +59,7 @@
         },
         {
             "name": "ci-clang",
-            "displayName": "CI Windows Clang Debug",
+            "displayName": "CI Windows Clang Debug (Clang + Ninja)",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/ci-clang",
             "cacheVariables": {
