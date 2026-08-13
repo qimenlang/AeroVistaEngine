@@ -7,7 +7,7 @@
 # Example (after configure with CMAKE_EXPORT_COMPILE_COMMANDS=ON):
 #   clang-tidy -p out/build/clang-Ninja engine/source/function/sync/HostSync.cpp
 #
-# Prefer scanning engine/ only; skip thirdparty/. Legacy Network.* uses NOLINT
+# Prefer scanning engine/ only; skip thirdparty/.
 # (HeaderFilterRegex cannot exclude files via PCRE lookahead — LLVM regex only).
 # Wired by: scripts/clang_tidy_engine.py (pre-commit + CI) and engine/CMakeLists.txt
 # (CMAKE_CXX_CLANG_TIDY). engine/Tests/.clang-tidy turns off cognitive complexity

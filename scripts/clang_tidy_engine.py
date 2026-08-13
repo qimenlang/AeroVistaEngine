@@ -25,12 +25,9 @@ BUILD_CANDIDATES = (
     ROOT / "out" / "build" / "ci-release",
 )
 
-EXCLUDE_REL_PARTS = (
-    "function/sync/Network.cpp",
-    "function/sync/Network.h",
-)
+EXCLUDE_REL_PARTS = ()
 
-# LLVM regex (no PCRE lookahead). Network.* suppressed via NOLINT in those files.
+# LLVM regex (no PCRE lookahead).
 HEADER_FILTER = r"[/\\]engine[/\\]"
 
 

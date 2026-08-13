@@ -1,8 +1,8 @@
 ﻿#pragma once
 
 #include "CigiWire.h"
-#include "Network.h"
 #include "SyncConfig.h"
+#include "UdpSocket.h"
 
 #include <atomic>
 #include <cstdint>
@@ -150,7 +150,7 @@ private:
 
     AddressConfig _local{};
     AddressConfig _hostEndpoint{};
-    Network _udp;
+    UdpSocket _udp;
     IgSocketHandle _tcp = static_cast<IgSocketHandle>(-1);
 
     std::atomic<bool> _initialized{false};

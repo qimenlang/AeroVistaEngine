@@ -22,7 +22,6 @@ Pre-commit / CI treat over-limit as **failure**. Do not “fix” by silencing t
 - Do **not** add `NOLINT` / `NOLINTNEXTLINE` for these two checks to ship over-limit code.
 - Do **not** leave a new/edited function over threshold “for a follow-up”.
 - Prefer extract **private methods** or **file-local helpers** (anonymous namespace) over deeper nesting.
-- `Network.cpp` / `Network.h` are script-excluded legacy; do not copy that exemption pattern elsewhere.
 
 ## When editing `engine/source`
 

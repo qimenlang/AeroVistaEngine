@@ -1,8 +1,8 @@
 ﻿#pragma once
 
 #include "CigiWire.h"
-#include "Network.h"
 #include "SyncConfig.h"
+#include "UdpSocket.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -104,7 +104,7 @@ private:
 
     AddressConfig _local{};
     SyncPaceConfig _pace{};
-    Network _udp;
+    UdpSocket _udp;
     SocketHandle _listenSocket = static_cast<SocketHandle>(-1);
 
     std::atomic<bool> _threadsRunning{false};

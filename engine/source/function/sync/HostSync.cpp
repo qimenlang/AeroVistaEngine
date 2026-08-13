@@ -127,7 +127,7 @@ void HostSync::pollUdp()
 
     {
         std::lock_guard lock(_udpMutex);
-        if (!_udp.isValid())
+        if (!_udp.valid())
             return;
 
         for (;;)
@@ -190,7 +190,7 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
         std::lock_guard lock(_udpMutex);
         for (const auto& t : targets)
         {
-            _udp.sendTo(t.first.c_str(), static_cast<int>(t.second), datagram.data(),
+            _udp.sendTo(t.first, static_cast<int>(t.second), datagram.data(),
                         static_cast<int>(datagram.size()));
         }
     }
@@ -207,9 +207,10 @@ bool HostSync::initialize(const AddressConfig& local)
     _sofReceivedCount = 0;
     _frameCounter = 0;
 
-    if (!_udp.openSocket(_local.addr.c_str(), _local.udpPortSend, _local.udpPortRecv))
+    std::string udpError;
+    if (!_udp.initialize(_local.addr, _local.udpPortSend, _local.udpPortRecv, &udpError))
     {
-        std::cerr << "HostSync: UDP open failed\n";
+        std::cerr << "HostSync: UDP open failed: " << udpError << "\n";
         return false;
     }
 
@@ -220,7 +221,7 @@ bool HostSync::initialize(const AddressConfig& local)
 #endif
     if (!isValidSock(_listenSocket))
     {
-        _udp.closeSocket();
+        _udp.close();
         return false;
     }
 
@@ -240,14 +241,14 @@ bool HostSync::initialize(const AddressConfig& local)
     {
         std::cerr << "HostSync: TCP bind failed on " << _local.tcpPort << "\n";
         closeSocket(_listenSocket);
-        _udp.closeSocket();
+        _udp.close();
         return false;
     }
 
     if (listen(_listenSocket, 16) != 0)
     {
         closeSocket(_listenSocket);
-        _udp.closeSocket();
+        _udp.close();
         return false;
     }
 
@@ -290,8 +291,8 @@ void HostSync::shutdown()
     }
     clearReceivedAcks();
 
-    if (_udp.isValid())
-        _udp.closeSocket();
+    if (_udp.valid())
+        _udp.close();
 }
 
 void HostSync::acceptLoop()
@@ -381,7 +382,7 @@ void HostSync::handleClient(SocketHandle client, std::string peerIp)
         udpAck.type = static_cast<uint32_t>(sync_proto::MsgType::UDP_SYNC_ACK);
         udpAck.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
         std::lock_guard lock(_udpMutex);
-        _udp.sendTo(peerIp.c_str(), static_cast<int>(hello.udpRecvPort),
+        _udp.sendTo(peerIp, static_cast<int>(hello.udpRecvPort),
                     reinterpret_cast<const unsigned char*>(&udpAck), sizeof(udpAck));
     }
 
@@ -602,7 +603,7 @@ void HostSync::processUdpDatagram(const unsigned char* buf, int n, const char* f
         ack.udpRecvPort = static_cast<uint32_t>(_local.udpPortRecv);
         {
             std::lock_guard lock(_udpMutex);
-            _udp.sendTo(replyIp.c_str(), static_cast<int>(replyPort),
+            _udp.sendTo(replyIp, static_cast<int>(replyPort),
                         reinterpret_cast<const unsigned char*>(&ack), sizeof(ack));
         }
         return;

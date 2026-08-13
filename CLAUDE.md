@@ -57,7 +57,7 @@ void renderOneTick();
 
 - New headers: `#pragma once`; VSG includes as `#include <vsg/...>`.
 - Do not restyle or rename `thirdparty/`.
-- Do not spread legacy styles (e.g. old `Network` snake_case / bare members); wrap with a thin VSG-style adapter; rename only on substantive edits of that file.
+- Do not spread legacy styles (snake_case / bare members) into new code; wrap legacy interfaces with a thin VSG-style adapter before reuse.
 - Let `clang-format` own layout (4 spaces, Allman braces, `T* p`).
 
 ### Before finishing an edit
@@ -89,7 +89,6 @@ Pre-commit / CI treat over-limit as **failure**. Do not "fix" by silencing the g
 - Do **not** add `NOLINT` / `NOLINTNEXTLINE` for these two checks to ship over-limit code.
 - Do **not** leave a new/edited function over threshold "for a follow-up".
 - Prefer extract **private methods** or **file-local helpers** (anonymous namespace) over deeper nesting.
-- `Network.cpp` / `Network.h` are script-excluded legacy; do not copy that exemption pattern elsewhere.
 
 ### When editing `engine/source`
 

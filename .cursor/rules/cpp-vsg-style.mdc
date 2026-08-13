@@ -56,7 +56,7 @@ void renderOneTick();
 
 - New headers: `#pragma once`; VSG includes as `#include <vsg/...>` .
 - Do not restyle or rename `thirdparty/`.
-- Do not spread legacy styles (e.g. old `Network` snake_case / bare members); wrap with a thin VSG-style adapter; rename only on substantive edits of that file.
+- Do not spread legacy styles (snake_case / bare members) into new code; wrap legacy interfaces with a thin VSG-style adapter before reuse.
 - Let `clang-format` own layout (4 spaces, Allman braces, `T* p`).
 
 ## Before finishing an edit

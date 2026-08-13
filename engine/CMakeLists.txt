@@ -23,7 +23,7 @@ add_library(vsgEngineLib STATIC
     source/function/config/EngineConfig.cpp
     source/function/handler/FrameStatsHandler.cpp
     source/function/handler/CommandTriggerHandler.cpp
-    source/function/sync/Network.cpp
+    source/function/sync/UdpSocket.cpp
     source/function/sync/SynchronSystem.cpp
     source/function/sync/HostSync.cpp
     source/function/sync/IgSync.cpp

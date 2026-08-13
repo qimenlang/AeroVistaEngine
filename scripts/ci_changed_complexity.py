@@ -21,7 +21,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 TIDY_RE = re.compile(r"^engine/.+\.(cpp|cc|cxx|h|hpp|hh|hxx)$", re.I)
-TIDY_EXCLUDE_RE = re.compile(r"engine/source/function/sync/Network\.(cpp|h)$", re.I)
 LIZARD_RE = re.compile(r"^engine/source/.+\.(cpp|cc|cxx)$", re.I)
 
 
@@ -74,7 +73,7 @@ def main() -> int:
         print(f"error: git diff failed: {exc}", file=sys.stderr)
         return 1
 
-    tidy_files = [f for f in changed if TIDY_RE.match(f) and not TIDY_EXCLUDE_RE.search(f)]
+    tidy_files = [f for f in changed if TIDY_RE.match(f)]
     lizard_files = [f for f in changed if LIZARD_RE.match(f)]
     print(f"changed paths: {len(changed)}; tidy={len(tidy_files)}; lizard={len(lizard_files)}", flush=True)
 

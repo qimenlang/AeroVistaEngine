@@ -103,9 +103,10 @@ bool IgSync::initialize(const AddressConfig& local)
     _hostEndpoint = {};
     resetHostSession();
 
-    if (!_udp.openSocket(_local.addr.c_str(), _local.udpPortSend, _local.udpPortRecv))
+    std::string udpError;
+    if (!_udp.initialize(_local.addr, _local.udpPortSend, _local.udpPortRecv, &udpError))
     {
-        std::cerr << "IgSync: UDP open failed\n";
+        std::cerr << "IgSync: UDP open failed: " << udpError << "\n";
         return false;
     }
 
@@ -124,8 +125,8 @@ void IgSync::shutdown()
     _tcpConnected = false;
     _udpSynced = false;
     _status = IgStatus::IDLE;
-    if (_udp.isValid())
-        _udp.closeSocket();
+    if (_udp.valid())
+        _udp.close();
     _initialized = false;
 }
 
@@ -245,7 +246,7 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
         std::cerr << "IgSync: CIGI packSof failed\n";
         return;
     }
-    _udp.sendTo(_hostEndpoint.addr.c_str(), _hostEndpoint.udpPortRecv, sof.data(),
+    _udp.sendTo(_hostEndpoint.addr, _hostEndpoint.udpPortRecv, sof.data(),
                 static_cast<int>(sof.size()));
     _sofSentCount.fetch_add(1);
 }
@@ -483,7 +484,7 @@ bool IgSync::connectOnce(const AddressConfig& hostEndpoint)
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(handshakeTimeoutMs);
     while (std::chrono::steady_clock::now() < deadline)
     {
-        _udp.sendTo(hostEndpoint.addr.c_str(), hostEndpoint.udpPortRecv,
+        _udp.sendTo(hostEndpoint.addr, hostEndpoint.udpPortRecv,
                     reinterpret_cast<const unsigned char*>(&udpSync), sizeof(udpSync));
         if (waitUdpAck(50))
             return true;
