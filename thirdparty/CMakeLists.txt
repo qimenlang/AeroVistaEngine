@@ -5,4 +5,6 @@ add_subdirectory(cigi)
 if(AEROVISTA_BUILD_VSG_EXAMPLES)
     add_subdirectory(vsgExamples)
 endif()
+
+add_subdirectory(sync)
 add_subdirectory(Catch2)

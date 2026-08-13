@@ -229,6 +229,17 @@ static constexpr double nearFarRatio = 0.001;
 
 ---
 
+## 源码编码
+
+- 所有源码文件（`.h` / `.cpp` / `.md` / `.json` / CMake 等）一律使用 **UTF-8（无 BOM）**。
+- **避免跨编码往返保存**：不要在同一文件上混用 UTF-8 与 GBK/ANSI 编辑器编码保存——一旦内容被错误解码再存回，损坏不可逆（表现为合法 UTF-8 但中文全乱码，如 `ʱ��ͬ��`）。
+- 提交前可用 `scripts/check_encoding.py` 做两层检查：
+  1. **字节层**：非 UTF-8 文件（读不出）→ 拒绝。
+  2. **内容层**：合法 UTF-8 但含乱码特征字符（音标扩展区 / 组合变音符等，双重编码产物）→ 拒绝。
+- 上述检查已接入 pre-commit（`encoding-check` hook）。
+
+---
+
 
 
 ## 格式化

@@ -1,5 +1,5 @@
-// ʱ��ͬ������.md ��6 ���գ�IG ��ʱ���ע�� / ��λչ�� / simTimeUs ���� / ���ƶ��ᡣ
-// �ӿ���ʵ�֣�IgSync����ע��ʽ + ϵͳ��������� ��6 ���յ㡣
+// 时钟同步方案.md §6 验收：IG 时钟同步注入 / 相位展开 / simTimeUs 换算 / 冻结阈值。
+// 接口已实现：IgSync 注入式 + 系统时钟基准（§6 验收点）。
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -15,7 +15,7 @@ using aerovista::sync::IgSync;
 
 namespace
 {
-    // ��� ��3/��4 ע��ṹ�� IgSync::HostTimeStamp �ṩ����ʵ�֣���
+    // 时钟同步方案.md §3/§4 注入结构体：IgSync::HostTimeStamp 提供真实实现。
     using HostTimeStamp = IgSync::HostTimeStamp;
 } // namespace
 
@@ -31,11 +31,11 @@ SCENARIO("linked IG reports simulation time as Host base plus local elapsed",
 
         WHEN("the consumer asks for simulation time later in the same frame")
         {
-            const std::uint64_t nowUs = 26000; // ���� 6000us
+            const std::uint64_t nowUs = 26000; // 本地流逝 6000us
 
             THEN("simTimeUs equals Host base plus local elapsed")
             {
-                // �װ���lastSimTimeUs = raw*10 = 10000us������ (nowUs - receivedAtUs)
+                // 首包 lastSimTimeUs = raw*10 = 10000us，加上 (nowUs - receivedAtUs)
                 REQUIRE(ig.simTimeUsAt(nowUs) == raw * 10 + (nowUs - receivedAtUs));
             }
         }
@@ -91,7 +91,7 @@ SCENARIO("IG accepts a skipped frame number as a fresh base",
     {
         IgSync ig;
         ig.queueHostTimeStamp(HostTimeStamp{100, 1000, 20000});
-        ig.queueHostTimeStamp(HostTimeStamp{102, 2000, 40000}); // 101 ��
+        ig.queueHostTimeStamp(HostTimeStamp{102, 2000, 40000}); // 101 帧跳过
 
         WHEN("the consumer asks for simulation time")
         {
@@ -136,7 +136,7 @@ SCENARIO("IG freezes beyond extrapolate timeout and returns a constant simulatio
 
         WHEN("more than the timeout elapses without a frame")
         {
-            ig.updateFreeze(80000); // nowUs - lastReceivedAtUs = 60000 > 50000 �� ����
+            ig.updateFreeze(80000); // nowUs - lastReceivedAtUs = 60000 > 50000 → 冻结
 
             THEN("the IG enters frozen state and simTimeUs stays constant")
             {
@@ -178,7 +178,7 @@ SCENARIO("IG jumps directly to a new base after freeze recovery",
         IgSync ig;
         ig.setExtrapolateTimeoutUs(50000);
         ig.queueHostTimeStamp(HostTimeStamp{100, 1000, 20000});
-        ig.updateFreeze(80000); // ��������
+        ig.updateFreeze(80000); // 冻结状态
         REQUIRE(ig.frozen());
 
         WHEN("a new frame arrives after the freeze")
@@ -208,7 +208,7 @@ SCENARIO("IG phase unwrap crosses a single 2^32 wrap without a jump",
 
             THEN("extended time increases by exactly 32 ticks, no jump")
             {
-                // �װ� base = 0xfffffff0*10 us���ڶ��� base = (0xfffffff0+32)*10 us
+                // 首包 base = 0xfffffff0*10 us，第二包 base = (0xfffffff0+32)*10 us
                 REQUIRE(ig.simTimeUsAt(11000) == (static_cast<std::uint64_t>(0xfffffff0u) + 32) * 10);
             }
         }
@@ -229,7 +229,7 @@ SCENARIO("IG phase unwrap stays monotonic across multiple wraps",
             bool first = true;
             for (std::uint32_t i = 0; i < 5; ++i)
             {
-                // ÿ�νӽ���ֵ��Խ������ֵ - i, Сֵ + i
+                // 每次接近回绕值：越过回绕值 - i，小值 + i
                 ig.queueHostTimeStamp(HostTimeStamp{101 + i * 2, static_cast<std::uint32_t>(0xfffffff0u - i), 10000 + i * 100});
                 ig.queueHostTimeStamp(HostTimeStamp{102 + i * 2, static_cast<std::uint32_t>(0x10u + i), 10000 + i * 100 + 50});
                 const std::uint64_t cur = ig.simTimeUsAt(10000 + i * 100 + 60);
@@ -244,7 +244,7 @@ SCENARIO("IG phase unwrap stays monotonic across multiple wraps",
 
 TEST_CASE("session reset keeps Host absolute tick base on reconnect", "[unit][sync][clock][session]")
 {
-    // ��� ��3���»Ự�װ� extendedTime = raw������ Host ���Ի�׼������ 0 �𣩡�
+    // 时钟同步方案.md §3：新会话基准 extendedTime = raw（Host 绝对基准，不从 0 起）。
     IgSync ig;
     ig.queueHostTimeStamp(HostTimeStamp{1, 5000, 10000});
     REQUIRE(ig.simTimeUsAt(10000) == 5000 * 10);
@@ -256,22 +256,22 @@ TEST_CASE("session reset keeps Host absolute tick base on reconnect", "[unit][sy
 TEST_CASE("session reset after Host restart starts from the small raw without inheriting the old base",
           "[unit][sync][clock][session]")
 {
-    // ��� ��3 �߽磺Host �������� �� TCP �������»Ự���� �װ� raw ΪСֵ��
-    // resetHostSession() ʹ��λչ��״̬���»�׼�𣬲��̳оɻỰ��ֵ������ simTimeUs ���� ��2^32����
+    // 时钟同步方案.md §3 边界：Host 重启后 → TCP 重连 → 新会话基准，首包 raw 为小值。
+    // resetHostSession() 使相位展开状态回到新基准，不继承旧会话大值（否则 simTimeUs 超 2^32）。
     IgSync ig;
-    ig.queueHostTimeStamp(HostTimeStamp{1, 0xf0000000u, 10000}); // �ɻỰ��ֵ
+    ig.queueHostTimeStamp(HostTimeStamp{1, 0xf0000000u, 10000}); // 旧会话大值
     ig.queueHostTimeStamp(HostTimeStamp{2, 0xf0000010u, 20000});
 
-    ig.resetHostSession();                                  // �Ự���ã����Ӳ��� TCP ����ʱ���ã�
-    ig.queueHostTimeStamp(HostTimeStamp{1, 0x100u, 30000}); // �»Ự�װ�Сֵ
+    ig.resetHostSession();                                  // 会话重置（重连 TCP 时调用）
+    ig.queueHostTimeStamp(HostTimeStamp{1, 0x100u, 30000}); // 新会话首包小值
 
-    // �»�׼ = 0x100*10 us�����̳оɻỰ 0xf0000010 ��ֵ��
+    // 新基准 = 0x100*10 us，不继承旧会话 0xf0000010 大值。
     REQUIRE(ig.simTimeUsAt(30000) == 0x100u * 10);
 }
 
 TEST_CASE("unit conversion from raw tick to us and ms is exact", "[unit][sync][clock][convert]")
 {
-    const std::uint32_t raw = 12345; // 10��s tick
+    const std::uint32_t raw = 12345; // 10µs tick
     const std::uint64_t us = static_cast<std::uint64_t>(raw) * 10;
     REQUIRE(us == 123450);
 
@@ -280,11 +280,11 @@ TEST_CASE("unit conversion from raw tick to us and ms is exact", "[unit][sync][c
 }
 
 // =============================================================================
-// ϵͳ���ԣ����� Engine��A=Host+IG��B=�� IG����ʵ socket ���ӣ�������ʵ CIGI
-// ʱ������ģ���֤ IG �����ʱ�� = Host ����ʱ��� + �������Ų�����
-// ������ʵ�ֽӿڣ�IgSync::queueHostTimeStamp / simTimeUsAt / setExtrapolateTimeoutUs / frozen��
-// ����� = ��Լδ���㣻ʵ�ֺ���̡�
-// ��ǩ [acceptance][bdd][sync][clock][e2e]��
+// 系统测试：接入 Engine，A=Host+IG、B=纯 IG，用真实 socket 连接，收发真实 CIGI
+// 时间戳报文，验证 IG 的模拟时间 = Host 基准时间戳 + 本地流逝补偿。
+// 接口已实现：IgSync::queueHostTimeStamp / simTimeUsAt / setExtrapolateTimeoutUs / frozen。
+// 标记 = 契约未定稿；实现后补签。
+// 标签 [acceptance][bdd][sync][clock][e2e]。
 // =============================================================================
 
 SCENARIO("IG derives simulation time from live Host time stamps plus local elapsed",
@@ -301,7 +301,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
         REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
-        // Host ���� graphics ���� tickOnFrame ������֡ѭ������ postFrame �ȳ�ʱ�������
+        // Host 不加载 graphics，用 tickOnFrame 驱动完整帧循环，postFrame 等超时后发送。
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
         WHEN("both engines tick and Host fans out real IGCtrl time stamps")
@@ -319,12 +319,12 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
                 REQUIRE(ig.igCtrlReceivedCount() > 0);
                 REQUIRE(ig.lastIgCtrlFrameCntr() > 0);
 
-                // �ؼ����ԣ���׼���� Host ʱ��������Ǳ���ʱ�Ӵ� 0 �𣩡�
-                // Host ÿ֡ simTimeMs ������Engine::postFrame += 1000/60����10 ֡��Ӧ�� ~166ms��
+                // 关键断言：基准即 Host 时间戳（非本地时钟从 0 起）。
+                // Host 每帧 simTimeMs 递增（Engine::postFrame += 1000/60），10 帧后应约 166ms。
                 const std::uint64_t hostBaseUs = ig.lastHostSimTimeUs();
                 REQUIRE(hostBaseUs > 0);
 
-                // ���������ʱ�� �� Host ��׼���������Ų�����Ч�������� Host ʱ���ͬ������> 1 ֡����
+                // 消费时刻 ≥ Host 基准（本地流逝补偿有效，且不小于 Host 时间戳基准）> 1 帧延迟。
                 const auto nowUs = [](auto now) {
                     return static_cast<std::uint64_t>(
                         std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
@@ -332,8 +332,8 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
                 const std::uint64_t s0 = ig.simTimeUsAt(nowUs(vsg::clock::now()));
                 REQUIRE(s0 >= hostBaseUs);
 
-                // Host ʱ���������֤��10 ֡ �� ~16.67ms �� 166ms��> 100ms����֤����׼ȷʵ���� Host��
-                REQUIRE(hostBaseUs >= 100000); // �� 100ms
+                // Host 时间戳前进验证：10 帧 × ~16.67ms ≈ 166ms（> 100ms），证明基准确实来自 Host。
+                REQUIRE(hostBaseUs >= 100000); // ≥ 100ms
             }
         }
     }
@@ -382,12 +382,12 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
                 const std::uint64_t sB = igB.simTimeUsAt(now);
                 const std::uint64_t sC = igC.simTimeUsAt(now);
 
-                // �� IG ��ͬһ Host ʱ�����׼������ͬһ֡��������ʱ��Ӧ�ӽ���
-                // �������������ӳٲLAN �� < һ֡����ԶС��֡���� 16.67ms��
+                // 两 IG 用同一 Host 时间戳基准（同一帧），模拟时间应接近。
+                // 网络接收延迟差（LAN 内 < 一帧，远小于帧时长 16.67ms）。
                 REQUIRE(sB > 0);
                 REQUIRE(sC > 0);
                 const std::uint64_t diff = sB > sC ? sB - sC : sC - sB;
-                REQUIRE(diff < 16670); // < һ֡��us������֤һ����
+                REQUIRE(diff < 16670); // < 一帧 us，证明一致性
             }
         }
     }
@@ -396,15 +396,15 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
 TEST_CASE("simTimeUs uses the monotonic clock internally and is not affected by wall-clock changes",
           "[unit][sync][clock][monotonic]")
 {
-    // ��� ��4.2������/������ steady_clock��vsg::clock������ֹ system_clock��
-    // �޲� simTimeUs() �ڲ��� vsg::clock::now() ȡ nowUs����ϵͳʱ�䲻������
+    // 时钟同步方案.md §4.2：单调/实时时钟用 steady_clock（vsg::clock），禁止 system_clock。
+    // 测试 simTimeUs() 内部用 vsg::clock::now() 取 nowUs，系统时间不影响。
     IgSync ig;
     ig.queueHostTimeStamp(HostTimeStamp{100, 1000, 0}); // lastSimTimeUs = 10000us
 
-    const std::uint64_t s1 = ig.simTimeUs(); // �޲Σ��ڲ�ȡ nowUs
+    const std::uint64_t s1 = ig.simTimeUs(); // 测试，内部取 nowUs
     const std::uint64_t s2 = ig.simTimeUs();
 
-    // ���ζ�ȡӦ �� ��׼���ҵ����������������Ų�����steady_clock ��������
+    // 两次读取应 ≥ 基准且递增（本地流逝补偿，steady_clock 单调不倒退）
     REQUIRE(s1 >= 10000);
     REQUIRE(s2 >= s1);
 }
@@ -425,7 +425,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
-        // ���̶�����ֵ������ʵ��·�ڼ�֡�ھʹ������ᣬ����ȴ�Ĭ�� 200ms��
+        // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
         engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
 
         WHEN("Host ticks a few frames then stops, while the IG keeps ticking")
@@ -439,7 +439,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
             REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
             REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
 
-            // Host ͣ����ֻ�� IG�������ų��� 50ms ������ֵ��
+            // Host 停止后，只有 IG 持续 tick，超过 50ms 后冻结。
             for (int i = 0; i < 20; ++i)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -451,7 +451,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
                 IgSync& ig = engineB.synchronSystem().igSync();
                 REQUIRE(ig.frozen());
 
-                // ���᣺simTimeUs ���ֺ㶨��������������������
+                // 冻结：simTimeUs 保持恒定，不再随本地流逝推进。
                 const std::uint64_t s1 = ig.simTimeUs();
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 const std::uint64_t s2 = ig.simTimeUs();
@@ -479,7 +479,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
         WHEN("the Host pauses between frames and then sends the next time stamp")
         {
-            // Ԥ�� 2 ֡���� t0 ���㣨���� A ��֡ simTime=0����
+            // 预跑 2 帧，让 t0 有基准（保证 A 第 3 帧 simTime=0 起）。
             for (int i = 0; i < 2; ++i)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -487,9 +487,9 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
             }
             REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() >= 2);
             const std::uint64_t t0 = engineB.synchronSystem().igSync().lastHostSimTimeUs();
-            REQUIRE(t0 > 0); // Ԥ�Ⱥ��׼����
+            REQUIRE(t0 > 0); // 预热后基准非零
 
-            // ���� 100ms ���ٷ�һ֡��
+            // 暂停 100ms 再发一帧。
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
@@ -500,10 +500,10 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
                 REQUIRE(t1 > t0);
                 const std::uint64_t advanceUs = t1 - t0;
 
-                // ���� B��advance �� ���� 100ms��+һ֡�������ƽ������������ݲ
-                // ���� A���̶���������advance �� 16.67ms��ԶС�ڿ��� �� �����Ժ졣
-                REQUIRE(advanceUs >= 80000);  // �� 80ms��100ms ���ٵ� 80%��
-                REQUIRE(advanceUs <= 200000); // �� 200ms����������/���ȶ����󱨣�
+                // 引擎 B 的 advance 应 ≈ 暂停 100ms（+一帧误差，含网络接收延迟差）。
+                // 若引擎 A 固定步进，advance 只有 16.67ms，远小于暂停 → 测试能红。
+                REQUIRE(advanceUs >= 80000);  // ≥ 80ms（100ms 暂停的 80%）
+                REQUIRE(advanceUs <= 200000); // ≤ 200ms（含网络/调度等波动上限）
             }
         }
     }
@@ -525,12 +525,12 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
-        // ���̶�����ֵ����ʵ��·��֡�ڴ������ᡣ
+        // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
         engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
 
         WHEN("Host and IG tick normally, then the Host goes offline while the IG keeps ticking")
         {
-            // ���� tick��B �յ�ʱ����������ᡣ
+            // 正常 tick，B 收到时间戳且未触发冻结。
             for (int i = 0; i < 5; ++i)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -539,7 +539,7 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
             REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
             REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
 
-            // A �˳����ȼ��� Host �ر� TCP/UDP����B ���� tick�����ų���������ֵ��
+            // A 退出（等价于 Host 关闭 TCP/UDP），B 持续 tick，超过冻结阈值。
             engineA.synchronSystem().shutdown();
 
             for (int i = 0; i < 20; ++i)
@@ -553,7 +553,7 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
                 IgSync& ig = engineB.synchronSystem().igSync();
                 REQUIRE(ig.frozen());
 
-                // ���᣺simTimeUs ���ֺ㶨��������������������
+                // 冻结：simTimeUs 保持恒定，不再随本地流逝推进。
                 const std::uint64_t s1 = ig.simTimeUs();
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 const std::uint64_t s2 = ig.simTimeUs();
