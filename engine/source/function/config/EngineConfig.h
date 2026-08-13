@@ -22,7 +22,7 @@ struct WindowConfig
     int height = 1080;
 };
 
-/// JSON `coordFrame` intent: inject EllipsoidModel only when scene has none (lla设计 §2).
+/// JSON `coordFrame` 意图：场景无椭球时按意图注入 EllipsoidModel（lla设计 §2）。
 enum class CoordFrameIntent
 {
     LOCAL,
@@ -80,7 +80,7 @@ struct SyncSystemConfig
     bool requireIgConnect = false;
 };
 
-/// Per-process Engine channel config (see engine/resources/config/*.json, design §3.1).
+/// 每进程 Engine 通道配置（见 engine/resources/config/*.json，设计 §3.1）。
 struct EngineChannelConfig
 {
     // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect。
@@ -98,7 +98,7 @@ struct EngineChannelConfig
     CoordFrameIntent coordFrame = CoordFrameIntent::LOCAL;
     bool requireIgConnect = false;
 
-    /// Set when the corresponding JSON object key is present (parent-key enable).
+    /// 对应 JSON 对象键出现时置位（父键 enable）。
     bool hasHostConfig = false;
     bool hasIgConfig = false;
 

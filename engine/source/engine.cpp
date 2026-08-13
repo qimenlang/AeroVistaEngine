@@ -44,7 +44,7 @@ namespace
             return hud;
         }
 
-        // Disable depth testing so HUD text always draws on top.
+        // 关闭深度测试，让 HUD 文本始终绘制在最上层。
         auto shaderSet = options->shaderSets["text"] = vsg::createTextShaderSet(options);
         auto depthStencilState = vsg::DepthStencilState::create();
         depthStencilState->depthTestEnable = VK_FALSE;
@@ -344,7 +344,7 @@ namespace
         return vsg::dvec3{v.x, v.y, v.z};
     }
 
-    /// R = Rz(yaw)*Rx(pitch)*Ry(roll) as 3×3 (same axis order as setCameraPose / ModelConfigTests).
+    /// R = Rz(yaw)*Rx(pitch)*Ry(roll) 的 3×3（与 setCameraPose / ModelConfigTests 同一轴序）。
     vsg::dmat4 rotationMatrixYpr(const vsg::dvec3& eulerYprDeg)
     {
         const vsg::dquat qRoll(vsg::radians(eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0));
@@ -435,7 +435,7 @@ namespace
 Engine::Engine()
 {
     _synchronSystem = SynchronSystem::create();
-    // Defaults match default.json (no -c): graphics only, sync off.
+    // 默认匹配 default.json（无 -c）：仅图形，同步关闭。
     loadConfig(defaultConfigPath());
 }
 
@@ -443,7 +443,7 @@ Engine::~Engine()
 {
     if (_synchronSystem)
         _synchronSystem->shutdown();
-    // Release Vulkan objects so Catch suites with many Engines stay under device limits.
+    // 释放 Vulkan 对象，使含多个 Engine 的 Catch 套件保持在设备数限制内。
     _viewer = {};
     _window = {};
     _mainCamera = {};
@@ -481,7 +481,7 @@ void Engine::applyConfigToEngine()
 {
     extent.width = static_cast<uint32_t>(config.window.width);
     extent.height = static_cast<uint32_t>(config.window.height);
-    // Window visibility is always Engine::showWindow (default true); not from config.
+    // 窗口可见性始终是 Engine::showWindow（默认 true）；不来自配置。
 }
 
 SynchronSystem& Engine::synchronSystem()
@@ -852,8 +852,8 @@ bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYp
     if (!lookAt)
         return false;
 
-    // R = Rz(yaw)*Rx(pitch)*Ry(roll). Apply axis quats in roll→pitch→yaw order
-    // (VSG quat*quat is reverse-Hamilton; do not multiply Rz*Rx*Ry as a product).
+    // R = Rz(yaw)*Rx(pitch)*Ry(roll)。按 roll→pitch→yaw 顺序逐个作用轴四元数
+    // （VSG quat*quat 是 reverse-Hamilton；不要直接连乘 Rz*Rx*Ry）。
     constexpr double kLookDistance = 1.0;
     const auto rotateYpr = [&](const vsg::dvec3& v) {
         const vsg::dvec3 afterRoll =
@@ -879,7 +879,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
     auto ellipsoidModel = _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
     if (!ellipsoidModel)
     {
-        // Fall back to projection's ellipsoid (same object when assembly succeeded).
+        // 回退到投影的椭球（装配成功时是同一对象）。
         if (auto ep = _mainCamera->projectionMatrix.cast<vsg::EllipsoidPerspective>())
             ellipsoidModel = ep->ellipsoidModel;
     }
@@ -890,7 +890,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
     if (!lookAt)
         return false;
 
-    // lla设计 §3.3: R_local = Rz*Rx*Ry in ENU; LocalToWorld 3×3 only for directions.
+    // lla设计 §3.3：R_local = Rz*Rx*Ry（ENU 内）；LocalToWorld 3×3 只用于方向。
     constexpr double kLookDistance = 1.0;
     const auto rotateYpr = [&](const vsg::dvec3& v) {
         const vsg::dvec3 afterRoll =
@@ -902,7 +902,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
     const vsg::dvec3 forwardEnu = rotateYpr(vsg::dvec3(0.0, 1.0, 0.0));
     const vsg::dvec3 upEnu = rotateYpr(vsg::dvec3(0.0, 0.0, 1.0));
     const vsg::dmat4 localToWorld = ellipsoidModel->computeLocalToWorldTransform(lla);
-    // Orthonormal ENU basis (LocalToWorld columns may be scaled; normalize so write↔sample invert).
+    // 正交 ENU 基（LocalToWorld 列可能被缩放；归一化使写↔采样互逆）。
     const vsg::dvec3 east = vsg::normalize(vsg::dvec3(localToWorld(0, 0), localToWorld(0, 1), localToWorld(0, 2)));
     const vsg::dvec3 north = vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
     const vsg::dvec3 upAxis = vsg::normalize(vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
@@ -923,18 +923,18 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 bool Engine::init()
 {
     applyConfigToEngine();
-    // Parent-key enable; requireIgConnect from config (default false).
+    // 父键 enable；requireIgConnect 来自配置（默认 false）。
     if (!initSync(config.toSyncRole(), config.requireIgConnect))
         return false;
 
-    // Channel frustum offset + stale policy come from JSON (not SyncRoleConfig).
+    // 通道 frustum 偏移与无新包策略来自 JSON（不属于 SyncRoleConfig）。
     _synchronSystem->setOffsetDeg(config.offsetDeg);
     _synchronSystem->setHostEyeStalePolicy(config.hostEyeStalePolicy);
 
     if (!config.entities.empty())
         return initGraphicsFromEntities();
 
-    // model paths in JSON are relative to resources/
+    // JSON 中的模型路径相对 resources/ 解析。
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
     return initGraphics(modelPath);
 }
@@ -983,14 +983,14 @@ bool Engine::initSceneMode(const vsg::Path& modelPath)
 
 void Engine::resetGraphicsResources()
 {
-    // lla §4.3: clear eye caches on graphics rebuild without tearing down sync.
+    // lla §4.3：图形重建时清空眼点缓存（不拆除同步）。
     if (_synchronSystem)
         _synchronSystem->resetEyeCaches();
 
     _entityMap.clear();
     _currentExtent = extent;
     _hasRenderedFrame = false;
-    // Drop prior Vulkan graph before allocating a new Device (Catch multi-Engine suites).
+    // 分配新 Device 前丢弃旧的 Vulkan 图（Catch 多 Engine 套件）。
     _viewer = {};
     _window = {};
     _mainCamera = {};
@@ -1015,7 +1015,7 @@ bool Engine::createVulkanDevice(int& queueFamily)
             static_cast<uint32_t>(config.window.height),
             "AeroVistaEngine");
         windowTraits->hdpi = false;
-        windowTraits->decoration = false; // borderless client area
+        windowTraits->decoration = false; // 无边框客户区
         _window = vsg::Window::create(windowTraits);
         if (!_window)
         {
@@ -1047,11 +1047,11 @@ bool Engine::createVulkanDevice(int& queueFamily)
 vsg::ref_ptr<vsg::LookAt> Engine::createInitialLookAt(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel,
                                                       const vsg::dvec3& centre, double radius) const
 {
-    // Fallback radius threshold (位姿配置设计.md §4)
+    // 回退半径阈值（位姿配置设计.md §4）
     if (ellipsoidModel)
     {
-        // Ellipsoid: eye = centre_ecef - north·(k_back·radius) + up·(k_up·radius)
-        // 位姿配置设计.md §4.2: k_back = 3.5, k_up = 0.3
+        // 椭球：eye = centre_ecef - north·(k_back·radius) + up·(k_up·radius)
+        // 位姿配置设计.md §4.2：k_back = 3.5, k_up = 0.3
         constexpr vsg::dvec3 kFallbackLla{39.9, 116.4, 500.0};
 
         // Fallback 判据：radius < 0.1 或 |centre| < 0.9·radiusPolar（场景中心落入地底）
@@ -1086,9 +1086,9 @@ vsg::ref_ptr<vsg::LookAt> Engine::createInitialLookAt(vsg::ref_ptr<vsg::Ellipsoi
         return vsg::LookAt::create(eye, centre, up);
     }
 
-    // Local: eye = centre + (0, -k_back·radius, 0), k_back = 3.5
+    // 本地：eye = centre + (0, -k_back·radius, 0)，k_back = 3.5
     // 位姿配置设计.md §4.1
-    // Fallback: radius < 0.1 → eye=(0,0,10), center=(0,0,0), up=(0,0,1)
+    // 回退：radius < 0.1 → eye=(0,0,10)，center=(0,0,0)，up=(0,0,1)
     if (radius < initial_camera::kRadiusThreshold)
     {
         std::cerr << "[WARN] Local AABB radius=" << radius << " < " << initial_camera::kRadiusThreshold
@@ -1108,7 +1108,7 @@ vsg::ref_ptr<vsg::ProjectionMatrix> Engine::createInitialProjection(
     const double aspect =
         static_cast<double>(_currentExtent.width) / static_cast<double>(_currentExtent.height);
 
-    // Fallback radius threshold (位姿配置设计.md §4)
+    // 回退半径阈值（位姿配置设计.md §4）
     if (ellipsoidModel)
     {
         // EllipsoidPerspective 动态计算 near/far，horizonMountainHeight=0
@@ -1117,7 +1117,7 @@ vsg::ref_ptr<vsg::ProjectionMatrix> Engine::createInitialProjection(
                                                  initial_camera::kEllipsoidHorizonMountainHeight);
     }
 
-    // Local: near = 0.001·radius, far = 4.5·radius
+    // 本地：near = 0.001·radius，far = 4.5·radius
     // fallback (radius < 0.1): near=0.1, far=100
     if (radius < initial_camera::kRadiusThreshold)
     {
@@ -1169,7 +1169,7 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
             _frameStatsText = hud.text;
             _frameStatsLabel = hud.label;
             _frameStatsSwitch = hud.visibility;
-            // HUD text pipeline has depth test/write disabled, so no mid-pass depth clear is needed.
+            // HUD 文本管线已禁用深度测试/写入，无需中间通道深度清除。
             windowRenderGraph->addChild(vsg::View::create(hud.camera, hud.visibility));
         }
 
@@ -1200,7 +1200,7 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
     const double radius = vsg::length(computeBounds.bounds.max - computeBounds.bounds.min) * 0.6;
     constexpr double nearFarRatio = initial_camera::kNearFarRatio;
 
-    // Save for camera pose adjustment (位姿配置设计.md §4.1 D3)
+    // 保存供相机位姿调整使用（位姿配置设计.md §4.1 D3）
     _aabbCentre = centre;
     _aabbRadius = radius;
 
@@ -1272,7 +1272,7 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
 
 void Engine::preFrame()
 {
-    // Subsystems: recv / apply state before _scene update.
+    // 子系统：_scene 更新前收包 / 应用状态。
     if (_synchronSystem)
         _synchronSystem->preFrame();
 }
@@ -1346,7 +1346,7 @@ void Engine::render()
 
 void Engine::postFrame()
 {
-    // Subsystems: read final state / fan-out after update+render.
+    // 子系统：update+render 后读最终状态 / 扇出。
     // 模拟时间基于 steady_clock 连续推进（时钟同步方案.md §5 方案 B）：
     // 渲染卡顿时时间戳跟上真实流逝，IG 外推不因 host 帧节奏波动而放大误差。
     if (_synchronSystem)

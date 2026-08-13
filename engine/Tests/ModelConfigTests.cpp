@@ -87,7 +87,7 @@ namespace
                jsonEllipsoidPose(lla, ellYpr) + " }";
     }
 
-    /// `entitiesArrayBody` is a JSON array literal, e.g. `[ {...}, {...} ]`.
+    /// `entitiesArrayBody` 是 JSON 数组字面量，例如 `[ {...}, {...} ]`。
     std::string channelJson(const char* coordFrame, const std::string& entitiesArrayBody,
                             const std::string& cameraObject = {})
     {
@@ -818,7 +818,7 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 {
     GIVEN("an Ellipsoid entities config without camera, model pinned away from Beijing default")
     {
-        // Far from hardcoded (39.9,116.4,500) so a Beijing fallback cannot pass by accident.
+        // 远离硬编码 (39.9,116.4,500)，确保北京回退不会偶然通过。
         constexpr vsg::dvec3 kLla{-33.8688, 151.2093, 0.0};
         constexpr vsg::dvec3 kYpr{0.0, 0.0, 0.0};
         const TempConfigFile cfgFile(

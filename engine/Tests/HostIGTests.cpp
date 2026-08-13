@@ -235,14 +235,14 @@ TEST_CASE("HostEyePose WorldLocal selects Attach on wire; frame recovered only f
     std::vector<unsigned char> buf;
     REQUIRE(cigi_wire::packHostFrame(3, 0.0, &wireIn, buf));
 
-    // Not handshake / app-private header — CIGI datagram only (lla §5 无私有 frame 字段).
+    // 非握手/应用私有头——纯 CIGI 数据报（lla §5 无私有 frame 字段）。
     REQUIRE_FALSE(cigi_wire::isAvsyMagic(buf.data(), static_cast<int>(buf.size())));
     REQUIRE(buf.size() >= 8);
 
     cigi_wire::HostFrame frame{};
     REQUIRE(cigi_wire::unpackHostFrame(buf.data(), static_cast<int>(buf.size()), frame));
     REQUIRE(frame.eye.has_value());
-    // Unpacked EyeFrame comes from AttachState (+ ParentID), not a private UDP flag.
+    // 解包出的 EyeFrame 来自 AttachState（+ ParentID），不是私有 UDP 标志。
     REQUIRE(frame.eye->frame == cigi_wire::EyeFrame::WORLD_LOCAL);
     REQUIRE(frame.eye->entityId == 0);
     REQUIRE(frame.eye->parentId == 1);
@@ -277,7 +277,7 @@ TEST_CASE("HostEyePose Lla selects Detach on wire; frame recovered only from Att
 TEST_CASE("wire EyeFrame is not carried as a private payload field besides AttachState",
           "[unit][cigi][wire-contract][lla][host-eye]")
 {
-    // Same numeric payload; only HostEyePose.frame (→ AttachState) changes wire semantics.
+    // 数字载荷相同；只有 HostEyePose.frame（→ AttachState）改变线上语义。
     HostEyePose asLocal{{1.0, 2.0, 3.0}, {0.0, 0.0, 0.0}, HostEyeCoordFrame::WORLD_LOCAL};
     HostEyePose asLla{{1.0, 2.0, 3.0}, {0.0, 0.0, 0.0}, HostEyeCoordFrame::LLA};
 
@@ -285,7 +285,7 @@ TEST_CASE("wire EyeFrame is not carried as a private payload field besides Attac
     std::vector<unsigned char> llaBuf;
     const auto localWire = hostEyePoseToWire(asLocal);
     auto llaWire = hostEyePoseToWire(asLla);
-    // Valid mid-lat LLA so Detach bound-check passes (1°/2°/3m is fine for lat/lon/alt).
+    // 有效中纬 LLA，使 Detach 边界检查通过（lat/lon/alt 取 1°/2°/3m 即可）。
     REQUIRE(cigi_wire::packHostFrame(5, 0.0, &localWire, localBuf));
     REQUIRE(cigi_wire::packHostFrame(6, 0.0, &llaWire, llaBuf));
 
@@ -301,7 +301,7 @@ TEST_CASE("wire EyeFrame is not carried as a private payload field besides Attac
     REQUIRE(localFrame.eye->parentId == 1);
     REQUIRE(llaFrame.eye->frame == cigi_wire::EyeFrame::LLA);
     REQUIRE(llaFrame.eye->parentId == 0);
-    // Discriminator is Attach/ParentID, not an extra app-level frame byte in the datagram.
+    // 判别是 Attach/ParentID，不是数据报里的额外应用级 frame 字节。
     REQUIRE(localFrame.eye->parentId != llaFrame.eye->parentId);
 }
 
@@ -749,7 +749,7 @@ SCENARIO("three Engines exchange CIGI frame control across one Host and three IG
 
 namespace
 {
-    // R = Rz*Rx*Ry via successive axis quats (VSG quat*quat is reverse-Hamilton).
+    // R = Rz*Rx*Ry，通过依次作用轴四元数（VSG 四元数乘法是 reverse-Hamilton）。
     vsg::dvec3 rotateByEulerYprDeg(const vsg::dvec3& eulerYprDeg, const vsg::dvec3& v)
     {
         const vsg::dvec3 afterRoll =
@@ -761,7 +761,7 @@ namespace
 
     vsg::dquat quatFromEulerYprDeg(const vsg::dvec3& eulerYprDeg)
     {
-        // VSG(a*b)=Hamilton(b*a) ⇒ write Ry*Rx*Rz to get Hamilton Rz*Rx*Ry.
+        // VSG(a*b)=Hamilton(b*a) ⇒ 写 Ry*Rx*Rz 得到 Hamilton 的 Rz*Rx*Ry。
         return vsg::dquat(vsg::radians(eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0)) *
                vsg::dquat(vsg::radians(eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *
                vsg::dquat(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0));
@@ -813,7 +813,7 @@ namespace
         REQUIRE(vsg::length(vsg::normalize(lookAt->center - lookAt->eye) - expectedForward) < dirEps);
     }
 
-    // Inverse of §3.3 write path (lla设计 §3.5): ECEF LookAt → LLA + local ENU YPR.
+    // §3.3 写路径的逆（lla设计 §3.5）：ECEF LookAt → LLA + 当地 ENU YPR。
     bool sampleLookAtToLlaYpr(const vsg::LookAt& lookAt, const vsg::EllipsoidModel& ellipsoid,
                               vsg::dvec3& llaOut, vsg::dvec3& eulerYprDegOut)
     {
@@ -822,7 +822,7 @@ namespace
         if (vsg::length(forwardEcef) < 1e-12)
             return false;
 
-        // Match Engine/SynchronSystem: ENU via LocalToWorld columns (inverse of §3.3 write).
+        // 与 Engine/SynchronSystem 一致：ENU 经 LocalToWorld 列（§3.3 写的逆）。
         const vsg::dmat4 localToWorld = ellipsoid.computeLocalToWorldTransform(llaOut);
         const vsg::dvec3 east = vsg::normalize(vsg::dvec3(localToWorld(0, 0), localToWorld(0, 1), localToWorld(0, 2)));
         const vsg::dvec3 north = vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
@@ -877,8 +877,8 @@ namespace
 
     HostEyePose hostEyePlusOffset(const HostEyePose& host, const OffsetDeg& offset)
     {
-        // Same semantics as SynchronSystem::compose: rigid-array rotation composition
-        // R_ig = R_host · R_offset (lla设计 §3.4), not component-wise YPR addition.
+        // 与 SynchronSystem::compose 语义相同：刚性阵列旋转合成
+        // R_ig = R_host · R_offset（lla设计 §3.4），不是分量式 YPR 相加。
         return SynchronSystem::compose(host, offset);
     }
 
@@ -937,14 +937,13 @@ TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][cam
 }
 
 // lla位姿传输设计.md §3.3 / §4.1 / §7：有 EllipsoidModel 时 LLA+当地 YPR → ECEF LookAt。
-// Expected red until setCameraPoseLla conversion is implemented.
 TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[unit][camera][lla]")
 {
     Engine engine;
     engine.extent = {1920, 1080};
     engine.showWindow = false;
 
-    // Model embeds EllipsoidModel (no coordFrame inject required for this API ruler).
+    // 模型内嵌 EllipsoidModel（此 API 标尺无需 coordFrame 注入）。
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
     REQUIRE(engine.init(modelPath));
 
@@ -954,7 +953,7 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
     REQUIRE(ellipsoidPerspective);
     REQUIRE(ellipsoidPerspective->ellipsoidModel);
 
-    // Mid-latitude default from design §6, with non-zero yaw/pitch to exercise ENU→ECEF.
+    // 设计 §6 的中纬默认，取非零 yaw/pitch 以覆盖 ENU→ECEF。
     const vsg::dvec3 lla{39.9, 116.4, 500.0};
     const vsg::dvec3 eulerYprDeg{45.0, 10.0, 0.0};
     REQUIRE(engine.setCameraPoseLla(lla, eulerYprDeg));
@@ -962,7 +961,6 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
 }
 
 // lla位姿传输设计.md §3.5 / §7：LLA 本机往返（单机、无网络）。
-// Expected red until setCameraPoseLla + LookAt→LLA/YPR sample path are correct.
 TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit][camera][lla][roundtrip]")
 {
     Engine engine;
@@ -978,7 +976,7 @@ TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit
     const auto& ellipsoid = *ellipsoidPerspective->ellipsoidModel;
 
     const vsg::dvec3 lla{39.9, 116.4, 500.0};
-    // Roll=0: forward-only yaw/pitch extract is exact for Rz*Rx*Ry; non-zero roll covered by LookAt vector tests.
+    // Roll=0：仅 forward 的 yaw/pitch 提取对 Rz*Rx*Ry 精确；非零 roll 由 LookAt 向量测试覆盖。
     const vsg::dvec3 eulerYprDeg{45.0, 10.0, 0.0};
     REQUIRE(engine.setCameraPoseLla(lla, eulerYprDeg));
 
@@ -1144,7 +1142,7 @@ SCENARIO("yaw-only offset with Host pitch/roll keeps channel up parallel to Host
         OffsetDeg offset{kDeltaYawDeg, 0.0, 0.0};
         engine.synchronSystem().setOffsetDeg(offset);
 
-        // Roll non-zero exercises the rigid-array invariant (up stays parallel).
+        // 非零 roll 覆盖刚性阵列不变量（up 保持平行）。
         const HostEyePose hostPose{{5.0, -3.0, 2.0}, {20.0, 15.0, -8.0}};
 
         WHEN("the Host eye is applied with that yaw-only channel offset")
@@ -1715,7 +1713,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
-        REQUIRE(engineB.initSceneMode(modelPath)); // sync-only IG: no second Vulkan Device
+        REQUIRE(engineB.initSceneMode(modelPath)); // sync-only IG：单进程避免第二个 Vulkan Device
 
         auto emA = ellipsoidOf(engineA);
         REQUIRE(emA);
@@ -1848,7 +1846,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
         engine.synchronSystem().setOffsetDeg(offset);
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
-        // Non-zero roll exercises the rigid-array invariant: up stays parallel to Host up.
+        // 非零 roll 覆盖刚性阵列不变量：up 与 Host up 保持平行。
         const HostEyePose hostPose{lla, {20.0, 15.0, -8.0}, HostEyeCoordFrame::LLA};
 
         WHEN("the Host LLA eye is applied with that yaw-only channel offset")
@@ -2148,7 +2146,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineA.loadConfig(hostFile.path()));
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
-        // B: sync + scene mode only (single Vulkan Device limit on some hosts).
+        // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
         REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.requireIgConnect));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
         engineB.synchronSystem().setOffsetDeg(engineB.config.offsetDeg);
@@ -2157,7 +2155,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         auto emB = engineB.ellipsoidModel();
         REQUIRE(emA);
         REQUIRE(emB);
-        // Documented known mismatch: readymap radii ≠ default WGS-84 inject (lla §2.4).
+        // 已知不匹配：readymap 半径 ≠ 默认 WGS-84 注入（lla §2.4）。
         REQUIRE_FALSE(radiiEqual(*emA, *emB));
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
@@ -2414,7 +2412,7 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
 
         const HostEyePose hostPose{{7.0, 8.0, 9.0}, {12.0, 0.0, 0.0}};
         engine.synchronSystem().setOffsetDeg({});
-        // Sample/send first so `_lastSent` is populated; then apply (anti-echo alone would skip send).
+        // 先采样/发送以填充 `_lastSent`，再应用（仅防回声会跳过发送）。
         REQUIRE(engine.setCameraPose(hostPose.position, hostPose.eulerYprDeg));
         REQUIRE(engine.tickOnFrame());
         engine.synchronSystem().queueHostEyePose(hostPose);
@@ -2459,7 +2457,7 @@ SCENARIO("Local to Ellipsoid initGraphics clears caches and switches scene mode"
 
         const HostEyePose localPose{{3.0, 4.0, 5.0}, {8.0, 0.0, 0.0}, HostEyeCoordFrame::WORLD_LOCAL};
         engine.synchronSystem().setOffsetDeg({});
-        // setCameraPose + tick samples/sends; avoid queue+update first (anti-echo would suppress send).
+        // setCameraPose + tick 采样/发送；避免先 queue+update（防回声会抑制发送）。
         REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
         REQUIRE(engine.tickOnFrame());
 

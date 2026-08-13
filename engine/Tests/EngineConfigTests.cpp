@@ -22,11 +22,9 @@ using aerovista::sync::OffsetDeg;
 #    define RESOURCE_DIR "."
 #endif
 
-// Tests below encode doc/design/多通道同步模块设计.md §3.1 contracts, and
-// doc/design/lla位姿传输设计.md §2.1 / §6 / §7 (coordFrame → EllipsoidModel assembly).
-// New LLA/coordFrame cases are expected to fail until parse + inject land.
-// Avoid referencing members not yet on EngineChannelConfig; assert via init-time
-// observables (role, scene/camera semantics, load success/failure).
+// 以下测试编码 doc/design/多通道同步模块设计.md §3.1 契约，以及
+// doc/design/lla位姿传输设计.md §2.1 / §6 / §7（coordFrame → EllipsoidModel 装配）。
+// 断言经 init 时可观测结果（角色、场景/相机语义、加载成功/失败）。
 
 namespace
 {
@@ -206,7 +204,7 @@ SCENARIO("coordFrame Ellipsoid injects before camera create with fallback LLA Lo
 
                 const vsg::dmat4 localToWorld =
                     ep->ellipsoidModel->computeLocalToWorldTransform(fallbackLla);
-                // YPR=0 → ENU forward = North = column 1 of LocalToWorld.
+                // YPR=0 → ENU forward = North = LocalToWorld 的第 1 列。
                 const vsg::dvec3 expectedForward =
                     vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
                 const vsg::dvec3 actualForward = vsg::normalize(lookAt->center - lookAt->eye);

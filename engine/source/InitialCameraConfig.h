@@ -1,8 +1,8 @@
-#pragma once
+﻿#pragma once
 
 namespace initial_camera
 {
-    // Shared framing parameters used by the engine and camera acceptance tests.
+    // 引擎与相机验收测试共用的取景参数。
     inline constexpr double kRadiusThreshold = 0.1;
     inline constexpr double kLocalBackMultiplier = 3.5;
     inline constexpr double kEllipsoidBackMultiplier = 3.5;

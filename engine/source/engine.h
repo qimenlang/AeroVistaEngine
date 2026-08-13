@@ -42,27 +42,27 @@ public:
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
     bool showWindow = true;
 
-    /// Resolve config path from argv: `-c path` or default `RESOURCE_DIR/config/default.json`.
+    /// 从 argv 解析配置路径：`-c path` 或默认 `RESOURCE_DIR/config/default.json`。
     static std::string resolveConfigPath(int argc, char** argv);
 
     bool loadConfig(const std::string& path);
 
-    /// Initialize from current `config` (sync + graphics).
+    /// 从当前 `config` 初始化（同步 + 图形）。
     bool init();
     bool init(const vsg::Path& modelPath);
     bool init(const vsg::Path& modelPath, const aerovista::sync::SyncRoleConfig& syncRole);
 
-    /// Sync plane only (no Vulkan). For multi-IG tests when device count is limited.
+    /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。
     bool initSync(const aerovista::sync::SyncRoleConfig& syncRole, bool requireIgConnect = true);
-    /// Load/inject EllipsoidModel for sync mode checks without creating a Vulkan Device.
+    /// 加载/注入 EllipsoidModel 以做同步模式检查（不创建 Vulkan Device）。
     bool initSceneMode(const vsg::Path& modelPath);
     bool initGraphics(const vsg::Path& modelPath);
-    /// Scene EllipsoidModel if present (lla §2 / §4.5); null when Local without model ellipsoid.
+    /// 场景 EllipsoidModel（lla §2 / §4.5）；本地模式且模型无椭球时为空。
     vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel() const;
 
-    /// One frame: preFrame → update → render → postFrame.
+    /// 一帧：preFrame → update → render → postFrame。
     bool tickOnFrame();
-    /// preFrame + postFrame without rendering (sync-only engines).
+    /// preFrame + postFrame，不渲染（仅同步引擎）。
     void tickSync();
     /// 一步同步（不含采样/render）：SynchronSystem 决策后把本帧位姿应用到相机。
     /// 测试与 tickSync 使用；真实帧循环在 update() 内完成采样 + 应用。
@@ -73,17 +73,17 @@ public:
     aerovista::sync::SynchronSystem& synchronSystem();
     bool hasGraphics() const { return static_cast<bool>(_viewer); }
 
-    /// On-screen vsg window (null when showWindow=false / offscreen).
+    /// 屏上 vsg 窗口（showWindow=false / offscreen 时为空）。
     vsg::ref_ptr<vsg::Window> mainWindow() const;
 
-    /// Scene root node (for tests to compute AABB, see 位姿配置设计.md §4).
+    /// 场景根节点（测试计算 AABB 用，见 位姿配置设计.md §4）。
     vsg::ref_ptr<vsg::Node> mainScene() const { return _scene; }
 
-    /// World / channel camera used by Trackball and Host→IG pose sync (not HUD).
+    /// Trackball 与 Host→IG 位姿同步共用的世界 / 通道相机（非 HUD）。
     vsg::ref_ptr<vsg::Camera> mainCamera() const;
-    /// Set LookAt from world position + Euler YPR degrees (yaw,pitch,roll; Y-forward, Z-up).
+    /// 从世界位置 + 欧拉 YPR 度写 LookAt（yaw,pitch,roll；Y-forward, Z-up）。
     bool setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg);
-    /// Set LookAt from LLA (lat°, lon°, alt m) + local ENU YPR degrees. Requires scene EllipsoidModel.
+    /// 从 LLA（纬度°、经度°、海拔 米）+ 当地 ENU YPR 度写 LookAt。要求场景 EllipsoidModel。
     bool setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
     bool sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3& eulerYprDeg) const;
@@ -122,7 +122,7 @@ private:
     void recomputeEntityTransform(Entity& entity);
     vsg::ref_ptr<vsg::Node> tryLoadModelNode(const std::string& path);
 
-    /// Frame phases: orchestrate subsystems and viewer in fixed order.
+    /// 帧相位：按固定顺序编排子系统与 viewer。
     void preFrame();
     bool update();
     void render();
@@ -165,7 +165,7 @@ private:
     std::chrono::steady_clock::time_point _simStartTime{};
     double _simStartMs = 0.0;
 
-    // AABB bounds for initial camera and projection adjustment (位姿配置设计.md §4)
+    // 初始相机与投影调整用的 AABB 边界（位姿配置设计.md §4）
     vsg::dvec3 _aabbCentre{0.0, 0.0, 0.0};
     double _aabbRadius = 0.0;
 
