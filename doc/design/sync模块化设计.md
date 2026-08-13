@@ -26,6 +26,7 @@ vsgEngine (exe)
 
 - `SynchronSystem` 在 Phase 2 解耦后并入库；Phase 1 阶段库只含传输层。
 - 库允许依赖 vsg（**仅门面层**，传输层零 vsg）；但 **不得依赖 `Engine`**。vsg 依赖策略见 §4.0。
+- **命名空间（写死）**：所有类型/函数进 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto`/`sync_json` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。
 
 ### 1.3 非目标
 

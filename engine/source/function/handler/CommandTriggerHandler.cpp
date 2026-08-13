@@ -8,6 +8,9 @@
 #include <string>
 #include <vector>
 
+using aerovista::sync::HostSync;
+namespace cigi_wire = aerovista::sync::cigi_wire;
+
 namespace
 {
     // 命令面载荷编码（状态同步设计初版.md §2.2，本机字节序 LE）：

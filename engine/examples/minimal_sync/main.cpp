@@ -1,4 +1,4 @@
-// 最小接入示例：viewhost（Host-only）如何复用 aerovistaSync。
+﻿// 最小接入示例：viewhost（Host-only）如何复用 aerovistaSync。
 //
 // viewhost 场景：独立 Host 进程，无渲染，只等 IG 连接 + 发命令。
 //   1. 用 sync 库的 loadHostConfig 读取独立配置文件（只含 hostConfig）；
@@ -15,6 +15,11 @@
 
 #include "SyncConfig.h"
 #include "SynchronSystem.h"
+
+using aerovista::sync::HostConfig;
+using aerovista::sync::loadHostConfig;
+using aerovista::sync::SynchronSystem;
+using aerovista::sync::SyncRoleConfig;
 
 int main(int argc, char** argv)
 {

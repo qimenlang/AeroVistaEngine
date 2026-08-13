@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <thread>
 
+using aerovista::sync::IgSync;
+
 namespace
 {
     // ��� ��3/��4 ע��ṹ�� IgSync::HostTimeStamp �ṩ����ʵ�֣���

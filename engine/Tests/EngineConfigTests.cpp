@@ -13,6 +13,11 @@
 
 #include "Common.h"
 
+using aerovista::sync::HostEyeStalePolicy;
+using aerovista::sync::loadHostConfig;
+using aerovista::sync::loadIgConfig;
+using aerovista::sync::OffsetDeg;
+
 #ifndef RESOURCE_DIR
 #    define RESOURCE_DIR "."
 #endif

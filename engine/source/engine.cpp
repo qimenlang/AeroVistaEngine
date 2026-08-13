@@ -16,6 +16,12 @@
 #include <string>
 #include <vector>
 
+using aerovista::sync::HostEyeCoordFrame;
+using aerovista::sync::HostEyePose;
+using aerovista::sync::SynchronSystem;
+using aerovista::sync::SyncRoleConfig;
+namespace cigi_wire = aerovista::sync::cigi_wire;
+
 namespace
 {
 

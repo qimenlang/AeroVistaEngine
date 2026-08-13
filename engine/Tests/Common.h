@@ -7,6 +7,10 @@
 #include <iostream>
 #include <string>
 
+using aerovista::sync::HostConfig;
+using aerovista::sync::IgConfig;
+using aerovista::sync::SyncRoleConfig;
+
 class TempConfigFile
 {
 public:

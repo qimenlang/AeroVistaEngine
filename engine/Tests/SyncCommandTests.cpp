@@ -19,6 +19,10 @@
 #include <string>
 #include <vector>
 
+using aerovista::sync::HostSync;
+using aerovista::sync::IgSync;
+namespace cigi_wire = aerovista::sync::cigi_wire;
+
 namespace
 {
     // 命令面契约（状态同步设计初版.md §8，已实现）：

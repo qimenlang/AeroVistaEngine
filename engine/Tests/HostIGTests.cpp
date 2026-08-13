@@ -19,6 +19,21 @@
 
 #include "Common.h"
 
+using aerovista::sync::FrameGate;
+using aerovista::sync::HostConfig;
+using aerovista::sync::HostEyeCoordFrame;
+using aerovista::sync::HostEyePose;
+using aerovista::sync::HostStatus;
+using aerovista::sync::HostSync;
+using aerovista::sync::IgConfig;
+using aerovista::sync::IgStatus;
+using aerovista::sync::IgSync;
+using aerovista::sync::OffsetDeg;
+using aerovista::sync::SendPace;
+using aerovista::sync::SynchronSystem;
+using aerovista::sync::SyncPaceConfig;
+namespace cigi_wire = aerovista::sync::cigi_wire;
+
 // 协议分层（测试约定）：
 // - 握手 / 动态端口：仍为自建 sync_proto WireMsg（HELLO / UDP_SYNC）——§1 用例覆盖，本文件不改其方向。
 // - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。

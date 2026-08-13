@@ -11,7 +11,7 @@
 class CommandTriggerHandler : public vsg::Inherit<vsg::Visitor, CommandTriggerHandler>
 {
 public:
-    SynchronSystem* synchronSystem = nullptr;
+    aerovista::sync::SynchronSystem* synchronSystem = nullptr;
 
     void apply(vsg::KeyPressEvent& keyPress) override;
 };

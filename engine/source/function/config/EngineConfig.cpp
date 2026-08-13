@@ -14,22 +14,22 @@
 #include <variant>
 #include <vector>
 
-using sync_json::JsonArray;
-using sync_json::JsonObject;
-using sync_json::JsonParser;
-using sync_json::JsonValue;
+using aerovista::sync::sync_json::JsonArray;
+using aerovista::sync::sync_json::JsonObject;
+using aerovista::sync::sync_json::JsonParser;
+using aerovista::sync::sync_json::JsonValue;
 
 // 通用 JSON 辅助（find/require*/rejectUnknownKeys）与 hostConfig/igConfig 解析
 // 均来自 sync 库（SyncJson.h / SyncConfig.h），引擎侧不再重复实现。
-using sync_json::find;
-using sync_json::rejectNull;
-using sync_json::rejectUnknownKeys;
-using sync_json::requireBool;
-using sync_json::requireInt;
-using sync_json::requireNumber;
-using sync_json::requireObjectValue;
-using sync_json::requireString;
-using sync_json::requireValue;
+using aerovista::sync::sync_json::find;
+using aerovista::sync::sync_json::rejectNull;
+using aerovista::sync::sync_json::rejectUnknownKeys;
+using aerovista::sync::sync_json::requireBool;
+using aerovista::sync::sync_json::requireInt;
+using aerovista::sync::sync_json::requireNumber;
+using aerovista::sync::sync_json::requireObjectValue;
+using aerovista::sync::sync_json::requireString;
+using aerovista::sync::sync_json::requireValue;
 
 namespace
 {

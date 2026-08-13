@@ -1,9 +1,12 @@
 ﻿#include "EventProcess.h"
 
-void IGCtrl::OnPacketReceived(CigiBasePacket* /*packet*/)
+namespace aerovista::sync
 {
-}
+    void IGCtrl::OnPacketReceived(CigiBasePacket* /*packet*/)
+    {
+    }
 
-void SofProcessor::OnPacketReceived(CigiBasePacket* /*packet*/)
-{
-}
+    void SofProcessor::OnPacketReceived(CigiBasePacket* /*packet*/)
+    {
+    }
+} // namespace aerovista::sync

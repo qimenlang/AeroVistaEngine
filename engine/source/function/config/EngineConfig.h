@@ -5,6 +5,15 @@
 #include <string>
 #include <vector>
 
+// 具体 using 声明（非 using namespace，符合 cpp-vsg-style.mdc）。
+using aerovista::sync::HostConfig;
+using aerovista::sync::HostEyeStalePolicy;
+using aerovista::sync::IgConfig;
+using aerovista::sync::OffsetDeg;
+using aerovista::sync::parseHostConfig;
+using aerovista::sync::parseIgConfig;
+using aerovista::sync::SyncRoleConfig;
+
 struct WindowConfig
 {
     int x = 0;

@@ -50,10 +50,10 @@ public:
     /// Initialize from current `config` (sync + graphics).
     bool init();
     bool init(const vsg::Path& modelPath);
-    bool init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole);
+    bool init(const vsg::Path& modelPath, const aerovista::sync::SyncRoleConfig& syncRole);
 
     /// Sync plane only (no Vulkan). For multi-IG tests when device count is limited.
-    bool initSync(const SyncRoleConfig& syncRole, bool requireIgConnect = true);
+    bool initSync(const aerovista::sync::SyncRoleConfig& syncRole, bool requireIgConnect = true);
     /// Load/inject EllipsoidModel for sync mode checks without creating a Vulkan Device.
     bool initSceneMode(const vsg::Path& modelPath);
     bool initGraphics(const vsg::Path& modelPath);
@@ -70,7 +70,7 @@ public:
     bool captureToFile(const vsg::Path& outputPngPath);
     void run();
 
-    SynchronSystem& synchronSystem();
+    aerovista::sync::SynchronSystem& synchronSystem();
     bool hasGraphics() const { return static_cast<bool>(_viewer); }
 
     /// On-screen vsg window (null when showWindow=false / offscreen).
@@ -96,7 +96,7 @@ public:
     bool moveEntityById(int id, const vsg::dvec3& deltaPosition, const vsg::dvec3& deltaYprDeg);
 
     /// 应用 SynchronSystem 产出的相机位姿（按 frame 分派 setCameraPose / setCameraPoseLla）。
-    void applySyncCameraPose(const HostEyePose& pose);
+    void applySyncCameraPose(const aerovista::sync::HostEyePose& pose);
 
 private:
     void applyConfigToEngine();
@@ -109,7 +109,7 @@ private:
 
     // 命令面执行桥（状态同步设计初版.md §6：IG 命令读循环 → 引擎场景操作）
     void bindSyncCommandHandler();
-    bool executeSyncCommand(cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload);
+    bool executeSyncCommand(aerovista::sync::cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload);
     bool loadModelFromPayload(const std::vector<std::uint8_t>& payload);
     bool placeModelFromPayload(const std::vector<std::uint8_t>& payload);
     bool moveModelFromPayload(const std::vector<std::uint8_t>& payload);
@@ -169,7 +169,7 @@ private:
     vsg::dvec3 _aabbCentre{0.0, 0.0, 0.0};
     double _aabbRadius = 0.0;
 
-    vsg::ref_ptr<SynchronSystem> _synchronSystem;
+    vsg::ref_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
     /// 实体表：id → Entity（命令面 LOAD/PLACE 与配置实体共用）。
     std::unordered_map<int, Entity> _entityMap;
 };
