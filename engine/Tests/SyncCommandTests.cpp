@@ -97,18 +97,17 @@ namespace
     }
 
     // ECEF 通道配置 JSON body（参考 HostIGTests RigidArrayHarness）。端口布局与 Common.h 的
-    // makeTestHostIgRole(makeTestHostLocal(base)+igLocal(base+1)) / makeTestIgOnlyRole(igLocal(base+3)) 一致。
+    // makeTestHostIgRole(makeTestHostConfig(base)+igConfig(base+1)) / makeTestIgOnlyRole(igConfig(base+3)) 一致。
     std::string makeEcefChannelConfigBody(int base, bool isHost, int igUdpRecv)
     {
         std::ostringstream oss;
         oss << R"({ "coordFrame": "Ellipsoid", )"
-            << R"("igLocal": { "addr": "127.0.0.1", "udpPortSend": )" << base
-            << R"(, "udpPortRecv": )" << igUdpRecv << R"( }, )"
-            << R"("hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" << (base + 100)
-            << R"(, "udpPortRecv": )" << base << R"( }, )";
+            << R"("igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" << base
+            << R"(, "udpPortRecv": )" << igUdpRecv << R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )"
+            << (base + 100) << R"(, "targetUdpPortRecv": )" << base << R"( }, )";
         if (isHost)
         {
-            oss << R"("hostLocal": { "addr": "127.0.0.1", "udpPortSend": )" << (base + 1)
+            oss << R"("hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" << (base + 1)
                 << R"(, "udpPortRecv": )" << base << R"(, "tcpPort": )" << (base + 100) << R"( }, )";
         }
         oss << R"("model": "models/teapot.vsgt", )"
@@ -139,7 +138,7 @@ namespace
                std::chrono::steady_clock::now() < deadline)
         {
             if (engineB.synchronSystem().hasIg() && !engineB.synchronSystem().igSync().udpSynced())
-                engineB.synchronSystem().igSync().connect(engineB.config.hostEndpoint);
+                engineB.synchronSystem().igSync().connect(engineB.config.igConfig);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);

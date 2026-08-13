@@ -5,25 +5,12 @@
 #include <string>
 #include <vector>
 
-struct OffsetDeg
-{
-    double yaw = 0.0;
-    double pitch = 0.0;
-    double roll = 0.0;
-};
-
 struct WindowConfig
 {
     int x = 0;
     int y = 0;
     int width = 1920;
     int height = 1080;
-};
-
-enum class HostEyeStalePolicy
-{
-    REUSE_LAST,
-    FREEZE
 };
 
 /// JSON `coordFrame` intent: inject EllipsoidModel only when scene has none (lla设计 §2).
@@ -79,9 +66,8 @@ struct EngineChannelConfig
 {
     int channelId = 0;
     OffsetDeg offsetDeg{};
-    AddressConfig igLocal{};
-    AddressConfig hostEndpoint{};
-    AddressConfig hostLocal{};
+    HostConfig hostConfig{};
+    IgConfig igConfig{};
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
     HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
@@ -89,15 +75,15 @@ struct EngineChannelConfig
     bool requireIgConnect = false;
 
     /// Set when the corresponding JSON object key is present (parent-key enable).
-    bool hasHostLocal = false;
-    bool hasIgLocal = false;
+    bool hasHostConfig = false;
+    bool hasIgConfig = false;
 
     std::vector<EntityConfig> entities;
     bool hasCamera = false;
     CameraConfig camera{};
 
-    bool enableHost() const { return hasHostLocal; }
-    bool enableIg() const { return hasIgLocal; }
+    bool enableHost() const { return hasHostConfig; }
+    bool enableIg() const { return hasIgConfig; }
 
     SyncRoleConfig toSyncRole() const;
 };

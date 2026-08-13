@@ -37,19 +37,14 @@ private:
 // 命名 makeTest*，避免与 HostIGTests 握手期专用（无 base）的 makeHostLocal 冲突。
 // =============================================================================
 
-inline AddressConfig makeTestHostLocal(int base)
+inline HostConfig makeTestHostConfig(int base)
 {
-    return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
+    return HostConfig{"127.0.0.1", base + 1, base, base + 100};
 }
 
-inline AddressConfig makeTestIgLocal(int udpRecvPort, int base)
+inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
 {
-    return AddressConfig{"127.0.0.1", base, udpRecvPort, base + 100};
-}
-
-inline AddressConfig makeTestHostEndpoint(int base)
-{
-    return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
+    return IgConfig{"127.0.0.1", base, udpRecvPort, "127.0.0.1", base + 100, base};
 }
 
 inline SyncRoleConfig makeTestHostIgRole(int igUdpRecv, int base)
@@ -57,9 +52,8 @@ inline SyncRoleConfig makeTestHostIgRole(int igUdpRecv, int base)
     SyncRoleConfig role{};
     role.enableHost = true;
     role.enableIg = true;
-    role.hostLocal = makeTestHostLocal(base);
-    role.igLocal = makeTestIgLocal(igUdpRecv, base);
-    role.hostEndpoint = makeTestHostEndpoint(base);
+    role.hostConfig = makeTestHostConfig(base);
+    role.igConfig = makeTestIgConfig(igUdpRecv, base);
     return role;
 }
 
@@ -68,8 +62,7 @@ inline SyncRoleConfig makeTestIgOnlyRole(int igUdpRecv, int base)
     SyncRoleConfig role{};
     role.enableHost = false;
     role.enableIg = true;
-    role.igLocal = makeTestIgLocal(igUdpRecv, base);
-    role.hostEndpoint = makeTestHostEndpoint(base);
+    role.igConfig = makeTestIgConfig(igUdpRecv, base);
     return role;
 }
 
@@ -78,7 +71,6 @@ inline SyncRoleConfig makeTestHostOnlyRole(int base)
     SyncRoleConfig role{};
     role.enableHost = true;
     role.enableIg = false;
-    role.hostLocal = makeTestHostLocal(base);
-    role.hostEndpoint = makeTestHostEndpoint(base);
+    role.hostConfig = makeTestHostConfig(base);
     return role;
 }

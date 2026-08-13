@@ -3,14 +3,11 @@
 #include "HostSync.h"
 #include "IgSync.h"
 #include "SyncConfig.h"
-#include "function/config/EngineConfig.h"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <vsg/all.h>
-
-class Engine;
 
 /// Selects CIGI Attach (WORLD_LOCAL) vs Detach (LLA). See lla位姿传输设计.md §5.
 enum class HostEyeCoordFrame : std::uint8_t
@@ -29,6 +26,12 @@ struct HostEyePose
 
 /// Engine-facing sync facade (loop preFrame / update / postFrame).
 /// Owns IgSync and optionally HostSync. See doc/design/多通道同步模块设计.md.
+///
+/// Data-flow contract (sync模块化设计.md §7): the facade computes the camera pose
+/// each frame; the host engine reads it via takePendingCameraPose() and drives its
+/// own camera. Scene mode / ellipsoid / channel are injected by the host, and the
+/// authority LookAt is fed via captureAuthorityEye() — the facade never touches the
+/// engine's camera directly.
 class SynchronSystem : public vsg::Inherit<vsg::Object, SynchronSystem>
 {
 public:
@@ -40,11 +43,29 @@ public:
     void shutdown();
 
     void preFrame();
-    /// Sample authority LookAt after handleEvents (Host engines only).
-    void captureAuthorityEye(Engine& engine);
-    /// Apply Host eye ⊕ offsetDeg to the engine camera when linked (or keep-last after disconnect).
-    void update(Engine& engine);
-    void postFrame(Engine& engine, double simTimeMs);
+
+    /// Scene mode + ellipsoid injection (lla §2 / §4.5): call when the host scene is
+    /// known or rebuilt. `in_ellipsoid` may be null in Local mode.
+    void setSceneIsEllipsoid(bool sceneIsEllipsoid);
+    void setEllipsoidModel(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid);
+    /// Channel identity for diagnostics (error logs).
+    void setChannelId(int channelId);
+
+    /// Sample the authority eye after handleEvents (Host engines only): feed the
+    /// current camera LookAt (pre-overwrite). The facade decides LLA vs WorldLocal
+    /// from the injected scene mode and applies the anti-echo check.
+    void captureAuthorityEye(const vsg::LookAt& lookAt);
+
+    /// Advance sync state (recv / decision); computes this frame's pending camera
+    /// pose if any. Call once per frame, then read takePendingCameraPose().
+    void update();
+
+    /// This frame's camera pose to apply (Host eye ⊕ offset; keep-last on disconnect /
+    /// ReuseLast), if any. Consumed (cleared) by the caller, which drives its camera:
+    /// WorldLocal → setCameraPose, LLA → setCameraPoseLla.
+    std::optional<HostEyePose> takePendingCameraPose();
+
+    void postFrame(double simTimeMs);
 
     bool hasHost() const { return static_cast<bool>(_host); }
     bool hasIg() const { return static_cast<bool>(_ig); }
@@ -84,8 +105,8 @@ public:
     void resetEyeCaches();
 
 private:
-    void applyHostEye(Engine& engine, const HostEyePose& hostEye);
-    bool tryAcceptPendingEye(Engine& engine);
+    void applyHostEye(const HostEyePose& hostEye);
+    bool tryAcceptPendingEye();
 
     SyncRoleConfig _role{};
     std::unique_ptr<HostSync> _host;
@@ -94,12 +115,17 @@ private:
     OffsetDeg _offsetDeg{};
     HostEyeStalePolicy _stalePolicy = HostEyeStalePolicy::REUSE_LAST;
 
+    bool _sceneIsEllipsoid = false;
+    vsg::ref_ptr<vsg::EllipsoidModel> _ellipsoidModel;
+    int _channelId = 0;
+
     bool _hasPendingEye = false;
     HostEyePose _pendingEye{};
     std::optional<HostEyePose> _cachedHostEye;
     std::optional<HostEyePose> _lastApplied;
     std::optional<HostEyePose> _lastSent;
     std::optional<HostEyePose> _frameSample;
+    std::optional<HostEyePose> _pendingApplied;
     std::uint64_t _eyePoseRejectedByFrameMismatch = 0;
     bool _frameMismatchErrorLogged = false;
 };

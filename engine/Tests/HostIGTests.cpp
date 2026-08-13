@@ -25,19 +25,14 @@
 namespace
 {
     // 默认端口见 doc/design/多通道同步模块设计.md
-    AddressConfig makeHostLocal(const std::string& addr = "127.0.0.1")
+    HostConfig makeHostLocal(const std::string& addr = "127.0.0.1")
     {
-        return AddressConfig{addr, 8001, 8000, 8100};
+        return HostConfig{addr, 8001, 8000, 8100};
     }
 
-    AddressConfig makeIgLocal(const std::string& localAddr = "127.0.0.1", int udpRecvPort = 8001)
+    IgConfig makeIgLocal(const std::string& localAddr = "127.0.0.1", int udpRecvPort = 8001)
     {
-        return AddressConfig{localAddr, 8000, udpRecvPort, 8100};
-    }
-
-    AddressConfig makeHostEndpoint(const std::string& addr = "127.0.0.1")
-    {
-        return AddressConfig{addr, 8001, 8000, 8100};
+        return IgConfig{localAddr, 8000, udpRecvPort, "127.0.0.1", 8100, 8000};
     }
 
     // UDP 可丢：actual 落在 [expected-slack, expected]
@@ -88,7 +83,7 @@ namespace
     }
 
     const char* kMainJson =
-        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"hostLocal":{"addr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
+        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
 } // namespace
 
 TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
@@ -346,7 +341,7 @@ SCENARIO("IG connect fails when Host is not running", "[integration][sync][conne
 
         WHEN("the IG connects to a Host endpoint")
         {
-            const bool connected = ig.connect(makeHostEndpoint());
+            const bool connected = ig.connect(makeIgLocal());
 
             THEN("connect fails and neither plane reports connected")
             {
@@ -373,7 +368,7 @@ SCENARIO("IG connects successfully when Host is already waiting", "[integration]
 
             WHEN("the IG connects to the Host endpoint")
             {
-                const bool connected = ig.connect(makeHostEndpoint());
+                const bool connected = ig.connect(makeIgLocal());
 
                 THEN("both planes are synced and Host has one ready IG")
                 {
@@ -396,7 +391,7 @@ SCENARIO("IG disconnects when Host goes offline", "[integration][sync][connect][
         IgSync ig;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE(ig.initialize(makeIgLocal()));
-        REQUIRE(ig.connect(makeHostEndpoint()));
+        REQUIRE(ig.connect(makeIgLocal()));
         REQUIRE(ig.tcpConnected());
         REQUIRE(ig.udpSynced());
 
@@ -426,11 +421,11 @@ SCENARIO("IG connect fails when UDP peer ports are wrong but TCP port is valid",
             IgSync ig;
             REQUIRE(ig.initialize(makeIgLocal()));
 
-            WHEN("the IG connects using a Host endpoint with wrong UDP ports")
+            WHEN("the IG connects using a Host target with wrong UDP ports")
             {
-                // Connect 使用 hostEndpoint.udpPortRecv 作为 Host UDP 收端口。
-                AddressConfig badUdpEndpoint{"127.0.0.1", 8001, 9999, 8100};
-                const bool connected = ig.connect(badUdpEndpoint);
+                // Connect 使用 targetUdpPortRecv 作为 Host UDP 收端口。
+                IgConfig badUdpConfig{"127.0.0.1", 8000, 8001, "127.0.0.1", 8100, 9999};
+                const bool connected = ig.connect(badUdpConfig);
 
                 THEN("overall connect fails and neither plane is ready")
                 {
@@ -458,8 +453,8 @@ SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync]
             REQUIRE(ig1.initialize(makeIgLocal("127.0.0.1", 8001)));
             REQUIRE(ig2.initialize(makeIgLocal("127.0.0.1", 8003)));
 
-            REQUIRE(ig1.connect(makeHostEndpoint()));
-            REQUIRE(ig2.connect(makeHostEndpoint()));
+            REQUIRE(ig1.connect(makeIgLocal("127.0.0.1", 8001)));
+            REQUIRE(ig2.connect(makeIgLocal("127.0.0.1", 8003)));
 
             THEN("both IGs are synced and Host reports two ready IGs")
             {
@@ -487,7 +482,7 @@ SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each upda
         IgSync ig;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE(ig.initialize(makeIgLocal()));
-        REQUIRE(ig.connect(makeHostEndpoint()));
+        REQUIRE(ig.connect(makeIgLocal()));
 
         WHEN("Host runs and sends 10 CIGI IGCtrl frames while IG updates")
         {
@@ -518,7 +513,7 @@ SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync
         IgSync ig;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE(ig.initialize(makeIgLocal()));
-        REQUIRE(ig.connect(makeHostEndpoint()));
+        REQUIRE(ig.connect(makeIgLocal()));
 
         WHEN("Host sends 10 CIGI IGCtrl and IG updates each frame (reply SOF)")
         {
@@ -549,7 +544,7 @@ SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
         IgSync ig;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE(ig.initialize(makeIgLocal()));
-        REQUIRE(ig.connect(makeHostEndpoint()));
+        REQUIRE(ig.connect(makeIgLocal()));
 
         SyncPaceConfig pace{};
         pace.igCtrlSendPace = SendPace::FREE_RUN;
@@ -585,7 +580,7 @@ SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
         IgSync ig;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE(ig.initialize(makeIgLocal()));
-        REQUIRE(ig.connect(makeHostEndpoint()));
+        REQUIRE(ig.connect(makeIgLocal()));
 
         WHEN("Host sends CIGI IGCtrl FrameCntr 0..N-1 and IG updates each frame")
         {
@@ -634,9 +629,8 @@ SCENARIO("single Engine with Host and IG exchanges CIGI frame control over ticks
         SyncRoleConfig syncRole{};
         syncRole.enableHost = true;
         syncRole.enableIg = true;
-        syncRole.hostLocal = makeHostLocal();
-        syncRole.igLocal = makeIgLocal();
-        syncRole.hostEndpoint = makeHostEndpoint();
+        syncRole.hostConfig = makeHostLocal();
+        syncRole.igConfig = makeIgLocal();
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
@@ -678,21 +672,18 @@ SCENARIO("three Engines exchange CIGI frame control across one Host and three IG
         SyncRoleConfig roleA{};
         roleA.enableHost = true;
         roleA.enableIg = true;
-        roleA.hostLocal = makeHostLocal();
-        roleA.igLocal = makeIgLocal("127.0.0.1", 8001);
-        roleA.hostEndpoint = makeHostEndpoint();
+        roleA.hostConfig = makeHostLocal();
+        roleA.igConfig = makeIgLocal("127.0.0.1", 8001);
 
         SyncRoleConfig roleB{};
         roleB.enableHost = false;
         roleB.enableIg = true;
-        roleB.igLocal = makeIgLocal("127.0.0.1", 8003);
-        roleB.hostEndpoint = makeHostEndpoint();
+        roleB.igConfig = makeIgLocal("127.0.0.1", 8003);
 
         SyncRoleConfig roleC{};
         roleC.enableHost = false;
         roleC.enableIg = true;
-        roleC.igLocal = makeIgLocal("127.0.0.1", 8005);
-        roleC.hostEndpoint = makeHostEndpoint();
+        roleC.igConfig = makeIgLocal("127.0.0.1", 8005);
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
@@ -875,19 +866,14 @@ namespace
     }
 
     // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
-    AddressConfig makeHostLocalEye(int base = 18000)
+    HostConfig makeHostLocalEye(int base = 18000)
     {
-        return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
+        return HostConfig{"127.0.0.1", base + 1, base, base + 100};
     }
 
-    AddressConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
+    IgConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
     {
-        return AddressConfig{"127.0.0.1", base, udpRecvPort, base + 100};
-    }
-
-    AddressConfig makeHostEndpointEye(int base = 18000)
-    {
-        return AddressConfig{"127.0.0.1", base + 1, base, base + 100};
+        return IgConfig{"127.0.0.1", base, udpRecvPort, "127.0.0.1", base + 100, base};
     }
 
     SyncRoleConfig makeHostIgRole(int igUdpRecv, int base = 18000)
@@ -895,9 +881,8 @@ namespace
         SyncRoleConfig role{};
         role.enableHost = true;
         role.enableIg = true;
-        role.hostLocal = makeHostLocalEye(base);
-        role.igLocal = makeIgLocalEye(igUdpRecv, base);
-        role.hostEndpoint = makeHostEndpointEye(base);
+        role.hostConfig = makeHostLocalEye(base);
+        role.igConfig = makeIgLocalEye(igUdpRecv, base);
         return role;
     }
 
@@ -906,8 +891,7 @@ namespace
         SyncRoleConfig role{};
         role.enableHost = false;
         role.enableIg = true;
-        role.igLocal = makeIgLocalEye(igUdpRecv, base);
-        role.hostEndpoint = makeHostEndpointEye(base);
+        role.igConfig = makeIgLocalEye(igUdpRecv, base);
         return role;
     }
 } // namespace
@@ -1009,8 +993,7 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
         SyncRoleConfig role{};
         role.enableHost = false;
         role.enableIg = true;
-        role.igLocal = makeIgLocalEye(18001, 18000);
-        role.hostEndpoint = makeHostEndpointEye(18000);
+        role.igConfig = makeIgLocalEye(18001, 18000);
         // Host 未启动 → Connect 失败，但仍完成本地 Init。
         REQUIRE(engine.synchronSystem().initialize(role, /*requireIgConnect=*/false));
         REQUIRE_FALSE(engine.synchronSystem().igLinked());
@@ -1023,7 +1006,7 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
         {
             // 测试手法：queue 注入，绕过真报文，只钉门控行为。
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("camera stays at the local pose")
             {
@@ -1053,7 +1036,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
         {
             engine.synchronSystem().setOffsetDeg({});
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("camera matches the Host eye")
             {
@@ -1085,7 +1068,7 @@ SCENARIO("linked IG with zero offset keeps Host eye unchanged",
         WHEN("a Host eye becomes available and sync update runs")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("final pose equals Host eye")
             {
@@ -1116,7 +1099,7 @@ SCENARIO("linked IG applies Host eye plus channel offset",
         WHEN("a Host eye becomes available and sync update runs")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("camera matches Host position composed with channel offset (rigid-array rotation)")
             {
@@ -1150,7 +1133,7 @@ SCENARIO("yaw-only offset with Host pitch/roll keeps channel up parallel to Host
         WHEN("the Host eye is applied with that yaw-only channel offset")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("LookAt forward/up equal R_host*Rz(delta) (up stays parallel to Host up)")
             {
@@ -1196,13 +1179,13 @@ SCENARIO("ReuseLast re-applies cached Host eye when no new eye arrives",
 
         const HostEyePose hostPose{{8.0, 9.0, 10.0}, {15.0, 0.0, 0.0}};
         engine.synchronSystem().queueHostEyePose(hostPose);
-        engine.synchronSystem().update(engine);
+        engine.stepSync();
         requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
 
         WHEN("local pose is changed and update runs without a new Host eye")
         {
             REQUIRE(engine.setCameraPose(vsg::dvec3{0.0, 0.0, 0.0}, vsg::dvec3{0.0, 0.0, 0.0}));
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("camera returns to the cached Host eye")
             {
@@ -1228,7 +1211,7 @@ SCENARIO("Freeze leaves camera unchanged when no new Host eye arrives",
 
         const HostEyePose hostPose{{8.0, 9.0, 10.0}, {15.0, 0.0, 0.0}};
         engine.synchronSystem().queueHostEyePose(hostPose);
-        engine.synchronSystem().update(engine);
+        engine.stepSync();
         requireLookAtMatchesPose(engine, hostPose.position, hostPose.eulerYprDeg);
 
         const HostEyePose localPose{{0.0, 0.0, 1.0}, {0.0, 0.0, 0.0}};
@@ -1236,7 +1219,7 @@ SCENARIO("Freeze leaves camera unchanged when no new Host eye arrives",
         WHEN("local pose is changed and update runs without a new Host eye")
         {
             REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("camera stays at the local pose")
             {
@@ -1261,7 +1244,7 @@ SCENARIO("after disconnect, camera keeps the last Host eye pose",
 
         const HostEyePose hostPose{{20.0, 30.0, 40.0}, {25.0, 0.0, 0.0}};
         engine.synchronSystem().queueHostEyePose(hostPose);
-        engine.synchronSystem().update(engine);
+        engine.stepSync();
         REQUIRE(engine.synchronSystem().igLinked());
 
         engine.synchronSystem().igSync().shutdown();
@@ -1270,7 +1253,7 @@ SCENARIO("after disconnect, camera keeps the last Host eye pose",
         WHEN("local pose is changed and update runs while disconnected")
         {
             REQUIRE(engine.setCameraPose(vsg::dvec3{0.0, 0.0, 0.0}, vsg::dvec3{90.0, 0.0, 0.0}));
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("camera is restored to the last Host eye")
             {
@@ -1306,7 +1289,7 @@ SCENARIO("Host-local IG channel also applies Host eye to its camera",
         {
             engineA.synchronSystem().setOffsetDeg({});
             engineA.synchronSystem().queueHostEyePose(hostPose);
-            engineA.synchronSystem().update(engineA);
+            engineA.stepSync();
 
             THEN("camera matches Host eye with no authority bypass")
             {
@@ -1385,9 +1368,9 @@ SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
 
         // 建立 Pose_old 为当前权威（应用层注入；E2E 断言走后续真 tick 的 CIGI 扇出）。
         engineA.synchronSystem().queueHostEyePose(poseOld);
-        engineA.synchronSystem().update(engineA);
+        engineA.stepSync();
         engineB.synchronSystem().queueHostEyePose(poseOld);
-        engineB.synchronSystem().update(engineB);
+        engineB.stepSync();
 
         WHEN("A camera becomes Pose_new then a full tick fans out to B via CIGI")
         {
@@ -1477,7 +1460,7 @@ SCENARIO("three channels share Host eye and differ only by channel offset",
 namespace
 {
     // 刚性阵列 E2E 的通道配置 JSON。coordFrame 显式声明坐标系（lla设计 §2.2）；
-    // Host+IG 通道（isHost）带 hostLocal + hostEndpoint，纯 IG 只带 hostEndpoint（§3.1）。
+    // Host+IG 通道（isHost）带 hostConfig；纯 IG 只带 igConfig（自包含远端目标，§3.1）。
     // TempConfigFile 来自公共头 Common.h。
     std::string makeChannelConfigBody(int kBase, int channelId, int udpRecv, double yawOffset, bool isHost,
                                       const std::string& coordFrame, const std::string& model)
@@ -1489,26 +1472,18 @@ namespace
                            coordFrame + R"(",
               "offsetDeg": { "yaw": )" +
                            std::to_string(yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
-              "igLocal": { "addr": "127.0.0.1", "udpPortSend": )" +
+              "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
                            std::to_string(kBase) +
-                           R"(, "udpPortRecv": )" + std::to_string(udpRecv) + R"( },)";
+                           R"(, "udpPortRecv": )" + std::to_string(udpRecv) +
+                           R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+                           R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },)";
         if (isHost)
         {
             body += R"(
-              "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" +
-                    std::to_string(kBase + 100) +
-                    R"(, "udpPortRecv": )" + std::to_string(kBase) + R"( },
-              "hostLocal": { "addr": "127.0.0.1", "udpPortSend": )" +
+              "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
                     std::to_string(kBase + 1) +
                     R"(, "udpPortRecv": )" + std::to_string(kBase) + R"(, "tcpPort": )" +
                     std::to_string(kBase + 100) + R"( },)";
-        }
-        else
-        {
-            body += R"(
-              "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" +
-                    std::to_string(kBase + 100) +
-                    R"(, "udpPortRecv": )" + std::to_string(kBase) + R"( },)";
         }
         body += R"(
               "model": ")" +
@@ -1579,7 +1554,7 @@ namespace
                 for (Engine* ig : {&b, &c})
                 {
                     if (ig->synchronSystem().hasIg() && !ig->synchronSystem().igSync().udpSynced())
-                        ig->synchronSystem().igSync().connect(ig->config.hostEndpoint);
+                        ig->synchronSystem().igSync().connect(ig->config.igConfig);
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
@@ -1789,7 +1764,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
         WHEN("a Host LLA eye becomes available and sync update runs")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("LookAt matches Host LLA + ENU YPR (no channel yaw)")
             {
@@ -1824,7 +1799,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
         WHEN("a Host LLA eye becomes available and sync update runs")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("LookAt uses Host LLA composed with ENU yaw offset (rigid-array rotation)")
             {
@@ -1862,7 +1837,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
         WHEN("the Host LLA eye is applied with that yaw-only channel offset")
         {
             engine.synchronSystem().queueHostEyePose(hostPose);
-            engine.synchronSystem().update(engine);
+            engine.stepSync();
 
             THEN("LookAt matches Host LLA composed with R_ig=R_host*Rz(delta) for yaw-only offset")
             {
@@ -2123,11 +2098,11 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
             std::string(R"({
               "channelId": 0,
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
-              "igLocal": { "addr": "127.0.0.1", "udpPortSend": )") +
-            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 1) + R"( },
-              "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" +
-            std::to_string(kBase + 100) + R"(, "udpPortRecv": )" + std::to_string(kBase) + R"( },
-              "hostLocal": { "addr": "127.0.0.1", "udpPortSend": )" +
+              "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
+            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
+              "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
             std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( },
               "model": "models/readymap.vsgt",
@@ -2140,10 +2115,10 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "channelId": 1,
               "coordFrame": "Ellipsoid",
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
-              "igLocal": { "addr": "127.0.0.1", "udpPortSend": )") +
-            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) + R"( },
-              "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": )" +
-            std::to_string(kBase + 100) + R"(, "udpPortRecv": )" + std::to_string(kBase) + R"( },
+              "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
+            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
               "model": "models/lz.vsgt",
               "window": { "x": 0, "y": 0, "width": 640, "height": 480 },
               "requireIgConnect": false
@@ -2426,7 +2401,7 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
         REQUIRE(engine.setCameraPose(hostPose.position, hostPose.eulerYprDeg));
         REQUIRE(engine.tickOnFrame());
         engine.synchronSystem().queueHostEyePose(hostPose);
-        engine.synchronSystem().update(engine);
+        engine.stepSync();
 
         REQUIRE(engine.synchronSystem().lastAppliedHostEye().has_value());
         REQUIRE(engine.synchronSystem().lastSentHostEye().has_value());
@@ -2561,7 +2536,7 @@ SCENARIO("WorldLocal lastSent is discarded on ellipsoid scene and not fanned out
         const HostEyePose appliedLla{lla, ypr, HostEyeCoordFrame::LLA};
         REQUIRE(engineA.setCameraPoseLla(lla, ypr));
         engineA.synchronSystem().queueHostEyePose(appliedLla);
-        engineA.synchronSystem().update(engineA);
+        engineA.stepSync();
         REQUIRE(engineA.synchronSystem().lastAppliedHostEye().has_value());
 
         // Residual wrong-type cache (lla §4.3)：场景已椭球，`_lastSent` 仍为 WorldLocal。
@@ -2611,7 +2586,7 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
 
         const HostEyePose appliedLocal{{2.0, 3.0, 4.0}, {5.0, 0.0, 0.0}, HostEyeCoordFrame::WORLD_LOCAL};
         engineA.synchronSystem().queueHostEyePose(appliedLocal);
-        engineA.synchronSystem().update(engineA);
+        engineA.stepSync();
 
         const HostEyePose staleLla{{39.9, 116.4, 500.0}, {20.0, 0.0, 0.0}, HostEyeCoordFrame::LLA};
         engineA.synchronSystem().seedLastSentHostEye(staleLla);

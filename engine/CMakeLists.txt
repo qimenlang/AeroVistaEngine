@@ -23,12 +23,6 @@ add_library(vsgEngineLib STATIC
     source/function/config/EngineConfig.cpp
     source/function/handler/FrameStatsHandler.cpp
     source/function/handler/CommandTriggerHandler.cpp
-    source/function/sync/UdpSocket.cpp
-    source/function/sync/SynchronSystem.cpp
-    source/function/sync/HostSync.cpp
-    source/function/sync/IgSync.cpp
-    source/function/sync/CigiWire.cpp
-    source/function/sync/EventProcess.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
@@ -39,8 +33,7 @@ target_link_libraries(vsgEngineLib
     PUBLIC
         vsg::vsg
         vsgXchange::vsgXchange
-        ws2_32
-        cigicl-static
+        aerovistaSync
 )
 
 add_executable(${TARGET_NAME}
@@ -57,3 +50,6 @@ if(vsgXchange_FOUND)
 else()
     message(STATUS "Skipping Tests: vsgXchange not found (PNG I/O required)")
 endif()
+
+# sync 独立库（传输层 + 门面层；依赖方向 vsgEngineLib → aerovistaSync）。
+add_subdirectory(source/function/sync)

@@ -777,6 +777,12 @@ bool Engine::ensureEllipsoidModelForFrame()
         std::cerr << "[INFO] EllipsoidModel radii equator=" << ellipsoidModel->radiusEquator()
                   << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
     }
+    if (_synchronSystem)
+    {
+        _synchronSystem->setSceneIsEllipsoid(static_cast<bool>(ellipsoidModel));
+        _synchronSystem->setEllipsoidModel(ellipsoidModel);
+        _synchronSystem->setChannelId(config.channelId);
+    }
     return true;
 }
 
@@ -939,6 +945,7 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
     _simStartMs = 0.0;
     if (!_synchronSystem->initialize(syncRole, requireIgConnect))
         return false;
+    _synchronSystem->setChannelId(config.channelId);
     // 命令执行桥在同步初始化时绑定（不依赖图形）：IG-only 引擎（测试无 initGraphics）同样可执行命令。
     bindSyncCommandHandler();
     return true;
@@ -1271,12 +1278,20 @@ bool Engine::update()
 
     _viewer->handleEvents();
 
-    // Host→IG：先采样权威眼（在覆盖前），再应用 Host 眼 ⊕ offset。
+    // Host→IG：先采样权威眼（覆盖前），再让 SynchronSystem 决策，应用本帧位姿。
     if (_synchronSystem)
     {
         if (_synchronSystem->hasHost())
-            _synchronSystem->captureAuthorityEye(*this);
-        _synchronSystem->update(*this);
+        {
+            if (auto camera = mainCamera())
+            {
+                if (auto lookAt = camera->viewMatrix.cast<vsg::LookAt>())
+                    _synchronSystem->captureAuthorityEye(*lookAt);
+            }
+        }
+        _synchronSystem->update();
+        if (auto pose = _synchronSystem->takePendingCameraPose())
+            applySyncCameraPose(*pose);
     }
 
     if (_frameStatsSwitch)
@@ -1333,15 +1348,34 @@ void Engine::postFrame()
         const auto now = std::chrono::steady_clock::now();
         const double elapsedMs =
             std::chrono::duration<double, std::milli>(now - _simStartTime).count();
-        _synchronSystem->postFrame(*this, _simStartMs + elapsedMs);
+        _synchronSystem->postFrame(_simStartMs + elapsedMs);
     }
+}
+
+void Engine::stepSync()
+{
+    if (_synchronSystem)
+    {
+        _synchronSystem->update();
+        if (auto pose = _synchronSystem->takePendingCameraPose())
+            applySyncCameraPose(*pose);
+    }
+}
+
+void Engine::applySyncCameraPose(const HostEyePose& pose)
+{
+    if (!hasGraphics())
+        return;
+    if (pose.frame == HostEyeCoordFrame::LLA)
+        setCameraPoseLla(pose.position, pose.eulerYprDeg);
+    else
+        setCameraPose(pose.position, pose.eulerYprDeg);
 }
 
 void Engine::tickSync()
 {
     preFrame();
-    if (_synchronSystem)
-        _synchronSystem->update(*this);
+    stepSync();
     postFrame();
 }
 

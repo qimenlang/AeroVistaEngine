@@ -88,7 +88,7 @@ bool IgSync::udpSynced() const
     return _udpSynced;
 }
 
-bool IgSync::initialize(const AddressConfig& local)
+bool IgSync::initialize(const IgConfig& local)
 {
     shutdown();
     _local = local;
@@ -100,11 +100,11 @@ bool IgSync::initialize(const AddressConfig& local)
     _lastFrameCntr = 0;
     _hasReceivedEye = false;
     _receivedEye = {};
-    _hostEndpoint = {};
+    _hostTarget = {};
     resetHostSession();
 
     std::string udpError;
-    if (!_udp.initialize(_local.addr, _local.udpPortSend, _local.udpPortRecv, &udpError))
+    if (!_udp.initialize(_local.bindAddr, _local.udpPortSend, _local.udpPortRecv, &udpError))
     {
         std::cerr << "IgSync: UDP open failed: " << udpError << "\n";
         return false;
@@ -237,7 +237,7 @@ bool IgSync::frozen() const
 
 void IgSync::sendSofPacket(std::uint32_t frameCntr)
 {
-    if (_hostEndpoint.addr.empty())
+    if (_hostTarget.targetAddr.empty())
         return;
 
     std::vector<unsigned char> sof;
@@ -246,7 +246,7 @@ void IgSync::sendSofPacket(std::uint32_t frameCntr)
         std::cerr << "IgSync: CIGI packSof failed\n";
         return;
     }
-    _udp.sendTo(_hostEndpoint.addr, _hostEndpoint.udpPortRecv, sof.data(),
+    _udp.sendTo(_hostTarget.targetAddr, _hostTarget.targetUdpPortRecv, sof.data(),
                 static_cast<int>(sof.size()));
     _sofSentCount.fetch_add(1);
 }
@@ -461,7 +461,7 @@ bool IgSync::waitUdpAck(int timeoutMs)
     return false;
 }
 
-bool IgSync::connectOnce(const AddressConfig& hostEndpoint)
+bool IgSync::connectOnce(const IgConfig& config)
 {
     // Assumes TCP already connected on _tcp.
     sync_proto::WireMsg hello{};
@@ -484,7 +484,7 @@ bool IgSync::connectOnce(const AddressConfig& hostEndpoint)
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(handshakeTimeoutMs);
     while (std::chrono::steady_clock::now() < deadline)
     {
-        _udp.sendTo(hostEndpoint.addr, hostEndpoint.udpPortRecv,
+        _udp.sendTo(config.targetAddr, config.targetUdpPortRecv,
                     reinterpret_cast<const unsigned char*>(&udpSync), sizeof(udpSync));
         if (waitUdpAck(50))
             return true;
@@ -492,7 +492,7 @@ bool IgSync::connectOnce(const AddressConfig& hostEndpoint)
     return false;
 }
 
-bool IgSync::connect(const AddressConfig& hostEndpoint)
+bool IgSync::connect(const IgConfig& config)
 {
     if (!_initialized)
         return false;
@@ -509,15 +509,15 @@ bool IgSync::connect(const AddressConfig& hostEndpoint)
         stopCommandThread();
         drainUdp();
 
-        if (!tcpConnect(hostEndpoint.addr, hostEndpoint.tcpPort, tcpConnectTimeoutMs))
+        if (!tcpConnect(config.targetAddr, config.targetTcpPort, tcpConnectTimeoutMs))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
             continue;
         }
 
-        if (connectOnce(hostEndpoint))
+        if (connectOnce(config))
         {
-            _hostEndpoint = hostEndpoint;
+            _hostTarget = config;
             _tcpConnected = true;
             _udpSynced = true;
             _status = IgStatus::RUNNING;

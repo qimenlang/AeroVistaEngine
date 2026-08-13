@@ -1,9 +1,8 @@
 ﻿#include "SynchronSystem.h"
 
-#include "engine.h"
-
 #include <cmath>
 #include <iostream>
+#include <utility>
 
 namespace
 {
@@ -18,22 +17,6 @@ namespace
     double clampd(double v, double lo, double hi)
     {
         return v < lo ? lo : (v > hi ? hi : v);
-    }
-
-    vsg::ref_ptr<vsg::EllipsoidModel> sceneEllipsoid(Engine& engine)
-    {
-        auto camera = engine.mainCamera();
-        if (!camera || !camera->projectionMatrix)
-            return {};
-        auto ep = camera->projectionMatrix.cast<vsg::EllipsoidPerspective>();
-        if (!ep)
-            return {};
-        return ep->ellipsoidModel;
-    }
-
-    bool sceneIsEllipsoid(Engine& engine)
-    {
-        return static_cast<bool>(engine.ellipsoidModel());
     }
 
     void enuBasisFromLocalToWorld(const vsg::dmat4& localToWorld, vsg::dvec3& east, vsg::dvec3& north, vsg::dvec3& upAxis)
@@ -117,18 +100,18 @@ namespace
         return extractYprDegFromBasis(forward, up, out.eulerYprDeg);
     }
 
-    bool lookAtMatchesApplied(const vsg::LookAt& actual, const HostEyePose& applied, Engine& engine)
+    bool lookAtMatchesApplied(const vsg::LookAt& actual, const HostEyePose& applied,
+                              const vsg::EllipsoidModel* ellipsoid)
     {
         auto lookAt = vsg::LookAt::create();
         if (applied.frame == HostEyeCoordFrame::LLA)
         {
-            auto em = sceneEllipsoid(engine);
-            if (!em)
+            if (!ellipsoid)
                 return false;
             const vsg::dvec3 forwardEnu = rotateByEulerYprDeg(applied.eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0));
             const vsg::dvec3 upEnu = rotateByEulerYprDeg(applied.eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0));
-            const vsg::dmat4 localToWorld = em->computeLocalToWorldTransform(applied.position);
-            const vsg::dvec3 eye = em->convertLatLongAltitudeToECEF(applied.position);
+            const vsg::dmat4 localToWorld = ellipsoid->computeLocalToWorldTransform(applied.position);
+            const vsg::dvec3 eye = ellipsoid->convertLatLongAltitudeToECEF(applied.position);
             const vsg::dvec3 forward = vsg::normalize(rotateEnuToEcef(localToWorld, forwardEnu));
             const vsg::dvec3 up = vsg::normalize(rotateEnuToEcef(localToWorld, upEnu));
             lookAt->eye = eye;
@@ -152,10 +135,10 @@ namespace
                vsg::length(vsg::normalize(actual.up) - vsg::normalize(up)) < kEps;
     }
 
-    bool eyeFrameMatchesScene(const HostEyePose& eye, Engine& engine)
+    bool eyeFrameMatchesScene(const HostEyePose& eye, bool sceneIsEllipsoid)
     {
         const bool wantLla = (eye.frame == HostEyeCoordFrame::LLA);
-        return wantLla == sceneIsEllipsoid(engine);
+        return wantLla == sceneIsEllipsoid;
     }
 } // namespace
 
@@ -174,7 +157,7 @@ bool SynchronSystem::initialize(const SyncRoleConfig& role, bool requireIgConnec
     if (role.enableHost)
     {
         _host = std::make_unique<HostSync>();
-        if (!_host->initialize(role.hostLocal))
+        if (!_host->initialize(role.hostConfig))
         {
             std::cerr << "SynchronSystem: HostSync initialize failed\n";
             shutdown();
@@ -187,14 +170,14 @@ bool SynchronSystem::initialize(const SyncRoleConfig& role, bool requireIgConnec
     if (role.enableIg)
     {
         _ig = std::make_unique<IgSync>();
-        if (!_ig->initialize(role.igLocal))
+        if (!_ig->initialize(role.igConfig))
         {
             std::cerr << "SynchronSystem: IgSync initialize failed\n";
             shutdown();
             return false;
         }
 
-        if (!_ig->connect(role.hostEndpoint))
+        if (!_ig->connect(role.igConfig))
         {
             if (requireIgConnect)
             {
@@ -251,33 +234,27 @@ void SynchronSystem::preFrame()
     }
 }
 
-void SynchronSystem::captureAuthorityEye(Engine& engine)
+void SynchronSystem::captureAuthorityEye(const vsg::LookAt& lookAt)
 {
     if (!_host)
         return;
 
-    auto camera = engine.mainCamera();
-    if (!camera)
-        return;
-
-    auto lookAt = camera->viewMatrix.cast<vsg::LookAt>();
-    if (!lookAt)
-        return;
-
     HostEyePose sample{};
-    if (auto em = sceneEllipsoid(engine))
+    if (_sceneIsEllipsoid)
     {
-        if (!lookAtToLlaEye(*lookAt, *em, sample))
+        if (!_ellipsoidModel)
+            return;
+        if (!lookAtToLlaEye(lookAt, *_ellipsoidModel, sample))
             return;
     }
     else
     {
-        if (!lookAtToWorldLocalEye(*lookAt, sample))
+        if (!lookAtToWorldLocalEye(lookAt, sample))
             return;
     }
 
     // Anti-echo: compare LookAt to `_lastApplied` rebuild (lla §4.4); do not subtract offset.
-    if (_lastApplied && lookAtMatchesApplied(*lookAt, *_lastApplied, engine))
+    if (_lastApplied && lookAtMatchesApplied(lookAt, *_lastApplied, _ellipsoidModel.get()))
     {
         _frameSample.reset();
         return;
@@ -317,20 +294,20 @@ HostEyePose SynchronSystem::compose(const HostEyePose& host, const OffsetDeg& of
     return out;
 }
 
-bool SynchronSystem::tryAcceptPendingEye(Engine& engine)
+bool SynchronSystem::tryAcceptPendingEye()
 {
     if (!_hasPendingEye)
         return false;
 
-    if (!eyeFrameMatchesScene(_pendingEye, engine))
+    if (!eyeFrameMatchesScene(_pendingEye, _sceneIsEllipsoid))
     {
         ++_eyePoseRejectedByFrameMismatch;
         if (!_frameMismatchErrorLogged)
         {
-            const char* expected = sceneIsEllipsoid(engine) ? "Lla/Detach" : "WorldLocal/Attach";
+            const char* expected = _sceneIsEllipsoid ? "Lla/Detach" : "WorldLocal/Attach";
             const char* got = (_pendingEye.frame == HostEyeCoordFrame::LLA) ? "Lla/Detach" : "WorldLocal/Attach";
             std::cerr << "[ERROR] eye pose rejected by frame mismatch: expected " << expected
-                      << ", got " << got << " (channelId=" << engine.config.channelId << ")\n";
+                      << ", got " << got << " (channelId=" << _channelId << ")\n";
             _frameMismatchErrorLogged = true;
         }
         _hasPendingEye = false;
@@ -342,45 +319,34 @@ bool SynchronSystem::tryAcceptPendingEye(Engine& engine)
     return true;
 }
 
-void SynchronSystem::applyHostEye(Engine& engine, const HostEyePose& hostEye)
+void SynchronSystem::applyHostEye(const HostEyePose& hostEye)
 {
     const HostEyePose composed = compose(hostEye, _offsetDeg);
-    if (engine.hasGraphics())
-    {
-        if (composed.frame == HostEyeCoordFrame::LLA)
-        {
-            if (!engine.setCameraPoseLla(composed.position, composed.eulerYprDeg))
-                return;
-        }
-        else
-        {
-            if (!engine.setCameraPose(composed.position, composed.eulerYprDeg))
-                return;
-        }
-    }
     _lastApplied = composed;
+    _pendingApplied = composed;
 }
 
-void SynchronSystem::update(Engine& engine)
+void SynchronSystem::update()
 {
     // 命令执行归主线程（状态同步设计初版.md §4）：命令读循环线程回 RECEIVED 后入队，
     // 主线程每帧在此执行（场景归属主线程，避免跨线程改场景 / 编译 pipeline）。
     if (_ig)
         _ig->runPendingCommands();
 
+    _pendingApplied.reset();
     const bool linked = igLinked();
 
     if (linked)
     {
         if (_hasPendingEye)
         {
-            if (tryAcceptPendingEye(engine))
-                applyHostEye(engine, *_cachedHostEye);
+            if (tryAcceptPendingEye())
+                applyHostEye(*_cachedHostEye);
         }
         else if (_cachedHostEye)
         {
             if (_stalePolicy == HostEyeStalePolicy::REUSE_LAST)
-                applyHostEye(engine, *_cachedHostEye);
+                applyHostEye(*_cachedHostEye);
             // Freeze: leave camera as-is
         }
         return;
@@ -391,17 +357,17 @@ void SynchronSystem::update(Engine& engine)
 
     // After disconnect (or if we still hold a cache from a prior link), keep last Host eye.
     if (_cachedHostEye)
-        applyHostEye(engine, *_cachedHostEye);
+        applyHostEye(*_cachedHostEye);
 }
 
-void SynchronSystem::postFrame(Engine& engine, double simTimeMs)
+void SynchronSystem::postFrame(double simTimeMs)
 {
     if (!_host)
         return;
 
     const HostEyePose* sendEye = nullptr;
     HostEyePose eyeStorage{};
-    const bool ellipsoid = sceneIsEllipsoid(engine);
+    const bool ellipsoid = _sceneIsEllipsoid;
 
     if (_frameSample)
     {
@@ -443,6 +409,26 @@ void SynchronSystem::postFrame(Engine& engine, double simTimeMs)
     }
 
     _host->update(simTimeMs, wirePtr);
+}
+
+void SynchronSystem::setSceneIsEllipsoid(bool sceneIsEllipsoid)
+{
+    _sceneIsEllipsoid = sceneIsEllipsoid;
+}
+
+void SynchronSystem::setEllipsoidModel(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid)
+{
+    _ellipsoidModel = std::move(ellipsoid);
+}
+
+void SynchronSystem::setChannelId(int channelId)
+{
+    _channelId = channelId;
+}
+
+std::optional<HostEyePose> SynchronSystem::takePendingCameraPose()
+{
+    return std::exchange(_pendingApplied, std::nullopt);
 }
 
 HostSync& SynchronSystem::hostSync()

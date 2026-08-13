@@ -26,31 +26,27 @@ namespace
 {
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     const char* kMainJson =
-        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"hostLocal":{"addr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
+        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
     const char* kLeftJson =
-        R"({"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"igLocal":{"addr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8003},"hostEndpoint":{"addr":"127.0.0.1","tcpPort":8100,"udpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":false})";
+        R"({"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":false})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
         return std::abs(a - b) <= eps;
     }
 
-    // Role-relevant field compares (design address split). Unused AddressConfig
-    // members are ignored so tests stay valid after IgLocal/HostEndpoint types land.
-    bool hostLocalEquals(const AddressConfig& a, const AddressConfig& b)
+    // Role-relevant field compares.
+    bool hostConfigEquals(const HostConfig& a, const HostConfig& b)
     {
-        return a.addr == b.addr && a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv &&
+        return a.bindAddr == b.bindAddr && a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv &&
                a.tcpPort == b.tcpPort;
     }
 
-    bool igLocalEquals(const AddressConfig& a, const AddressConfig& b)
+    bool igConfigEquals(const IgConfig& a, const IgConfig& b)
     {
-        return a.addr == b.addr && a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv;
-    }
-
-    bool hostEndpointEquals(const AddressConfig& a, const AddressConfig& b)
-    {
-        return a.addr == b.addr && a.tcpPort == b.tcpPort && a.udpPortRecv == b.udpPortRecv;
+        return a.bindAddr == b.bindAddr && a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv &&
+               a.targetAddr == b.targetAddr && a.targetTcpPort == b.targetTcpPort &&
+               a.targetUdpPortRecv == b.targetUdpPortRecv;
     }
 
     bool offsetEquals(const OffsetDeg& a, const OffsetDeg& b)
@@ -62,37 +58,31 @@ namespace
     {
         REQUIRE(actual.channelId == expected.channelId);
         REQUIRE(offsetEquals(actual.offsetDeg, expected.offsetDeg));
-        REQUIRE(igLocalEquals(actual.igLocal, expected.igLocal));
-        REQUIRE(hostEndpointEquals(actual.hostEndpoint, expected.hostEndpoint));
-        REQUIRE(hostLocalEquals(actual.hostLocal, expected.hostLocal));
+        REQUIRE(igConfigEquals(actual.igConfig, expected.igConfig));
+        REQUIRE(hostConfigEquals(actual.hostConfig, expected.hostConfig));
         REQUIRE(actual.model == expected.model);
         REQUIRE(actual.window.x == expected.window.x);
         REQUIRE(actual.window.y == expected.window.y);
         REQUIRE(actual.window.width == expected.window.width);
         REQUIRE(actual.window.height == expected.window.height);
         REQUIRE(actual.hostEyeStalePolicy == expected.hostEyeStalePolicy);
-        // When EngineChannelConfig::requireIgConnect exists, also:
-        // REQUIRE(actual.requireIgConnect == expected.requireIgConnect);
     }
 
     const char* kMinimalWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
     const char* kMinimalModel = R"("model": "models/lz.vsgt")";
     const char* kReadymapModel = R"("model": "models/readymap.vsgt")";
 
-    std::string jsonIgLocal(int udpRecv = 8003)
+    std::string jsonIgConfig(int udpRecv = 8003)
     {
-        return std::string(R"("igLocal": { "addr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": )") +
-               std::to_string(udpRecv) + " }";
+        return std::string(
+                   R"("igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": )") +
+               std::to_string(udpRecv) +
+               R"(, "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 })";
     }
 
-    std::string jsonHostEndpoint()
+    std::string jsonHostConfig()
     {
-        return R"("hostEndpoint": { "addr": "127.0.0.1", "tcpPort": 8100, "udpPortRecv": 8000 })";
-    }
-
-    std::string jsonHostLocal()
-    {
-        return R"("hostLocal": { "addr": "127.0.0.1", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 })";
+        return R"("hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 })";
     }
 } // namespace
 
@@ -623,7 +613,7 @@ SCENARIO("default Engine config matches the default channel file", "[acceptance]
 
 SCENARIO("default initialization does not start the sync subsystem", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine using the default config (no hostLocal / igLocal)")
+    GIVEN("an Engine using the default config (no hostConfig / igConfig)")
     {
         Engine engine;
         engine.showWindow = false;
@@ -684,8 +674,8 @@ SCENARIO("main channel file starts Host and IG using configured addresses", "[ac
             {
                 REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE(engine.synchronSystem().hasHost());
-                REQUIRE(igLocalEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igLocal));
-                REQUIRE(hostLocalEquals(engine.synchronSystem().hostSync().addressConfig(), engine.config.hostLocal));
+                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
+                REQUIRE(hostConfigEquals(engine.synchronSystem().hostSync().addressConfig(), engine.config.hostConfig));
             }
         }
     }
@@ -693,7 +683,7 @@ SCENARIO("main channel file starts Host and IG using configured addresses", "[ac
 
 SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine loaded from a config with igLocal+hostEndpoint (no hostLocal)")
+    GIVEN("an Engine loaded from a config with igConfig (no hostConfig)")
     {
         Engine engine;
         const TempConfigFile file(kLeftJson);
@@ -708,7 +698,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
             {
                 REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE_FALSE(engine.synchronSystem().hasHost());
-                REQUIRE(igLocalEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igLocal));
+                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
             }
         }
     }
@@ -740,9 +730,9 @@ SCENARIO("channel offset and stale policy are applied to SynchronSystem after in
 
 SCENARIO("host-only config starts Host and does not start IG", "[acceptance][bdd][config]")
 {
-    GIVEN("a config that only contains hostLocal (plus model/window)")
+    GIVEN("a config that only contains hostConfig (plus model/window)")
     {
-        const TempConfigFile file(std::string("{") + jsonHostLocal() + ", " + kMinimalModel + ", " +
+        const TempConfigFile file(std::string("{") + jsonHostConfig() + ", " + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
@@ -761,9 +751,9 @@ SCENARIO("host-only config starts Host and does not start IG", "[acceptance][bdd
     }
 }
 
-SCENARIO("channelId does not start Host when hostLocal is absent", "[acceptance][bdd][config]")
+SCENARIO("channelId does not start Host when hostConfig is absent", "[acceptance][bdd][config]")
 {
-    GIVEN("a config with channelId 0 but no hostLocal or igLocal")
+    GIVEN("a config with channelId 0 but no hostConfig or igConfig")
     {
         const TempConfigFile file(std::string(R"({ "channelId": 0, )") + kMinimalModel + ", " + kMinimalWindow +
                                   "}");
@@ -815,7 +805,7 @@ SCENARIO("IG-only omitting requireIgConnect defaults to false and can init when 
 {
     GIVEN("an IG-only config that does not set requireIgConnect")
     {
-        const TempConfigFile file(std::string("{") + jsonIgLocal(18005) + ", " + jsonHostEndpoint() + ", " +
+        const TempConfigFile file(std::string("{") + jsonIgConfig(18005) + ", " +
                                   kMinimalModel + ", " + kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
@@ -837,7 +827,7 @@ SCENARIO("IG-only with requireIgConnect true fails init when Host is down", "[ac
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
-        const TempConfigFile file(std::string("{") + jsonIgLocal(18003) + ", " + jsonHostEndpoint() + ", " +
+        const TempConfigFile file(std::string("{") + jsonIgConfig(18003) + ", " +
                                   R"("requireIgConnect": true, )" + kMinimalModel + ", " + kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
@@ -916,37 +906,18 @@ TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config]
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects igLocal without hostEndpoint", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts igConfig without requireIgConnect", "[unit][config][parse]")
 {
-    const TempConfigFile file(std::string("{") + jsonIgLocal() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
+    // igConfig 自包含本地绑定 + 远端目标，不再需要独立的 hostEndpoint 配对。
+    const TempConfigFile file(std::string("{") + jsonIgConfig() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
-    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE_FALSE(error.empty());
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.hasIgConfig);
+    REQUIRE_FALSE(cfg.hasHostConfig);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects hostLocal+igLocal without hostEndpoint (no derivation)",
-          "[unit][config][parse]")
-{
-    const TempConfigFile file(std::string("{") + jsonHostLocal() + ", " + jsonIgLocal(8001) + ", " + kMinimalModel +
-                              ", " + kMinimalWindow + "}");
-    EngineChannelConfig cfg;
-    std::string error;
-    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE_FALSE(error.empty());
-}
-
-TEST_CASE("loadEngineChannelConfig rejects hostEndpoint without igLocal", "[unit][config][parse]")
-{
-    const TempConfigFile file(std::string("{") + jsonHostEndpoint() + ", " + kMinimalModel + ", " + kMinimalWindow +
-                              "}");
-    EngineChannelConfig cfg;
-    std::string error;
-    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE_FALSE(error.empty());
-}
-
-TEST_CASE("loadEngineChannelConfig rejects requireIgConnect without igLocal", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects requireIgConnect without igConfig", "[unit][config][parse]")
 {
     const TempConfigFile file(std::string("{") + R"("requireIgConnect": true, )" + kMinimalModel + ", " +
                               kMinimalWindow + "}");
@@ -975,10 +946,10 @@ TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial hostLocal object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects partial hostConfig object (scheme A)", "[unit][config][parse]")
 {
     const TempConfigFile file(
-        std::string(R"({ "hostLocal": { "addr": "127.0.0.1", "udpPortSend": 8001, "udpPortRecv": 8000 }, )") +
+        std::string(R"({ "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8001, "udpPortRecv": 8000 }, )") +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -986,45 +957,49 @@ TEST_CASE("loadEngineChannelConfig rejects partial hostLocal object (scheme A)",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial igLocal object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", "[unit][config][parse]")
 {
-    const TempConfigFile file(std::string(R"({ "igLocal": { "addr": "127.0.0.1", "udpPortSend": 8000 }, )") +
-                              jsonHostEndpoint() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
+    const TempConfigFile file(
+        std::string(R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000 }, )") +
+        kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial hostEndpoint object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects igConfig missing target fields (scheme A)", "[unit][config][parse]")
 {
-    const TempConfigFile file(std::string("{") + jsonIgLocal() +
-                              R"(, "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": 8100 }, )" + kMinimalModel +
-                              ", " + kMinimalWindow + "}");
+    // igConfig 自包含远端目标，缺 targetTcpPort 必须拒绝。
+    const TempConfigFile file(
+        std::string(R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        R"("targetAddr": "127.0.0.1", "targetUdpPortRecv": 8000 }, )" + kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects unknown igLocal.tcpPort (IgLocalConfig has no tcp)",
+TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.tcpPort (IgConfig has no bare tcpPort)",
           "[unit][config][parse]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igLocal": { "addr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8003, "tcpPort": 8100 }, )") +
-        jsonHostEndpoint() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
+        std::string(R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000, "tcpPort": 8100 }, )" +
+        kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects unknown hostEndpoint.udpPortSend (HostEndpointConfig)",
+TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.udpPortSend on target side (targetUdpPortSend)",
           "[unit][config][parse]")
 {
-    const TempConfigFile file(std::string("{") + jsonIgLocal() +
-                              R"(, "hostEndpoint": { "addr": "127.0.0.1", "tcpPort": 8100, "udpPortRecv": 8000, "udpPortSend": 8001 }, )" +
-                              kMinimalModel + ", " + kMinimalWindow + "}");
+    const TempConfigFile file(
+        std::string(R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000, "targetUdpPortSend": 8001 }, )" +
+        kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1048,9 +1023,9 @@ TEST_CASE("loadEngineChannelConfig accepts Host+IG sample config", "[unit][confi
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE_FALSE(cfg.hostLocal.addr.empty());
-    REQUIRE_FALSE(cfg.igLocal.addr.empty());
-    REQUIRE_FALSE(cfg.hostEndpoint.addr.empty());
+    REQUIRE_FALSE(cfg.hostConfig.bindAddr.empty());
+    REQUIRE_FALSE(cfg.igConfig.bindAddr.empty());
+    REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
 }
 
 TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][config][parse]")
@@ -1059,9 +1034,9 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.hostLocal.addr.empty());
-    REQUIRE_FALSE(cfg.igLocal.addr.empty());
-    REQUIRE_FALSE(cfg.hostEndpoint.addr.empty());
+    REQUIRE(cfg.hostConfig.bindAddr.empty());
+    REQUIRE_FALSE(cfg.igConfig.bindAddr.empty());
+    REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
 }
 
 // =============================================================================

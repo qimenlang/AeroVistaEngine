@@ -64,6 +64,9 @@ public:
     bool tickOnFrame();
     /// preFrame + postFrame without rendering (sync-only engines).
     void tickSync();
+    /// 一步同步（不含采样/render）：SynchronSystem 决策后把本帧位姿应用到相机。
+    /// 测试与 tickSync 使用；真实帧循环在 update() 内完成采样 + 应用。
+    void stepSync();
     bool captureToFile(const vsg::Path& outputPngPath);
     void run();
 
@@ -91,6 +94,9 @@ public:
 
     /// MOVEMODEL 累加移动（状态同步设计初版.md §11）：实体不存在 → false。
     bool moveEntityById(int id, const vsg::dvec3& deltaPosition, const vsg::dvec3& deltaYprDeg);
+
+    /// 应用 SynchronSystem 产出的相机位姿（按 frame 分派 setCameraPose / setCameraPoseLla）。
+    void applySyncCameraPose(const HostEyePose& pose);
 
 private:
     void applyConfigToEngine();

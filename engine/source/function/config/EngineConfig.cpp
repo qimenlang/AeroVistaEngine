@@ -371,36 +371,28 @@ namespace
         throw std::runtime_error("invalid hostEyeStalePolicy: " + text);
     }
 
-    AddressConfig parseHostLocal(const JsonObject& obj)
+    HostConfig parseHostConfig(const JsonObject& obj)
     {
-        rejectUnknownKeys(obj, {"addr", "udpPortSend", "udpPortRecv", "tcpPort"});
-        AddressConfig cfg;
-        cfg.addr = requireString(obj, "addr");
+        rejectUnknownKeys(obj, {"bindAddr", "udpPortSend", "udpPortRecv", "tcpPort"});
+        HostConfig cfg;
+        cfg.bindAddr = requireString(obj, "bindAddr");
         cfg.udpPortSend = requireInt(obj, "udpPortSend");
         cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
         cfg.tcpPort = requireInt(obj, "tcpPort");
         return cfg;
     }
 
-    AddressConfig parseIgLocal(const JsonObject& obj)
+    IgConfig parseIgConfig(const JsonObject& obj)
     {
-        rejectUnknownKeys(obj, {"addr", "udpPortSend", "udpPortRecv"});
-        AddressConfig cfg;
-        cfg.addr = requireString(obj, "addr");
+        rejectUnknownKeys(obj, {"bindAddr", "udpPortSend", "udpPortRecv", "targetAddr", "targetTcpPort",
+                                "targetUdpPortRecv"});
+        IgConfig cfg;
+        cfg.bindAddr = requireString(obj, "bindAddr");
         cfg.udpPortSend = requireInt(obj, "udpPortSend");
         cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
-        cfg.tcpPort = 0;
-        return cfg;
-    }
-
-    AddressConfig parseHostEndpoint(const JsonObject& obj)
-    {
-        rejectUnknownKeys(obj, {"addr", "tcpPort", "udpPortRecv"});
-        AddressConfig cfg;
-        cfg.addr = requireString(obj, "addr");
-        cfg.tcpPort = requireInt(obj, "tcpPort");
-        cfg.udpPortRecv = requireInt(obj, "udpPortRecv");
-        cfg.udpPortSend = 0;
+        cfg.targetAddr = requireString(obj, "targetAddr");
+        cfg.targetTcpPort = requireInt(obj, "targetTcpPort");
+        cfg.targetUdpPortRecv = requireInt(obj, "targetUdpPortRecv");
         return cfg;
     }
 
@@ -447,14 +439,10 @@ namespace
         return v->asString();
     }
 
-    void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasHostEndpoint, bool hasRequireIgConnect)
+    void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasRequireIgConnect)
     {
-        if (cfg.hasIgLocal && !hasHostEndpoint)
-            throw std::runtime_error("igLocal requires hostEndpoint");
-        if (hasHostEndpoint && !cfg.hasIgLocal)
-            throw std::runtime_error("hostEndpoint without igLocal is invalid");
-        if (hasRequireIgConnect && !cfg.hasIgLocal)
-            throw std::runtime_error("requireIgConnect without igLocal is invalid");
+        if (hasRequireIgConnect && !cfg.hasIgConfig)
+            throw std::runtime_error("requireIgConnect without igConfig is invalid");
     }
 
     std::string basenameOfModel(const std::string& modelPath)
@@ -619,7 +607,7 @@ namespace
 
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
-        rejectUnknownKeys(root, {"channelId", "offsetDeg", "igLocal", "hostEndpoint", "hostLocal", "model", "window",
+        rejectUnknownKeys(root, {"channelId", "offsetDeg", "igConfig", "hostConfig", "model", "window",
                                  "hostEyeStalePolicy", "requireIgConnect", "coordFrame", "entities", "entity",
                                  "camera"});
 
@@ -629,20 +617,17 @@ namespace
         if (const JsonValue* v = find(root, "offsetDeg"))
             cfg.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
 
-        if (const JsonValue* v = find(root, "hostLocal"))
+        if (const JsonValue* v = find(root, "hostConfig"))
         {
-            cfg.hasHostLocal = true;
-            cfg.hostLocal = parseHostLocal(requireObjectValue(*v, "hostLocal"));
+            cfg.hasHostConfig = true;
+            cfg.hostConfig = parseHostConfig(requireObjectValue(*v, "hostConfig"));
         }
 
-        if (const JsonValue* v = find(root, "igLocal"))
+        if (const JsonValue* v = find(root, "igConfig"))
         {
-            cfg.hasIgLocal = true;
-            cfg.igLocal = parseIgLocal(requireObjectValue(*v, "igLocal"));
+            cfg.hasIgConfig = true;
+            cfg.igConfig = parseIgConfig(requireObjectValue(*v, "igConfig"));
         }
-
-        if (const JsonValue* v = find(root, "hostEndpoint"))
-            cfg.hostEndpoint = parseHostEndpoint(requireObjectValue(*v, "hostEndpoint"));
 
         if (const JsonValue* v = find(root, "window"))
             cfg.window = parseWindow(requireObjectValue(*v, "window"));
@@ -676,7 +661,7 @@ namespace
         if (hasRequireIgConnect)
             cfg.requireIgConnect = requireBool(root, "requireIgConnect");
 
-        validateIgEndpointPairing(cfg, find(root, "hostEndpoint") != nullptr, hasRequireIgConnect);
+        validateIgEndpointPairing(cfg, hasRequireIgConnect);
         return cfg;
     }
 } // namespace
@@ -686,9 +671,8 @@ SyncRoleConfig EngineChannelConfig::toSyncRole() const
     SyncRoleConfig role;
     role.enableHost = enableHost();
     role.enableIg = enableIg();
-    role.hostLocal = hostLocal;
-    role.igLocal = igLocal;
-    role.hostEndpoint = hostEndpoint;
+    role.hostConfig = hostConfig;
+    role.igConfig = igConfig;
     return role;
 }
 

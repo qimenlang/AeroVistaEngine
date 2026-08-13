@@ -35,7 +35,7 @@ public:
     HostSync(const HostSync&) = delete;
     HostSync& operator=(const HostSync&) = delete;
 
-    bool initialize(const AddressConfig& local);
+    bool initialize(const HostConfig& local);
     void shutdown();
 
     void run();
@@ -50,7 +50,7 @@ public:
     void update(double simTimeMs = 0.0, const EyePose* eye = nullptr);
     void setPaceConfig(const SyncPaceConfig& pace);
 
-    const AddressConfig& addressConfig() const { return _local; }
+    const HostConfig& addressConfig() const { return _local; }
 
     HostStatus status() const;
     bool hasReadyIg() const;
@@ -102,7 +102,7 @@ private:
     void markPeerDisconnected(SocketHandle client);
     void clearReceivedAcks();
 
-    AddressConfig _local{};
+    HostConfig _local{};
     SyncPaceConfig _pace{};
     UdpSocket _udp;
     SocketHandle _listenSocket = static_cast<SocketHandle>(-1);

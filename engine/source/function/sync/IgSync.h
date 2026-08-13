@@ -52,8 +52,8 @@ public:
         std::uint64_t receivedAtUs = 0;
     };
 
-    bool initialize(const AddressConfig& local);
-    bool connect(const AddressConfig& hostEndpoint);
+    bool initialize(const IgConfig& local);
+    bool connect(const IgConfig& config);
     void shutdown();
 
     void update(bool sendSof = true);
@@ -88,7 +88,7 @@ public:
     /// True once extrapolate timeout exceeded and no new frame arrived.
     bool frozen() const;
 
-    const AddressConfig& addressConfig() const { return _local; }
+    const IgConfig& addressConfig() const { return _local; }
 
     bool tcpConnected() const;
     bool udpSynced() const;
@@ -134,7 +134,7 @@ private:
     bool sendAll(IgSocketHandle s, const void* data, int len);
     bool recvAll(IgSocketHandle s, void* data, int len, int timeoutMs);
     bool waitUdpAck(int timeoutMs);
-    bool connectOnce(const AddressConfig& hostEndpoint);
+    bool connectOnce(const IgConfig& config);
     void sendSofPacket(std::uint32_t frameCntr);
     void markDisconnected();
     /// 相位展开：把 raw（uint32, 10µs tick）累进 64 位单调 extendedTime（时钟同步方案.md §3）。
@@ -148,8 +148,8 @@ private:
     void enqueueCommand(cigi_wire::Command cmd, std::uint16_t seq, const std::vector<std::uint8_t>& payload);
     void sendCommandReply(std::uint16_t replyMsgId, std::uint16_t seq);
 
-    AddressConfig _local{};
-    AddressConfig _hostEndpoint{};
+    IgConfig _local{};
+    IgConfig _hostTarget{};
     UdpSocket _udp;
     IgSocketHandle _tcp = static_cast<IgSocketHandle>(-1);
 

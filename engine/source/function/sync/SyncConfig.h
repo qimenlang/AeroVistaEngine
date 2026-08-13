@@ -2,9 +2,36 @@
 
 #include <string>
 
-struct AddressConfig
+/// Channel offset applied on top of the Host eye (rigid-array rotation, lla设计 §3.4).
+struct OffsetDeg
 {
-    std::string addr;
+    double yaw = 0.0;
+    double pitch = 0.0;
+    double roll = 0.0;
+};
+
+/// Behavior when linked but no new Host eye this frame (多通道同步模块设计.md §4.4).
+enum class HostEyeStalePolicy
+{
+    REUSE_LAST,
+    FREEZE
+};
+
+/// IG-side config = local bind + remote Host target (merged from former igLocal + hostEndpoint).
+struct IgConfig
+{
+    std::string bindAddr;      ///< Local interface to bind (former igLocal.addr)
+    int udpPortSend = 0;       ///< Local UDP source port (former igLocal.udpPortSend)
+    int udpPortRecv = 0;       ///< Local UDP receive port (former igLocal.udpPortRecv)
+    std::string targetAddr;    ///< Host IP (former hostEndpoint.addr)
+    int targetTcpPort = 0;     ///< Host TCP listen port (former hostEndpoint.tcpPort)
+    int targetUdpPortRecv = 0; ///< Host UDP receive port (former hostEndpoint.udpPortRecv)
+};
+
+/// Host-side local config (former hostLocal).
+struct HostConfig
+{
+    std::string bindAddr; ///< Local interface to bind (former hostLocal.addr)
     int udpPortSend = 0;
     int udpPortRecv = 0;
     int tcpPort = 0;
@@ -45,7 +72,6 @@ struct SyncRoleConfig
 {
     bool enableHost = false;
     bool enableIg = false;
-    AddressConfig hostLocal{};
-    AddressConfig igLocal{};
-    AddressConfig hostEndpoint{};
+    HostConfig hostConfig{};
+    IgConfig igConfig{};
 };

@@ -198,7 +198,7 @@ void HostSync::update(double simTimeMs, const EyePose* eye)
     _igCtrlSentCount.fetch_add(1);
 }
 
-bool HostSync::initialize(const AddressConfig& local)
+bool HostSync::initialize(const HostConfig& local)
 {
     shutdown();
     _local = local;
@@ -208,7 +208,7 @@ bool HostSync::initialize(const AddressConfig& local)
     _frameCounter = 0;
 
     std::string udpError;
-    if (!_udp.initialize(_local.addr, _local.udpPortSend, _local.udpPortRecv, &udpError))
+    if (!_udp.initialize(_local.bindAddr, _local.udpPortSend, _local.udpPortRecv, &udpError))
     {
         std::cerr << "HostSync: UDP open failed: " << udpError << "\n";
         return false;
