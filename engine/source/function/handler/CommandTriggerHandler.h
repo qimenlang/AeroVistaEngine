@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "function/sync/SynchronSystem.h"
+#include <aerovista/sync/SynchronSystem.h>
 
 #include <vsg/nodes/Node.h>
 #include <vsg/ui/KeyEvent.h>

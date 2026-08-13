@@ -29,8 +29,8 @@ BUILD_CANDIDATES = (
 
 EXCLUDE_REL_PARTS = ()
 
-# LLVM regex (no PCRE lookahead).
-HEADER_FILTER = r"[/\\]engine[/\\]"
+# LLVM regex (no PCRE lookahead). Engine + extracted aerovistaSync library headers.
+HEADER_FILTER = r"[/\\](engine|thirdparty/sync)[/\\]"
 
 
 def find_clang_tidy() -> str | None:
@@ -84,7 +84,7 @@ def collect_files(paths: list[str], all_engine: bool) -> list[Path]:
             resolved = Path(path)
 
         rel = str(resolved).replace("\\", "/")
-        if "/engine/" not in rel:
+        if "/engine/" not in rel and "/thirdparty/sync/" not in rel:
             continue
 
         lower = str(resolved).lower()
@@ -108,6 +108,9 @@ def collect_files(paths: list[str], all_engine: bool) -> list[Path]:
 def _all_engine_cpp() -> list[Path]:
     files: list[Path] = []
     for path in sorted((ROOT / "engine").rglob("*.cpp")):
+        if not is_excluded(path):
+            files.append(path.resolve())
+    for path in sorted((ROOT / "thirdparty" / "sync" / "src").rglob("*.cpp")):
         if not is_excluded(path):
             files.append(path.resolve())
     return files

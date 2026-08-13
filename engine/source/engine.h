@@ -3,10 +3,10 @@
 #include <vsg/all.h>
 
 #include "function/config/EngineConfig.h"
-#include "function/sync/CigiWire.h"
-#include "function/sync/SyncConfig.h"
-#include "function/sync/SynchronSystem.h"
 #include "vsg/core/ref_ptr.h"
+#include <aerovista/sync/CigiWire.h>
+#include <aerovista/sync/SyncConfig.h>
+#include <aerovista/sync/SynchronSystem.h>
 
 #include <cstddef>
 #include <cstdint>

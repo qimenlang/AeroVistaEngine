@@ -17,7 +17,7 @@
 ```text
 vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
-       └→ aerovistaSync     （sync 库：传输层 + 门面）
+       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + 门面）
             ├─ 传输层：UdpSocket / CigiWire / EventProcess / HostSync / IgSync
             │           / SyncConfig / SyncProtocol
             ├─ 门面层：SynchronSystem（纯数据流：场景模式注入 + 采样喂入 + 产出位姿）
@@ -155,7 +155,7 @@ void postFrame(double simTimeMs);
 1. `aerovistaSync` 可独立 `add_subdirectory` + 链接，不反向依赖 `vsgEngineLib`/`Engine`。
 2. `vsgEngine` / `vsgEngineTests` 构建通过，全测试绿。
 3. `doc/design` 与实现一致（本文件 §1.2 库边界、§4 决策）。
-4. 无残留旧符号（`rg "include \"engine.h\"" engine/source/function/sync` 为空）。
+4. 无残留旧符号（`rg "include \"engine.h\"" thirdparty/sync` 为空）。
 
 ## 6. 与实现关系
 
@@ -169,6 +169,9 @@ void postFrame(double simTimeMs);
 | `loadHostConfig` 库内入口 + `SyncJson` 解析器（viewhost 独立读配置） | **已实现** |
 | `loadIgConfig` 库内入口（独立 IG 进程 / 外部引擎） | **已实现** |
 | `syncSystem` 配置组（装配属性分组 + 旧扁平字段兼容回退） | **已实现** |
+| 目录布局标准化（`thirdparty/sync` 独立目录，include `<aerovista/sync/...>`） | **已实现** |
+| 独立 CMake 依赖声明（`find_package(vsg)` 兼容 + install/export） | **已实现** |
+| 命名空间 `aerovista::sync`（含 `cigi_wire`/`sync_proto`/`sync_json` 子层） | **已实现** |
 | 文档同步与最终验收（Phase 4） | **已实现** |
 
 ## 7. 实施后记（与初版规划的偏差）

@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "function/sync/SyncConfig.h"
+#include <aerovista/sync/SyncConfig.h>
 
 #include <string>
 #include <vector>

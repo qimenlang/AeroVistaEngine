@@ -1,7 +1,7 @@
 ﻿#include "function/config/EngineConfig.h"
 
-#include "function/sync/SyncConfig.h"
-#include "function/sync/SyncJson.h"
+#include <aerovista/sync/SyncConfig.h>
+#include <aerovista/sync/SyncJson.h>
 
 #include <cmath>
 #include <fstream>

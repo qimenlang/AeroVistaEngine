@@ -2,11 +2,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine.h"
-#include "function/sync/CigiWire.h"
-#include "function/sync/HostSync.h"
-#include "function/sync/IgSync.h"
-#include "function/sync/SyncConfig.h"
-#include "function/sync/SynchronSystem.h"
+#include <aerovista/sync/CigiWire.h>
+#include <aerovista/sync/HostSync.h>
+#include <aerovista/sync/IgSync.h>
+#include <aerovista/sync/SyncConfig.h>
+#include <aerovista/sync/SynchronSystem.h>
 
 #include <chrono>
 #include <cmath>

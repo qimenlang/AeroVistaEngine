@@ -50,6 +50,3 @@ if(vsgXchange_FOUND)
 else()
     message(STATUS "Skipping Tests: vsgXchange not found (PNG I/O required)")
 endif()
-
-# sync 独立库（传输层 + 门面层；依赖方向 vsgEngineLib → aerovistaSync）。
-add_subdirectory(source/function/sync)

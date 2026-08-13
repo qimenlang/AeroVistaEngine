@@ -1,6 +1,6 @@
 ﻿#include "CommandTriggerHandler.h"
 
-#include "function/sync/HostSync.h"
+#include <aerovista/sync/HostSync.h>
 
 #include <cstdint>
 #include <cstring>

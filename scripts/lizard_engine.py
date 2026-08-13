@@ -19,12 +19,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Match cognitive-complexity scope: production code only (skip Catch2 Tests).
-DEFAULT_ROOT = ROOT / "engine" / "source"
+# Covers engine/source + the extracted aerovistaSync library (thirdparty/sync/src).
+DEFAULT_ROOTS = (
+    ROOT / "engine" / "source",
+    ROOT / "thirdparty" / "sync" / "src",
+)
+
+# 任一生产根前缀命中即纳入。
+ALLOWED_PREFIXES = (
+    "/engine/source/",
+    "/thirdparty/sync/src/",
+)
 
 
 def collect_files(paths: list[str], all_source: bool) -> list[Path]:
     if all_source or not paths:
-        return sorted(DEFAULT_ROOT.rglob("*.cpp"))
+        files: list[Path] = []
+        for root in DEFAULT_ROOTS:
+            files.extend(sorted(root.rglob("*.cpp")))
+        return files
 
     tus: list[Path] = []
     for path in paths:
@@ -36,7 +49,7 @@ def collect_files(paths: list[str], all_source: bool) -> list[Path]:
         if not resolved.is_file():
             continue
         text = str(resolved).replace("\\", "/")
-        if "/engine/source/" not in text:
+        if not any(prefix in text for prefix in ALLOWED_PREFIXES):
             continue
         if text.lower().endswith((".cpp", ".cc", ".cxx")):
             tus.append(resolved)
@@ -49,7 +62,7 @@ def main() -> int:
     parser.add_argument(
         "--all-source",
         action="store_true",
-        help="Scan all engine/source/**/*.cpp",
+        help="Scan all engine/source + thirdparty/sync/src cpp files",
     )
     parser.add_argument(
         "--ccn",

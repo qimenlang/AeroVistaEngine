@@ -22,3 +22,6 @@
 [submodule "thirdparty/rocky"]
 	path = thirdparty/rocky
 	url = git@github.com:pelicanmapping/rocky.git
+[submodule "thirdparty/sync"]
+	path = thirdparty/sync
+	url = git@github.com:qimenlang/AeroVistaSync.git

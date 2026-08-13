@@ -6,7 +6,7 @@
 
 #include "Common.h"
 #include "engine.h"
-#include "function/sync/IgSync.h"
+#include <aerovista/sync/IgSync.h>
 
 #include <cstdint>
 #include <thread>

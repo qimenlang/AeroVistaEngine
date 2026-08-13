@@ -20,8 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-TIDY_RE = re.compile(r"^engine/.+\.(cpp|cc|cxx|h|hpp|hh|hxx)$", re.I)
-LIZARD_RE = re.compile(r"^engine/source/.+\.(cpp|cc|cxx)$", re.I)
+TIDY_RE = re.compile(r"^(engine|thirdparty/sync)/.+\.(cpp|cc|cxx|h|hpp|hh|hxx)$", re.I)
+LIZARD_RE = re.compile(r"^(engine/source|thirdparty/sync/src)/.+\.(cpp|cc|cxx)$", re.I)
 
 
 def git_output(*args: str) -> str:

@@ -14,4 +14,5 @@ if(WIN32)
 endif()
 
 add_subdirectory(thirdparty)
+add_subdirectory(thirdparty/sync)
 add_subdirectory(engine)

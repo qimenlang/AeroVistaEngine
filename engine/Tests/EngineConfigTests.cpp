@@ -3,7 +3,7 @@
 
 #include "InitialCameraConfig.h"
 #include "engine.h"
-#include "function/sync/SyncConfig.h"
+#include <aerovista/sync/SyncConfig.h>
 
 #include <cmath>
 #include <cstdint>

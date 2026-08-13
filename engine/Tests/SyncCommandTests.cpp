@@ -10,8 +10,8 @@
 
 #include "Common.h"
 #include "engine.h"
-#include "function/sync/HostSync.h"
-#include "function/sync/IgSync.h"
+#include <aerovista/sync/HostSync.h>
+#include <aerovista/sync/IgSync.h>
 
 #include <cstdint>
 #include <cstring>
