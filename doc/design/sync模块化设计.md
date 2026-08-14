@@ -194,11 +194,9 @@ SynchronSystem::create()->initialize(role);
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entities`/`camera`/`coordFrame` = engine 渲染属性（不进 sync）。
 
-**兼容回退**：JSON 顶层支持旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect`）。解析规则：
-- 有 `syncSystem` 组 → 用之，并**同步到旧扁平字段**（旧访问点 `config.channelId` 等保持可用）。
-- 无 `syncSystem` 组 → 按旧扁平字段解析（旧配置完全兼容）。
+**消费路径**：engine 从 `config.syncSystem` 注入 `SynchronSystem`（`setChannelId`/`setOffsetDeg`/`setHostEyeStalePolicy`/`initialize(requireIgConnect)`）。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
 
-**消费路径**：engine 从 `config.syncSystem`（或回退的扁平字段）注入 `SynchronSystem`（`setChannelId`/`setOffsetDeg`/`setHostEyeStalePolicy`/`initialize(requireIgConnect)`）。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
+> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`hostConfig`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`）。
 
 ## 5. 否决与决策记录
 

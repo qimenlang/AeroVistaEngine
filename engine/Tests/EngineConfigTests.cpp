@@ -30,9 +30,9 @@ namespace
 {
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     const char* kMainJson =
-        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
-        R"({"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":false})";
+        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":false},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -60,8 +60,8 @@ namespace
 
     void requireConfigEquals(const EngineChannelConfig& actual, const EngineChannelConfig& expected)
     {
-        REQUIRE(actual.channelId == expected.channelId);
-        REQUIRE(offsetEquals(actual.offsetDeg, expected.offsetDeg));
+        REQUIRE(actual.syncSystem.channelId == expected.syncSystem.channelId);
+        REQUIRE(offsetEquals(actual.syncSystem.offsetDeg, expected.syncSystem.offsetDeg));
         REQUIRE(igConfigEquals(actual.igConfig, expected.igConfig));
         REQUIRE(hostConfigEquals(actual.hostConfig, expected.hostConfig));
         REQUIRE(actual.model == expected.model);
@@ -69,7 +69,7 @@ namespace
         REQUIRE(actual.window.y == expected.window.y);
         REQUIRE(actual.window.width == expected.window.width);
         REQUIRE(actual.window.height == expected.window.height);
-        REQUIRE(actual.hostEyeStalePolicy == expected.hostEyeStalePolicy);
+        REQUIRE(actual.syncSystem.hostEyeStalePolicy == expected.syncSystem.hostEyeStalePolicy);
     }
 
     const char* kMinimalWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
@@ -716,7 +716,7 @@ SCENARIO("channel offset and stale policy are applied to SynchronSystem after in
         Engine engine;
         const TempConfigFile file(kLeftJson);
         REQUIRE(engine.loadConfig(file.path()));
-        REQUIRE_FALSE(nearlyEqual(engine.config.offsetDeg.yaw, 0.0));
+        REQUIRE_FALSE(nearlyEqual(engine.config.syncSystem.offsetDeg.yaw, 0.0));
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -725,8 +725,8 @@ SCENARIO("channel offset and stale policy are applied to SynchronSystem after in
 
             THEN("SynchronSystem uses the channel offset and stale policy")
             {
-                REQUIRE(offsetEquals(engine.synchronSystem().offsetDeg(), engine.config.offsetDeg));
-                REQUIRE(engine.synchronSystem().hostEyeStalePolicy() == engine.config.hostEyeStalePolicy);
+                REQUIRE(offsetEquals(engine.synchronSystem().offsetDeg(), engine.config.syncSystem.offsetDeg));
+                REQUIRE(engine.synchronSystem().hostEyeStalePolicy() == engine.config.syncSystem.hostEyeStalePolicy);
             }
         }
     }
@@ -759,11 +759,11 @@ SCENARIO("channelId does not start Host when hostConfig is absent", "[acceptance
 {
     GIVEN("a config with channelId 0 but no hostConfig or igConfig")
     {
-        const TempConfigFile file(std::string(R"({ "channelId": 0, )") + kMinimalModel + ", " + kMinimalWindow +
-                                  "}");
+        const TempConfigFile file(std::string(R"({ "syncSystem": { "channelId": 0 }, )") + kMinimalModel + ", " +
+                                  kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
-        REQUIRE(engine.config.channelId == 0);
+        REQUIRE(engine.config.syncSystem.channelId == 0);
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -831,8 +831,8 @@ SCENARIO("IG-only with requireIgConnect true fails init when Host is down", "[ac
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
-        const TempConfigFile file(std::string("{") + jsonIgConfig(18003) + ", " +
-                                  R"("requireIgConnect": true, )" + kMinimalModel + ", " + kMinimalWindow + "}");
+        const TempConfigFile file(std::string("{") + jsonIgConfig(18003) + R"(, "syncSystem": { "requireIgConnect": true }, )" +
+                                  kMinimalModel + ", " + kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
@@ -923,7 +923,7 @@ TEST_CASE("loadEngineChannelConfig accepts igConfig without requireIgConnect", "
 
 TEST_CASE("loadEngineChannelConfig rejects requireIgConnect without igConfig", "[unit][config][parse]")
 {
-    const TempConfigFile file(std::string("{") + R"("requireIgConnect": true, )" + kMinimalModel + ", " +
+    const TempConfigFile file(std::string(R"({ "syncSystem": { "requireIgConnect": true }, )") + kMinimalModel + ", " +
                               kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -943,7 +943,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[
 TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)", "[unit][config][parse]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
-                              R"(, "offsetDeg": { "yaw": 1.0 }})");
+                              R"(, "syncSystem": { "offsetDeg": { "yaw": 1.0 } }})");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1043,8 +1043,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig parses syncSystem group and mirrors flat fields",
-          "[unit][config][parse][syncSystem]")
+TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem]")
 {
     const TempConfigFile file(
         R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
@@ -1055,16 +1054,10 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group and mirrors flat fiel
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    // syncSystem 组值
     REQUIRE(cfg.syncSystem.channelId == 3);
     REQUIRE(offsetEquals(cfg.syncSystem.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
     REQUIRE(cfg.syncSystem.hostEyeStalePolicy == HostEyeStalePolicy::FREEZE);
     REQUIRE(cfg.syncSystem.requireIgConnect);
-    // 旧扁平字段同步（旧访问点保持可用）
-    REQUIRE(cfg.channelId == 3);
-    REQUIRE(offsetEquals(cfg.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
-    REQUIRE(cfg.hostEyeStalePolicy == HostEyeStalePolicy::FREEZE);
-    REQUIRE(cfg.requireIgConnect);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group", "[unit][config][parse][syncSystem]")

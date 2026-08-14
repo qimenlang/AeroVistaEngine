@@ -12,7 +12,6 @@
 #include <thread>
 
 using aerovista::sync::IgSync;
-
 namespace
 {
     // 时钟同步方案.md §3/§4 注入结构体：IgSync::HostTimeStamp 提供真实实现。
@@ -283,7 +282,6 @@ TEST_CASE("unit conversion from raw tick to us and ms is exact", "[unit][sync][c
 // 系统测试：接入 Engine，A=Host+IG、B=纯 IG，用真实 socket 连接，收发真实 CIGI
 // 时间戳报文，验证 IG 的模拟时间 = Host 基准时间戳 + 本地流逝补偿。
 // 接口已实现：IgSync::queueHostTimeStamp / simTimeUsAt / setExtrapolateTimeoutUs / frozen。
-// 标记 = 契约未定稿；实现后补签。
 // 标签 [acceptance][bdd][sync][clock][e2e]。
 // =============================================================================
 
@@ -324,7 +322,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
                 const std::uint64_t hostBaseUs = ig.lastHostSimTimeUs();
                 REQUIRE(hostBaseUs > 0);
 
-                // 消费时刻 ≥ Host 基准（本地流逝补偿有效，且不小于 Host 时间戳基准）> 1 帧延迟。
+                // 消费时刻 ≥ Host 基准（本地流逝补偿有效，且不小于 Host 时间戳基准，含 >1 帧延迟）。
                 const auto nowUs = [](auto now) {
                     return static_cast<std::uint64_t>(
                         std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());

@@ -84,19 +84,13 @@ struct SyncSystemConfig
 struct EngineChannelConfig
 {
     // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect。
-    // 解析时若 JSON 有 `syncSystem` 组则用之；否则回退下面的旧扁平字段（平滑迁移，见 sync模块化设计.md §4.2）。
     SyncSystemConfig syncSystem{};
 
-    // 旧扁平字段（兼容）：解析回退目标 + 旧访问点保持可用。
-    int channelId = 0;
-    OffsetDeg offsetDeg{};
     HostConfig hostConfig{};
     IgConfig igConfig{};
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
-    HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
     CoordFrameIntent coordFrame = CoordFrameIntent::LOCAL;
-    bool requireIgConnect = false;
 
     /// 对应 JSON 对象键出现时置位（父键 enable）。
     bool hasHostConfig = false;

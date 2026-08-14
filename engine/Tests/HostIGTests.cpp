@@ -100,7 +100,7 @@ namespace
     }
 
     const char* kMainJson =
-        R"({"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
 } // namespace
 
 TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
@@ -1481,12 +1481,16 @@ namespace
                                       const std::string& coordFrame, const std::string& model)
     {
         std::string body = std::string(R"({
+              "syncSystem": {
               "channelId": )") +
                            std::to_string(channelId) + R"(,
-              "coordFrame": ")" +
-                           coordFrame + R"(",
               "offsetDeg": { "yaw": )" +
                            std::to_string(yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
+              "requireIgConnect": )" +
+                           (isHost ? std::string("true") : std::string("false")) + R"(
+              },
+              "coordFrame": ")" +
+                           coordFrame + R"(",
               "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
                            std::to_string(kBase) +
                            R"(, "udpPortRecv": )" + std::to_string(udpRecv) +
@@ -1503,9 +1507,7 @@ namespace
         body += R"(
               "model": ")" +
                 model + R"(",
-              "window": { "x": 0, "y": 0, "width": 640, "height": 480 },
-              "requireIgConnect": )" +
-                (isHost ? std::string("true") : std::string("false")) + R"(
+              "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
             })";
         return body;
     }
@@ -1552,12 +1554,12 @@ namespace
             REQUIRE(c.loadConfig(igCFile.path()));
             REQUIRE(a.init());
             // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
-            REQUIRE(b.initSync(b.config.toSyncRole(), b.config.requireIgConnect));
+            REQUIRE(b.initSync(b.config.toSyncRole(), b.config.syncSystem.requireIgConnect));
             REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
-            b.synchronSystem().setOffsetDeg(b.config.offsetDeg);
-            REQUIRE(c.initSync(c.config.toSyncRole(), c.config.requireIgConnect));
+            b.synchronSystem().setOffsetDeg(b.config.syncSystem.offsetDeg);
+            REQUIRE(c.initSync(c.config.toSyncRole(), c.config.syncSystem.requireIgConnect));
             REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
-            c.synchronSystem().setOffsetDeg(c.config.offsetDeg);
+            c.synchronSystem().setOffsetDeg(c.config.syncSystem.offsetDeg);
 
             // 握手是异步网络时序：Windows 下偶发 UDP_SYNC 丢包/调度延迟会让 connect 失败。
             // B/C 的 requireIgConnect=false 会静默继续，此时对未同步的 IG 重连并等待全部 ready。
@@ -1613,8 +1615,8 @@ namespace
             REQUIRE(vsg::length(up - expectedHostUp) < kDirEps);       // up == R_host·ẑ
             REQUIRE(vsg::length(forward - expectedForward) < kDirEps); // forward == R_host·Rz(δ)·ŷ
         };
-        check(h.b.synchronSystem().lastAppliedHostEye(), h.b.config.offsetDeg);
-        check(h.c.synchronSystem().lastAppliedHostEye(), h.c.config.offsetDeg);
+        check(h.b.synchronSystem().lastAppliedHostEye(), h.b.config.syncSystem.offsetDeg);
+        check(h.c.synchronSystem().lastAppliedHostEye(), h.c.config.syncSystem.offsetDeg);
     }
 
     // ECEF 刚性断言：B/C up（ECEF）与 Host up 平行、forward == R_host·Rz(δ) 经 ENU→ECEF 映射。
@@ -1656,8 +1658,8 @@ namespace
             REQUIRE(vsg::length(upEcef - upEcefExpected) < kDirEps);           // up == R_host·Up（ECEF）
             REQUIRE(vsg::length(forwardEcef - forwardEcefExpected) < kDirEps); // forward == R_host·Rz(δ)·ŷ（ECEF）
         };
-        check(h.b.synchronSystem().lastAppliedHostEye(), h.b.config.offsetDeg, h.b);
-        check(h.c.synchronSystem().lastAppliedHostEye(), h.c.config.offsetDeg, h.c);
+        check(h.b.synchronSystem().lastAppliedHostEye(), h.b.config.syncSystem.offsetDeg, h.b);
+        check(h.c.synchronSystem().lastAppliedHostEye(), h.c.config.syncSystem.offsetDeg, h.c);
     }
 
     vsg::dvec3 lookAtEye(Engine& engine)
@@ -2111,8 +2113,11 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         constexpr int kBase = 19400;
         const TempConfigFile hostFile(
             std::string(R"({
+              "syncSystem": {
               "channelId": 0,
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
+              "requireIgConnect": true
+              },
               "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
             std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
@@ -2121,22 +2126,23 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
             std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( },
               "model": "models/readymap.vsgt",
-              "window": { "x": 0, "y": 0, "width": 640, "height": 480 },
-              "requireIgConnect": true
+              "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
             })");
 
         const TempConfigFile igFile(
             std::string(R"({
+              "syncSystem": {
               "channelId": 1,
-              "coordFrame": "Ellipsoid",
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
+              "requireIgConnect": false
+              },
+              "coordFrame": "Ellipsoid",
               "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
             std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
               "model": "models/lz.vsgt",
-              "window": { "x": 0, "y": 0, "width": 640, "height": 480 },
-              "requireIgConnect": false
+              "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
             })");
 
         Engine engineA;
@@ -2147,9 +2153,9 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
         // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
-        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.requireIgConnect));
+        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.syncSystem.requireIgConnect));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
-        engineB.synchronSystem().setOffsetDeg(engineB.config.offsetDeg);
+        engineB.synchronSystem().setOffsetDeg(engineB.config.syncSystem.offsetDeg);
 
         auto emA = ellipsoidOf(engineA);
         auto emB = engineB.ellipsoidModel();
@@ -2372,9 +2378,9 @@ SCENARIO("authority Host channel keeps offsetDeg at zero",
         {
             THEN("yaw/pitch/roll are all zero (lla §7 权威 offset)")
             {
-                REQUIRE(cfg.offsetDeg.yaw == Catch::Approx(0.0));
-                REQUIRE(cfg.offsetDeg.pitch == Catch::Approx(0.0));
-                REQUIRE(cfg.offsetDeg.roll == Catch::Approx(0.0));
+                REQUIRE(cfg.syncSystem.offsetDeg.yaw == Catch::Approx(0.0));
+                REQUIRE(cfg.syncSystem.offsetDeg.pitch == Catch::Approx(0.0));
+                REQUIRE(cfg.syncSystem.offsetDeg.roll == Catch::Approx(0.0));
             }
         }
     }

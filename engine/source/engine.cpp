@@ -787,7 +787,7 @@ bool Engine::ensureEllipsoidModelForFrame()
     {
         _synchronSystem->setSceneIsEllipsoid(static_cast<bool>(ellipsoidModel));
         _synchronSystem->setEllipsoidModel(ellipsoidModel);
-        _synchronSystem->setChannelId(config.channelId);
+        _synchronSystem->setChannelId(config.syncSystem.channelId);
     }
     return true;
 }
@@ -924,12 +924,12 @@ bool Engine::init()
 {
     applyConfigToEngine();
     // 父键 enable；requireIgConnect 来自配置（默认 false）。
-    if (!initSync(config.toSyncRole(), config.requireIgConnect))
+    if (!initSync(config.toSyncRole(), config.syncSystem.requireIgConnect))
         return false;
 
     // 通道 frustum 偏移与无新包策略来自 JSON（不属于 SyncRoleConfig）。
-    _synchronSystem->setOffsetDeg(config.offsetDeg);
-    _synchronSystem->setHostEyeStalePolicy(config.hostEyeStalePolicy);
+    _synchronSystem->setOffsetDeg(config.syncSystem.offsetDeg);
+    _synchronSystem->setHostEyeStalePolicy(config.syncSystem.hostEyeStalePolicy);
 
     if (!config.entities.empty())
         return initGraphicsFromEntities();
@@ -951,7 +951,7 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
     _simStartMs = 0.0;
     if (!_synchronSystem->initialize(syncRole, requireIgConnect))
         return false;
-    _synchronSystem->setChannelId(config.channelId);
+    _synchronSystem->setChannelId(config.syncSystem.channelId);
     // 命令执行桥在同步初始化时绑定（不依赖图形）：IG-only 引擎（测试无 initGraphics）同样可执行命令。
     bindSyncCommandHandler();
     return true;

@@ -267,32 +267,13 @@ namespace
 
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
-        rejectUnknownKeys(root, {"syncSystem", "channelId", "offsetDeg", "igConfig", "hostConfig", "model", "window",
-                                 "hostEyeStalePolicy", "requireIgConnect", "coordFrame", "entities", "entity",
-                                 "camera"});
+        rejectUnknownKeys(root, {"syncSystem", "igConfig", "hostConfig", "model", "window",
+                                 "coordFrame", "entities", "entity", "camera"});
 
         EngineChannelConfig cfg;
 
-        // syncSystem 组（新）：存在则用之，并同步到旧扁平字段（旧访问点不变）。
         if (const JsonValue* v = find(root, "syncSystem"))
-        {
             cfg.syncSystem = parseSyncSystemConfig(requireObjectValue(*v, "syncSystem"));
-            cfg.channelId = cfg.syncSystem.channelId;
-            cfg.offsetDeg = cfg.syncSystem.offsetDeg;
-            cfg.hostEyeStalePolicy = cfg.syncSystem.hostEyeStalePolicy;
-            cfg.requireIgConnect = cfg.syncSystem.requireIgConnect;
-        }
-        // 旧扁平字段（兼容回退）：仅当无 syncSystem 组时按旧逻辑解析。
-        if (find(root, "syncSystem") == nullptr)
-        {
-            cfg.channelId = parseOptionalInt(root, "channelId", cfg.channelId);
-            if (const JsonValue* v = find(root, "offsetDeg"))
-                cfg.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
-            if (find(root, "hostEyeStalePolicy") != nullptr)
-                cfg.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(root, "hostEyeStalePolicy", ""));
-            if (find(root, "requireIgConnect") != nullptr)
-                cfg.requireIgConnect = requireBool(root, "requireIgConnect");
-        }
 
         if (const JsonValue* v = find(root, "hostConfig"))
         {
@@ -331,7 +312,7 @@ namespace
             cfg.camera = parseCamera(requireObjectValue(*v, "camera"), cfg.coordFrame);
         }
 
-        validateIgEndpointPairing(cfg, cfg.requireIgConnect);
+        validateIgEndpointPairing(cfg, cfg.syncSystem.requireIgConnect);
         return cfg;
     }
 } // namespace
