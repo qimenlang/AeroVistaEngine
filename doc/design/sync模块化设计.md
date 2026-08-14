@@ -66,8 +66,7 @@ SynchronSystem 与宿主相机通过**数据流**交互，不持有宿主的任�
 
 ```cpp
 // SynchronSystem（sync 库）：
-void setSceneIsEllipsoid(bool sceneIsEllipsoid);                    // 宿主场景确定/重建后注入
-void setEllipsoidModel(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid); // LLA 采样/防回声需要
+void setEllipsoidModel(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid); // 场景模式注入：非空=椭球，空=本地（唯一入口）
 void setChannelId(int channelId);                                   // 错误日志
 
 void captureAuthorityEye(const vsg::LookAt& lookAt);                // Host 引擎：handleEvents 后喂当前相机 LookAt
@@ -80,7 +79,7 @@ void postFrame(double simTimeMs);
 //   WorldLocal → setCameraPose；LLA → setCameraPoseLla
 ```
 
-- 门面对相机的「读」全部变成**显式输入**：场景模式（`setSceneIsEllipsoid`）、椭球（`setEllipsoidModel`）、采样（`captureAuthorityEye(lookAt)`）。
+- 门面对相机的「读」全部变成**显式输入**：场景模式（`setEllipsoidModel`，空=本地）、采样（`captureAuthorityEye(lookAt)`）。
 - 门面对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（含 frame），宿主自行应用。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
 - 宿主 `Engine` 提供 `stepSync()`（决策 + 应用，无采样）供测试/`tickSync` 使用；真实帧循环在 `update()` 内完成采样 + 应用。
@@ -194,7 +193,7 @@ SynchronSystem::create()->initialize(role);
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entities`/`camera`/`coordFrame` = engine 渲染属性（不进 sync）。
 
-**消费路径**：engine 从 `config.syncSystem` 注入 `SynchronSystem`（`setChannelId`/`setOffsetDeg`/`setHostEyeStalePolicy`/`initialize(requireIgConnect)`）。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
+**消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`hostConfig`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`）。
 

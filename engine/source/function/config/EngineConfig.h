@@ -13,6 +13,7 @@ using aerovista::sync::OffsetDeg;
 using aerovista::sync::parseHostConfig;
 using aerovista::sync::parseIgConfig;
 using aerovista::sync::SyncRoleConfig;
+using aerovista::sync::SyncSystemConfig;
 
 struct WindowConfig
 {
@@ -68,16 +69,6 @@ struct CameraConfig
     bool hasPoseEllipsoid = false;
     LocalPoseConfig localPose{};
     EllipsoidPoseConfig ellipsoidPose{};
-};
-
-/// SynchronSystem 装配属性（sync模块化设计.md §4.2）。
-/// IG 侧消费为主（offset/stale/requireIgConnect），channelId 两端标识。
-struct SyncSystemConfig
-{
-    int channelId = 0;
-    OffsetDeg offsetDeg{};
-    HostEyeStalePolicy hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
-    bool requireIgConnect = false;
 };
 
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，设计 §3.1）。

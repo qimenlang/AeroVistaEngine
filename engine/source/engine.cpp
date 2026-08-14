@@ -784,11 +784,7 @@ bool Engine::ensureEllipsoidModelForFrame()
                   << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
     }
     if (_synchronSystem)
-    {
-        _synchronSystem->setSceneIsEllipsoid(static_cast<bool>(ellipsoidModel));
         _synchronSystem->setEllipsoidModel(ellipsoidModel);
-        _synchronSystem->setChannelId(config.syncSystem.channelId);
-    }
     return true;
 }
 
@@ -923,13 +919,9 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 bool Engine::init()
 {
     applyConfigToEngine();
-    // 父键 enable；requireIgConnect 来自配置（默认 false）。
-    if (!initSync(config.toSyncRole(), config.syncSystem.requireIgConnect))
+    // 父键 enable；装配配置（channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect）来自 syncSystem 组。
+    if (!initSync(config.toSyncRole(), config.syncSystem))
         return false;
-
-    // 通道 frustum 偏移与无新包策略来自 JSON（不属于 SyncRoleConfig）。
-    _synchronSystem->setOffsetDeg(config.syncSystem.offsetDeg);
-    _synchronSystem->setHostEyeStalePolicy(config.syncSystem.hostEyeStalePolicy);
 
     if (!config.entities.empty())
         return initGraphicsFromEntities();
@@ -946,12 +938,19 @@ bool Engine::init(const vsg::Path& modelPath)
 
 bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
 {
+    // 程序化路径（测试）：仅指定 requireIgConnect，其余装配配置用默认值。
+    SyncSystemConfig syncSystem;
+    syncSystem.requireIgConnect = requireIgConnect;
+    return initSync(syncRole, syncSystem);
+}
+
+bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& syncSystem)
+{
     // 模拟时间轴起点（时钟同步方案.md §5 方案 B）：从 init 时刻起连续推进。
     _simStartTime = std::chrono::steady_clock::now();
     _simStartMs = 0.0;
-    if (!_synchronSystem->initialize(syncRole, requireIgConnect))
+    if (!_synchronSystem->initialize(syncRole, syncSystem))
         return false;
-    _synchronSystem->setChannelId(config.syncSystem.channelId);
     // 命令执行桥在同步初始化时绑定（不依赖图形）：IG-only 引擎（测试无 initGraphics）同样可执行命令。
     bindSyncCommandHandler();
     return true;

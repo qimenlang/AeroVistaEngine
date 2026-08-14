@@ -1010,7 +1010,7 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
         role.enableIg = true;
         role.igConfig = makeIgLocalEye(18001, 18000);
         // Host 未启动 → Connect 失败，但仍完成本地 Init。
-        REQUIRE(engine.synchronSystem().initialize(role, /*requireIgConnect=*/false));
+        REQUIRE(engine.synchronSystem().initialize(role, SyncSystemConfig{/*requireIgConnect=*/false}));
         REQUIRE_FALSE(engine.synchronSystem().igLinked());
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
@@ -2655,7 +2655,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         SyncRoleConfig role;
         role.enableHost = true;
         role.hostConfig = host;
-        REQUIRE(viewhost->initialize(role, /*requireIgConnect=*/false));
+        REQUIRE(viewhost->initialize(role, SyncSystemConfig{/*requireIgConnect=*/false}));
 
         // 带 IG 的 engine（纯 IG，连 viewhost）。
         Engine engineIg;
@@ -2736,17 +2736,18 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
         SyncRoleConfig hostRole;
         hostRole.enableHost = true;
         hostRole.hostConfig = host;
-        REQUIRE(hostSync->initialize(hostRole, /*requireIgConnect=*/false));
+        REQUIRE(hostSync->initialize(hostRole, SyncSystemConfig{/*requireIgConnect=*/false}));
 
         auto igSync = SynchronSystem::create();
         SyncRoleConfig igRole;
         igRole.enableIg = true;
         igRole.igConfig = ig;
         // 装配参数程序化注入（外部 engine 不经 syncSystem 配置文件时的路径）。
-        igSync->setChannelId(2);
-        igSync->setOffsetDeg(OffsetDeg{5.0, 0.0, 0.0});
-        igSync->setHostEyeStalePolicy(HostEyeStalePolicy::REUSE_LAST);
-        REQUIRE(igSync->initialize(igRole, /*requireIgConnect=*/false));
+        SyncSystemConfig igSystem;
+        igSystem.channelId = 2;
+        igSystem.offsetDeg = OffsetDeg{5.0, 0.0, 0.0};
+        igSystem.hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
+        REQUIRE(igSync->initialize(igRole, igSystem));
 
         WHEN("IG connects to host and both link")
         {
