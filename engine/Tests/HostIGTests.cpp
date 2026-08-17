@@ -749,6 +749,16 @@ SCENARIO("three Engines exchange CIGI frame control across one Host and three IG
 
 namespace
 {
+    // HostEyePose 边界类型 DVec3 ↔ 测试内部 vsg::dvec3（sync 公开头零 vsg，测试工程内自转）。
+    inline vsg::dvec3 toVsg(const aerovista::sync::DVec3& v)
+    {
+        return {v.x, v.y, v.z};
+    }
+    inline aerovista::sync::DVec3 toDVec3(const vsg::dvec3& v)
+    {
+        return {v.x, v.y, v.z};
+    }
+
     // R = Rz*Rx*Ry，通过依次作用轴四元数（VSG 四元数乘法是 reverse-Hamilton）。
     vsg::dvec3 rotateByEulerYprDeg(const vsg::dvec3& eulerYprDeg, const vsg::dvec3& v)
     {
@@ -767,16 +777,19 @@ namespace
                vsg::dquat(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0));
     }
 
-    void requireLookAtMatchesPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
+    void requireLookAtMatchesPose(Engine& engine, const aerovista::sync::DVec3& position,
+                                  const aerovista::sync::DVec3& eulerYprDeg)
     {
         auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
         REQUIRE(lookAt);
 
-        const vsg::dvec3 expectedForward = rotateByEulerYprDeg(eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0));
-        const vsg::dvec3 expectedUp = rotateByEulerYprDeg(eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0));
-        const vsg::dvec3 expectedCenter = position + expectedForward;
+        const vsg::dvec3 pos = toVsg(position);
+        const vsg::dvec3 euler = toVsg(eulerYprDeg);
+        const vsg::dvec3 expectedForward = rotateByEulerYprDeg(euler, vsg::dvec3(0.0, 1.0, 0.0));
+        const vsg::dvec3 expectedUp = rotateByEulerYprDeg(euler, vsg::dvec3(0.0, 0.0, 1.0));
+        const vsg::dvec3 expectedCenter = pos + expectedForward;
 
-        REQUIRE(vsg::length(lookAt->eye - position) < 1e-9);
+        REQUIRE(vsg::length(lookAt->eye - pos) < 1e-9);
         REQUIRE(vsg::length(lookAt->center - expectedCenter) < 1e-9);
         REQUIRE(vsg::length(vsg::normalize(lookAt->up) - vsg::normalize(expectedUp)) < 1e-9);
     }
@@ -791,18 +804,20 @@ namespace
     }
 
     void requireLookAtMatchesLlaPose(Engine& engine, const vsg::EllipsoidModel& ellipsoid,
-                                     const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg,
+                                     const aerovista::sync::DVec3& lla, const aerovista::sync::DVec3& eulerYprDeg,
                                      double eyeEps = 1e-6, double dirEps = 1e-9)
     {
         auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
         REQUIRE(lookAt);
 
+        const vsg::dvec3 llaV = toVsg(lla);
+        const vsg::dvec3 euler = toVsg(eulerYprDeg);
         constexpr double kLookDistance = 1.0;
-        const vsg::dvec3 forwardEnu = rotateByEulerYprDeg(eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0));
-        const vsg::dvec3 upEnu = rotateByEulerYprDeg(eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0));
-        const vsg::dmat4 localToWorld = ellipsoid.computeLocalToWorldTransform(lla);
+        const vsg::dvec3 forwardEnu = rotateByEulerYprDeg(euler, vsg::dvec3(0.0, 1.0, 0.0));
+        const vsg::dvec3 upEnu = rotateByEulerYprDeg(euler, vsg::dvec3(0.0, 0.0, 1.0));
+        const vsg::dmat4 localToWorld = ellipsoid.computeLocalToWorldTransform(llaV);
 
-        const vsg::dvec3 expectedEye = ellipsoid.convertLatLongAltitudeToECEF(lla);
+        const vsg::dvec3 expectedEye = ellipsoid.convertLatLongAltitudeToECEF(llaV);
         const vsg::dvec3 expectedForward = vsg::normalize(rotateEnuToEcef(localToWorld, forwardEnu));
         const vsg::dvec3 expectedUp = vsg::normalize(rotateEnuToEcef(localToWorld, upEnu));
         const vsg::dvec3 expectedCenter = expectedEye + expectedForward * kLookDistance;
@@ -871,8 +886,8 @@ namespace
 
     void requirePoseNear(const HostEyePose& actual, const HostEyePose& expected, double eps = 1e-6)
     {
-        REQUIRE(vsg::length(actual.position - expected.position) < eps);
-        REQUIRE(vsg::length(actual.eulerYprDeg - expected.eulerYprDeg) < eps);
+        REQUIRE(vsg::length(toVsg(actual.position) - toVsg(expected.position)) < eps);
+        REQUIRE(vsg::length(toVsg(actual.eulerYprDeg) - toVsg(expected.eulerYprDeg)) < eps);
     }
 
     HostEyePose hostEyePlusOffset(const HostEyePose& host, const OffsetDeg& offset)
@@ -933,7 +948,7 @@ TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][cam
     const vsg::dvec3 position{10.0, -20.0, 5.0};
     const vsg::dvec3 eulerYprDeg{90.0, 0.0, 0.0}; // yaw 90° about Z
     REQUIRE(engine.setCameraPose(position, eulerYprDeg));
-    requireLookAtMatchesPose(engine, position, eulerYprDeg);
+    requireLookAtMatchesPose(engine, toDVec3(position), toDVec3(eulerYprDeg));
 }
 
 // lla位姿传输设计.md §3.3 / §4.1 / §7：有 EllipsoidModel 时 LLA+当地 YPR → ECEF LookAt。
@@ -957,7 +972,7 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
     const vsg::dvec3 lla{39.9, 116.4, 500.0};
     const vsg::dvec3 eulerYprDeg{45.0, 10.0, 0.0};
     REQUIRE(engine.setCameraPoseLla(lla, eulerYprDeg));
-    requireLookAtMatchesLlaPose(engine, *ellipsoidPerspective->ellipsoidModel, lla, eulerYprDeg);
+    requireLookAtMatchesLlaPose(engine, *ellipsoidPerspective->ellipsoidModel, toDVec3(lla), toDVec3(eulerYprDeg));
 }
 
 // lla位姿传输设计.md §3.5 / §7：LLA 本机往返（单机、无网络）。
@@ -1015,7 +1030,7 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
         const HostEyePose hostPose{{100.0, 200.0, 50.0}, {45.0, 0.0, 0.0}};
-        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
+        REQUIRE(engine.setCameraPose(toVsg(localPose.position), toVsg(localPose.eulerYprDeg)));
 
         WHEN("a Host eye becomes available and sync update runs")
         {
@@ -1045,7 +1060,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
         const HostEyePose hostPose{{100.0, 200.0, 50.0}, {45.0, 0.0, 0.0}};
-        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
+        REQUIRE(engine.setCameraPose(toVsg(localPose.position), toVsg(localPose.eulerYprDeg)));
 
         WHEN("a Host eye becomes available and sync update runs")
         {
@@ -1156,7 +1171,7 @@ SCENARIO("yaw-only offset with Host pitch/roll keeps channel up parallel to Host
                 REQUIRE(lookAt);
 
                 // R_ig = R_host·Rz(δ) ⟹ forward_ig = R_host·(Rz(δ)·ŷ), up_ig = R_host·ẑ = up_host.
-                const vsg::dquat rHost = quatFromEulerYprDeg(hostPose.eulerYprDeg);
+                const vsg::dquat rHost = quatFromEulerYprDeg(toVsg(hostPose.eulerYprDeg));
                 const vsg::dquat rzDelta =
                     vsg::dquat(vsg::radians(kDeltaYawDeg), vsg::dvec3(0.0, 0.0, 1.0));
                 const vsg::dvec3 expectedForward =
@@ -1168,7 +1183,7 @@ SCENARIO("yaw-only offset with Host pitch/roll keeps channel up parallel to Host
 
                 REQUIRE(vsg::length(actualForward - expectedForward) < 1e-9);
                 REQUIRE(vsg::length(actualUp - expectedUp) < 1e-9);
-                REQUIRE(vsg::length(lookAt->eye - hostPose.position) < 1e-9);
+                REQUIRE(vsg::length(lookAt->eye - toVsg(hostPose.position)) < 1e-9);
             }
         }
     }
@@ -1233,7 +1248,7 @@ SCENARIO("Freeze leaves camera unchanged when no new Host eye arrives",
 
         WHEN("local pose is changed and update runs without a new Host eye")
         {
-            REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
+            REQUIRE(engine.setCameraPose(toVsg(localPose.position), toVsg(localPose.eulerYprDeg)));
             engine.stepSync();
 
             THEN("camera stays at the local pose")
@@ -1298,7 +1313,7 @@ SCENARIO("Host-local IG channel also applies Host eye to its camera",
 
         const HostEyePose localPose{{1.0, 1.0, 1.0}, {5.0, 0.0, 0.0}};
         const HostEyePose hostPose{{50.0, 60.0, 70.0}, {12.0, 0.0, 0.0}};
-        REQUIRE(engineA.setCameraPose(localPose.position, localPose.eulerYprDeg));
+        REQUIRE(engineA.setCameraPose(toVsg(localPose.position), toVsg(localPose.eulerYprDeg)));
 
         WHEN("a Host eye becomes available and sync update runs")
         {
@@ -1345,7 +1360,7 @@ SCENARIO("remote IG applies Host eye from live CIGI packets with channel offset"
 
         WHEN("A publishes authority pose and both engines tick (CIGI IGCtrl+EntityPosition fan-out)")
         {
-            REQUIRE(engineA.setCameraPose(intentPose.position, intentPose.eulerYprDeg));
+            REQUIRE(engineA.setCameraPose(toVsg(intentPose.position), toVsg(intentPose.eulerYprDeg)));
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
 
@@ -1389,7 +1404,7 @@ SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
 
         WHEN("A camera becomes Pose_new then a full tick fans out to B via CIGI")
         {
-            REQUIRE(engineA.setCameraPose(poseNew.position, poseNew.eulerYprDeg));
+            REQUIRE(engineA.setCameraPose(toVsg(poseNew.position), toVsg(poseNew.eulerYprDeg)));
             REQUIRE(engineA.tickOnFrame());
             engineB.tickSync();
             REQUIRE(engineA.tickOnFrame());
@@ -1445,7 +1460,7 @@ SCENARIO("three channels share Host eye and differ only by channel offset",
 
         WHEN("A publishes intent and all channels tick (shared CIGI eye, local offsetDeg)")
         {
-            REQUIRE(engineA.setCameraPose(intent.position, intent.eulerYprDeg));
+            REQUIRE(engineA.setCameraPose(toVsg(intent.position), toVsg(intent.eulerYprDeg)));
             for (int i = 0; i < 2; ++i)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -1596,16 +1611,16 @@ namespace
         REQUIRE(lookAtA);
         const vsg::dvec3 hostUp = vsg::normalize(lookAtA->up);
 
-        const vsg::dquat rHost = quatFromEulerYprDeg(intent.eulerYprDeg);
+        const vsg::dquat rHost = quatFromEulerYprDeg(toVsg(intent.eulerYprDeg));
         const vsg::dvec3 expectedHostUp = vsg::normalize(rHost * vsg::dvec3(0.0, 0.0, 1.0));
 
         const auto check = [&](const std::optional<HostEyePose>& applied, const OffsetDeg& offset) {
             REQUIRE(applied.has_value());
             // B/C 为 sync-only（无相机），从 _lastApplied 的 YPR 计算相机基。
             const vsg::dvec3 up =
-                vsg::normalize(rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0)));
+                vsg::normalize(rotateByEulerYprDeg(toVsg(applied->eulerYprDeg), vsg::dvec3(0.0, 0.0, 1.0)));
             const vsg::dvec3 forward =
-                vsg::normalize(rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0)));
+                vsg::normalize(rotateByEulerYprDeg(toVsg(applied->eulerYprDeg), vsg::dvec3(0.0, 1.0, 0.0)));
 
             const vsg::dquat rzDelta = vsg::dquat(vsg::radians(offset.yaw), vsg::dvec3(0.0, 0.0, 1.0));
             const vsg::dvec3 expectedForward = vsg::normalize(rHost * (rzDelta * vsg::dvec3(0.0, 1.0, 0.0)));
@@ -1642,11 +1657,11 @@ namespace
             // B/C 为 sync-only（无相机），从 _lastApplied 的 ENU YPR 经各自椭球转到 ECEF。
             auto em = ig.ellipsoidModel();
             REQUIRE(em);
-            const vsg::dmat4 l2w = em->computeLocalToWorldTransform(applied->position);
+            const vsg::dmat4 l2w = em->computeLocalToWorldTransform(toVsg(applied->position));
             const vsg::dvec3 upEcef =
-                vsg::normalize(rotateEnuToEcef(l2w, rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 0.0, 1.0))));
+                vsg::normalize(rotateEnuToEcef(l2w, rotateByEulerYprDeg(toVsg(applied->eulerYprDeg), vsg::dvec3(0.0, 0.0, 1.0))));
             const vsg::dvec3 forwardEcef =
-                vsg::normalize(rotateEnuToEcef(l2w, rotateByEulerYprDeg(applied->eulerYprDeg, vsg::dvec3(0.0, 1.0, 0.0))));
+                vsg::normalize(rotateEnuToEcef(l2w, rotateByEulerYprDeg(toVsg(applied->eulerYprDeg), vsg::dvec3(0.0, 1.0, 0.0))));
 
             const vsg::dquat rzDelta = vsg::dquat(vsg::radians(offset.yaw), vsg::dvec3(0.0, 0.0, 1.0));
             const vsg::dvec3 forwardEnuExpected = vsg::normalize(rHost * (rzDelta * vsg::dvec3(0.0, 1.0, 0.0)));
@@ -1688,7 +1703,7 @@ SCENARIO("three channels keep up axes parallel to Host when it rolls over live C
 
         WHEN("A publishes the rolled intent and all channels tick (shared CIGI Attach eye, local offsetDeg)")
         {
-            REQUIRE(h.a.setCameraPose(intent.position, intent.eulerYprDeg));
+            REQUIRE(h.a.setCameraPose(toVsg(intent.position), toVsg(intent.eulerYprDeg)));
             h.tick();
 
             THEN("B/C up axes stay parallel to Host up and forwards equal R_host*Rz(delta)")
@@ -1746,7 +1761,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
                 auto applied = engineB.synchronSystem().lastAppliedHostEye();
                 REQUIRE(applied.has_value());
                 REQUIRE(applied->frame == HostEyeCoordFrame::LLA);
-                REQUIRE(vsg::length(applied->position - lla) < 1e-6);
+                REQUIRE(vsg::length(toVsg(applied->position) - lla) < 1e-6);
                 REQUIRE(vsg::length(lookAtEye(engineA) - expectedEcef) < kEcefEps);
             }
         }
@@ -1776,7 +1791,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
         const vsg::dvec3 ypr{25.0, 8.0, -3.0};
-        const HostEyePose hostPose{lla, ypr, HostEyeCoordFrame::LLA};
+        const HostEyePose hostPose{toDVec3(lla), toDVec3(ypr), HostEyeCoordFrame::LLA};
 
         WHEN("a Host LLA eye becomes available and sync update runs")
         {
@@ -1785,7 +1800,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
 
             THEN("LookAt matches Host LLA + ENU YPR (no channel yaw)")
             {
-                requireLookAtMatchesLlaPose(engine, *em, lla, ypr, 1e-2, 1e-6);
+                requireLookAtMatchesLlaPose(engine, *em, toDVec3(lla), toDVec3(ypr), 1e-2, 1e-6);
             }
         }
     }
@@ -1810,7 +1825,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
         engine.synchronSystem().setOffsetDeg(offset);
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
-        const HostEyePose hostPose{lla, {30.0, 5.0, 1.0}, HostEyeCoordFrame::LLA};
+        const HostEyePose hostPose{toDVec3(lla), {30.0, 5.0, 1.0}, HostEyeCoordFrame::LLA};
         const HostEyePose expected = hostEyePlusOffset(hostPose, offset);
 
         WHEN("a Host LLA eye becomes available and sync update runs")
@@ -1821,7 +1836,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
             THEN("LookAt uses Host LLA composed with ENU yaw offset (rigid-array rotation)")
             {
                 REQUIRE(expected.frame == HostEyeCoordFrame::LLA);
-                REQUIRE(vsg::length(expected.position - lla) < 1e-12);
+                REQUIRE(vsg::length(toVsg(expected.position) - lla) < 1e-12);
                 requireLookAtMatchesLlaPose(engine, *em, expected.position, expected.eulerYprDeg, 1e-2, 1e-6);
             }
         }
@@ -1849,7 +1864,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
         // 非零 roll 覆盖刚性阵列不变量：up 与 Host up 保持平行。
-        const HostEyePose hostPose{lla, {20.0, 15.0, -8.0}, HostEyeCoordFrame::LLA};
+        const HostEyePose hostPose{toDVec3(lla), {20.0, 15.0, -8.0}, HostEyeCoordFrame::LLA};
 
         WHEN("the Host LLA eye is applied with that yaw-only channel offset")
         {
@@ -1892,7 +1907,7 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
         const vsg::dvec3 yprHost{30.0, 5.0, 0.0};
-        const HostEyePose intent{lla, yprHost, HostEyeCoordFrame::LLA};
+        const HostEyePose intent{toDVec3(lla), toDVec3(yprHost), HostEyeCoordFrame::LLA};
         const HostEyePose expectedB = hostEyePlusOffset(intent, offsetB);
 
         WHEN("A publishes LLA authority eye over live CIGI and both tick")
@@ -1973,7 +1988,7 @@ SCENARIO("ellipsoid anti-echo skips sampling when LookAt matches lastApplied ECE
 
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
         const vsg::dvec3 ypr{30.0, 5.0, 0.0};
-        const HostEyePose intent{lla, ypr, HostEyeCoordFrame::LLA};
+        const HostEyePose intent{toDVec3(lla), toDVec3(ypr), HostEyeCoordFrame::LLA};
 
         REQUIRE(engineA.setCameraPoseLla(lla, ypr));
         for (int i = 0; i < 3; ++i)
@@ -2184,7 +2199,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
                 auto applied = engineB.synchronSystem().lastAppliedHostEye();
                 REQUIRE(applied.has_value());
                 REQUIRE(applied->frame == HostEyeCoordFrame::LLA);
-                const vsg::dvec3 igEcef = emB->convertLatLongAltitudeToECEF(applied->position);
+                const vsg::dvec3 igEcef = emB->convertLatLongAltitudeToECEF(toVsg(applied->position));
                 REQUIRE(vsg::length(igEcef - hostEcef) > 0.5);
             }
         }
@@ -2228,7 +2243,7 @@ SCENARIO("Host local vs IG ellipsoid rejects mismatched Attach eye and keeps SOF
             std::stringstream errCapture;
             auto* prevCerr = std::cerr.rdbuf(errCapture.rdbuf());
 
-            REQUIRE(engineA.setCameraPose(localEye.position, localEye.eulerYprDeg));
+            REQUIRE(engineA.setCameraPose(toVsg(localEye.position), toVsg(localEye.eulerYprDeg)));
             for (int i = 0; i < 3; ++i)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -2281,7 +2296,7 @@ SCENARIO("local XYZ Host→IG follow remains green under mode-isolation regressi
 
         WHEN("A publishes a local XYZ eye and both tick")
         {
-            REQUIRE(engineA.setCameraPose(localEye.position, localEye.eulerYprDeg));
+            REQUIRE(engineA.setCameraPose(toVsg(localEye.position), toVsg(localEye.eulerYprDeg)));
             for (int i = 0; i < 3; ++i)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -2294,7 +2309,7 @@ SCENARIO("local XYZ Host→IG follow remains green under mode-isolation regressi
                 auto applied = engineB.synchronSystem().lastAppliedHostEye();
                 REQUIRE(applied.has_value());
                 REQUIRE(applied->frame == HostEyeCoordFrame::WORLD_LOCAL);
-                REQUIRE(vsg::length(applied->position - localEye.position) < 1e-4);
+                REQUIRE(vsg::length(toVsg(applied->position) - toVsg(localEye.position)) < 1e-4);
             }
         }
     }
@@ -2419,7 +2434,7 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
         const HostEyePose hostPose{{7.0, 8.0, 9.0}, {12.0, 0.0, 0.0}};
         engine.synchronSystem().setOffsetDeg({});
         // 先采样/发送以填充 `_lastSent`，再应用（仅防回声会跳过发送）。
-        REQUIRE(engine.setCameraPose(hostPose.position, hostPose.eulerYprDeg));
+        REQUIRE(engine.setCameraPose(toVsg(hostPose.position), toVsg(hostPose.eulerYprDeg)));
         REQUIRE(engine.tickOnFrame());
         engine.synchronSystem().queueHostEyePose(hostPose);
         engine.stepSync();
@@ -2464,7 +2479,7 @@ SCENARIO("Local to Ellipsoid initGraphics clears caches and switches scene mode"
         const HostEyePose localPose{{3.0, 4.0, 5.0}, {8.0, 0.0, 0.0}, HostEyeCoordFrame::WORLD_LOCAL};
         engine.synchronSystem().setOffsetDeg({});
         // setCameraPose + tick 采样/发送；避免先 queue+update（防回声会抑制发送）。
-        REQUIRE(engine.setCameraPose(localPose.position, localPose.eulerYprDeg));
+        REQUIRE(engine.setCameraPose(toVsg(localPose.position), toVsg(localPose.eulerYprDeg)));
         REQUIRE(engine.tickOnFrame());
 
         auto sentBefore = engine.synchronSystem().lastSentHostEye();
@@ -2554,7 +2569,7 @@ SCENARIO("WorldLocal lastSent is discarded on ellipsoid scene and not fanned out
         // Align camera via LLA apply so idle capture anti-echoes (no new _frameSample).
         const vsg::dvec3 lla{39.9, 116.4, 500.0};
         const vsg::dvec3 ypr{0.0, 0.0, 0.0};
-        const HostEyePose appliedLla{lla, ypr, HostEyeCoordFrame::LLA};
+        const HostEyePose appliedLla{toDVec3(lla), toDVec3(ypr), HostEyeCoordFrame::LLA};
         REQUIRE(engineA.setCameraPoseLla(lla, ypr));
         engineA.synchronSystem().queueHostEyePose(appliedLla);
         engineA.stepSync();

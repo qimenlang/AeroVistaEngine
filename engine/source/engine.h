@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -172,7 +173,10 @@ private:
     vsg::dvec3 _aabbCentre{0.0, 0.0, 0.0};
     double _aabbRadius = 0.0;
 
-    vsg::ref_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
+    std::unique_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
+    /// 注入 sync 库的椭球大地测量学适配器（用 vsg::EllipsoidModel 实现 EllipsoidTransform）。
+    /// 生命周期覆盖 sync 会话；场景重建 / 本地模式时重建或置空。
+    std::unique_ptr<aerovista::sync::EllipsoidTransform> _ellipsoidTransform;
     /// 实体表：id → Entity（命令面 LOAD/PLACE 与配置实体共用）。
     std::unordered_map<int, Entity> _entityMap;
 };

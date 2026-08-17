@@ -25,6 +25,44 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 namespace
 {
 
+    /// 用 vsg::EllipsoidModel 实现 sync 库的 EllipsoidTransform 注入接口。
+    /// 引擎侧适配器：把 sync 库需要的大地测量学操作桥接到 vsg 实现。
+    class VsgEllipsoidTransform final : public aerovista::sync::EllipsoidTransform
+    {
+    public:
+        explicit VsgEllipsoidTransform(vsg::ref_ptr<vsg::EllipsoidModel> model) :
+            _model(std::move(model)) {}
+
+        aerovista::sync::DVec3 ecefToLla(const aerovista::sync::DVec3& ecef) const override
+        {
+            const vsg::dvec3 lla = _model->convertECEFToLatLongAltitude(vsg::dvec3(ecef.x, ecef.y, ecef.z));
+            return {lla.x, lla.y, lla.z};
+        }
+
+        aerovista::sync::DVec3 llaToEcef(const aerovista::sync::DVec3& lla) const override
+        {
+            const vsg::dvec3 ecef = _model->convertLatLongAltitudeToECEF(vsg::dvec3(lla.x, lla.y, lla.z));
+            return {ecef.x, ecef.y, ecef.z};
+        }
+
+        void localToWorldBasis(const aerovista::sync::DVec3& lla, aerovista::sync::DVec3& east,
+                               aerovista::sync::DVec3& north, aerovista::sync::DVec3& up) const override
+        {
+            const vsg::dmat4 l2w = _model->computeLocalToWorldTransform(vsg::dvec3(lla.x, lla.y, lla.z));
+            east = {l2w(0, 0), l2w(0, 1), l2w(0, 2)};
+            north = {l2w(1, 0), l2w(1, 1), l2w(1, 2)};
+            up = {l2w(2, 0), l2w(2, 1), l2w(2, 2)};
+        }
+
+    private:
+        vsg::ref_ptr<vsg::EllipsoidModel> _model;
+    };
+
+    aerovista::sync::DVec3 toSyncDVec3(const vsg::dvec3& v)
+    {
+        return {v.x, v.y, v.z};
+    }
+
     struct FrameStatsHud
     {
         vsg::ref_ptr<vsg::Text> text;
@@ -783,8 +821,12 @@ bool Engine::ensureEllipsoidModelForFrame()
         std::cerr << "[INFO] EllipsoidModel radii equator=" << ellipsoidModel->radiusEquator()
                   << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
     }
+    if (ellipsoidModel)
+        _ellipsoidTransform = std::make_unique<VsgEllipsoidTransform>(ellipsoidModel);
+    else
+        _ellipsoidTransform.reset();
     if (_synchronSystem)
-        _synchronSystem->setEllipsoidModel(ellipsoidModel);
+        _synchronSystem->setEllipsoidTransform(_ellipsoidTransform.get());
     return true;
 }
 
@@ -1291,7 +1333,11 @@ bool Engine::update()
             if (auto camera = mainCamera())
             {
                 if (auto lookAt = camera->viewMatrix.cast<vsg::LookAt>())
-                    _synchronSystem->captureAuthorityEye(*lookAt);
+                {
+                    const aerovista::sync::CameraLookAt view{
+                        toSyncDVec3(lookAt->eye), toSyncDVec3(lookAt->center), toSyncDVec3(lookAt->up)};
+                    _synchronSystem->captureAuthorityEye(view);
+                }
             }
         }
         _synchronSystem->update();
@@ -1371,10 +1417,12 @@ void Engine::applySyncCameraPose(const HostEyePose& pose)
 {
     if (!hasGraphics())
         return;
+    const vsg::dvec3 position(pose.position.x, pose.position.y, pose.position.z);
+    const vsg::dvec3 eulerYprDeg(pose.eulerYprDeg.x, pose.eulerYprDeg.y, pose.eulerYprDeg.z);
     if (pose.frame == HostEyeCoordFrame::LLA)
-        setCameraPoseLla(pose.position, pose.eulerYprDeg);
+        setCameraPoseLla(position, eulerYprDeg);
     else
-        setCameraPose(pose.position, pose.eulerYprDeg);
+        setCameraPose(position, eulerYprDeg);
 }
 
 void Engine::tickSync()
