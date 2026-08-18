@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include <aerovista/sync/SynchronSystem.h>
+#include <aerovista/sync/HostSync.h>
 
 #include <vsg/nodes/Node.h>
 #include <vsg/ui/KeyEvent.h>
@@ -11,7 +11,7 @@
 class CommandTriggerHandler : public vsg::Inherit<vsg::Visitor, CommandTriggerHandler>
 {
 public:
-    aerovista::sync::SynchronSystem* synchronSystem = nullptr;
+    aerovista::sync::HostSync* host = nullptr;
 
     void apply(vsg::KeyPressEvent& keyPress) override;
 };

@@ -138,14 +138,14 @@ namespace
 
         // 握手异步：轮询直到 A 的 ready peer = self + B 共 2 个。
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
-        while (engineA.synchronSystem().hostSync().readyIgCount() < 2 &&
+        while (engineA.hostSync().readyIgCount() < 2 &&
                std::chrono::steady_clock::now() < deadline)
         {
             if (engineB.synchronSystem().hasIg() && !engineB.synchronSystem().igSync().udpSynced())
                 engineB.synchronSystem().igSync().connect(engineB.config.igConfig);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
     }
 
     // E2E 公用：Host+IG 引擎 A + IG-only 引擎 B（自连产生 2 个 ready peer）。
@@ -155,7 +155,7 @@ namespace
         engineA.showWindow = engineB.showWindow = false;
         REQUIRE(engineA.initSync(makeTestHostIgRole(base + 1, base)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(base + 3, base)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }
 
@@ -167,7 +167,7 @@ namespace
         REQUIRE(engineA.initSync(makeTestHostIgRole(base + 1, base)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(base + 3, base)));
         REQUIRE(engineC.initSync(makeTestIgOnlyRole(base + 5, base)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 3);
+        REQUIRE(engineA.hostSync().readyIgCount() == 3);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }
 
@@ -178,7 +178,7 @@ namespace
         engineA.showWindow = engineB.showWindow = false;
         REQUIRE(engineA.initSync(makeTestHostOnlyRole(base)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(base + 3, base)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 1);
+        REQUIRE(engineA.hostSync().readyIgCount() == 1);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }
 
@@ -312,7 +312,7 @@ SCENARIO("Host sends a command and IG acknowledges received then result",
         WHEN("Host sends a PLACEMODEL command and both engines tick")
         {
             // PLACEMODEL 载荷（不含 seq，初版 §2.2）：id(4B) + pos(3×8B) + ypr(3×8B) = 52B。
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(1)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(1)));
             tickBoth(engineA, engineB);
 
             THEN("IG received the command and reports it")
@@ -336,8 +336,8 @@ SCENARIO("IG executes Load then Place in order", "[acceptance][bdd][sync][cmd][e
 
         WHEN("Host sends LOAD then PLACE and both engines tick")
         {
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(7)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(7)));
             tickBoth(engineA, engineB);
 
             THEN("IG processed two commands in order, PLACE last")
@@ -364,8 +364,8 @@ SCENARIO("IG scene holds the loaded model at the placed pose",
         // PLACEMODEL(id=7) 升级该实体位姿——IG 侧场景必须真实持有模型。
         WHEN("Host sends LOAD then PLACE with a non-zero pose and both engines tick")
         {
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
+            REQUIRE(engineA.hostSync().sendCommand(
                 cigi_wire::Command::PLACE_MODEL, makePlacePayload(7, 10.0, 20.0, 30.0, 0.0, 0.0, 0.0)));
 
             // LOAD 为慢命令（真实 IO ~数百 ms）：按墙钟超时轮询 tick，直到 IG 场景就绪
@@ -406,8 +406,8 @@ SCENARIO("IG holds the loaded model at the placed ECEF pose (config-driven)",
         // PLACEMODEL(id=7) pos=LLA（lat°, lon°, alt m，初版 §2.2）升级实体位姿。
         WHEN("Host sends LOAD then PLACE with an LLA pose and both engines tick")
         {
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
+            REQUIRE(engineA.hostSync().sendCommand(
                 cigi_wire::Command::PLACE_MODEL, makePlacePayload(7, 39.9, 116.4, 500.0, 0.0, 0.0, 0.0)));
 
             // LOAD 为慢命令（真实 IO ~数百 ms）：按墙钟超时轮询 tick，直到 IG 场景就绪
@@ -462,12 +462,12 @@ SCENARIO("IG replies RESULT and Host receives success and failure callbacks",
         WHEN("IG executes a command successfully and both engines tick")
         {
             // LOAD 建 id=0 骨架实体，PLACE(0) 升级位姿 → 执行成功 → RESULT-ACK。
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(7)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(7)));
 
             // LOAD 为慢命令（真实 IO ~数百 ms）：按墙钟超时轮询 tick，直到 RESULT 到达。
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-            while (engineA.synchronSystem().hostSync().lastCommandResultSeq() == 0 &&
+            while (engineA.hostSync().lastCommandResultSeq() == 0 &&
                    std::chrono::steady_clock::now() < deadline)
             {
                 REQUIRE(engineA.tickOnFrame());
@@ -477,7 +477,7 @@ SCENARIO("IG replies RESULT and Host receives success and failure callbacks",
             THEN("Host receives a success callback")
             {
                 // 契约：HostSync 记录最后 RESULT（lastCommandResultAck / lastCommandResultSeq）
-                HostSync& host = engineA.synchronSystem().hostSync();
+                HostSync& host = engineA.hostSync();
                 REQUIRE(host.lastCommandResultSeq() > 0);
                 REQUIRE(host.lastCommandResultAck()); // 成功
             }
@@ -498,13 +498,13 @@ SCENARIO("IG replies RESULT-NACK when execution fails and Host receives failure 
         WHEN("IG fails to execute a command and both engines tick")
         {
             // MOVEMODEL 目标 id=99 不存在 → 执行失败；载荷：id(4B) + delta(24B) + dYpr(24B) = 52B。
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::MOVE_MODEL, makePayloadWithId(99)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::MOVE_MODEL, makePayloadWithId(99)));
             tickBoth(engineA, engineB);
 
             THEN("Host receives a failure callback")
             {
                 // 待实现契约：HostSync 记录最后 RESULT（lastCommandResultAck / lastCommandResultSeq）
-                HostSync& host = engineA.synchronSystem().hostSync();
+                HostSync& host = engineA.hostSync();
                 REQUIRE(host.lastCommandResultSeq() > 0);
                 REQUIRE_FALSE(host.lastCommandResultAck()); // 失败（NACK）
             }
@@ -525,7 +525,7 @@ SCENARIO("Host sends a command to two IGs and both receive it (serial fan-out)",
         // 待实现契约：sendCommand 串行逐 peer 分发（初版 §5.2）。
         WHEN("Host sends one command and all engines tick")
         {
-            REQUIRE(engineA.synchronSystem().hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(1)));
+            REQUIRE(engineA.hostSync().sendCommand(cigi_wire::Command::PLACE_MODEL, makePayloadWithId(1)));
             tickAll(engineA, engineB, engineC);
 
             THEN("both IGs received the command")
@@ -558,7 +558,7 @@ SCENARIO("Host reports undelivered when RECEIVED times out",
             // 让 IG 延迟回 RECEIVED（> 50ms），模拟「连接活着但回执迟到」。
             engineB.synchronSystem().igSync().setCommandReceivedDelayMs(200);
 
-            const bool delivered = engineA.synchronSystem().hostSync().sendCommand(
+            const bool delivered = engineA.hostSync().sendCommand(
                 cigi_wire::Command::PLACE_MODEL, makePayloadWithId(1), /*receivedTimeoutMs=*/50);
             tickBoth(engineA, engineB);
 
@@ -617,7 +617,7 @@ SCENARIO("Host does not fail a slow command while IG is still executing",
         // 慢指令（LOAD 大模型）在实机阻塞主线程一帧、RESULT 随之到达——RESULT 迟到≠判失败。
         WHEN("IG executes a command and both engines tick a few frames")
         {
-            const bool delivered = engineA.synchronSystem().hostSync().sendCommand(
+            const bool delivered = engineA.hostSync().sendCommand(
                 cigi_wire::Command::LOAD_MODEL, makeLoadPayload(7));
             tickBoth(engineA, engineB, 3);
 
@@ -646,7 +646,7 @@ SCENARIO("Host fails a command when IG disconnects (RECEIVED never arrives)",
         {
             engineB.synchronSystem().shutdown(); // IG 掉线（模拟断线）
 
-            const bool delivered = engineA.synchronSystem().hostSync().sendCommand(
+            const bool delivered = engineA.hostSync().sendCommand(
                 cigi_wire::Command::PLACE_MODEL, makePayloadWithId(1), /*receivedTimeoutMs=*/50);
 
             THEN("Host reported the command as undelivered")

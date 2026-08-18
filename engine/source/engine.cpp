@@ -18,7 +18,9 @@
 
 using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
+using aerovista::sync::HostSync;
 using aerovista::sync::SynchronSystem;
+using aerovista::sync::SyncPaceConfig;
 using aerovista::sync::SyncRoleConfig;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
@@ -57,11 +59,6 @@ namespace
     private:
         vsg::ref_ptr<vsg::EllipsoidModel> _model;
     };
-
-    aerovista::sync::DVec3 toSyncDVec3(const vsg::dvec3& v)
-    {
-        return {v.x, v.y, v.z};
-    }
 
     struct FrameStatsHud
     {
@@ -525,6 +522,11 @@ void Engine::applyConfigToEngine()
 SynchronSystem& Engine::synchronSystem()
 {
     return *_synchronSystem;
+}
+
+HostSync& Engine::hostSync()
+{
+    return *_hostSync;
 }
 
 vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
@@ -991,8 +993,25 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& sy
     // 模拟时间轴起点（时钟同步方案.md §5 方案 B）：从 init 时刻起连续推进。
     _simStartTime = std::chrono::steady_clock::now();
     _simStartMs = 0.0;
+
+    // Host：Engine 直接持有 HostSync（直发，不经 SynchronSystem 门面）。
+    _hostSync.reset();
+    if (syncRole.enableHost)
+    {
+        _hostSync = std::make_unique<HostSync>();
+        if (!_hostSync->initialize(syncRole.hostConfig))
+        {
+            std::cerr << "Engine: HostSync initialize failed\n";
+            return false;
+        }
+        _hostSync->setPaceConfig(SyncPaceConfig{});
+        _hostSync->run();
+    }
+
+    // IG：SynchronSystem（IG 决策器）；enableIg=false 时 initialize 仅清空旧 IG。
     if (!_synchronSystem->initialize(syncRole, syncSystem))
         return false;
+
     // 命令执行桥在同步初始化时绑定（不依赖图形）：IG-only 引擎（测试无 initGraphics）同样可执行命令。
     bindSyncCommandHandler();
     return true;
@@ -1027,6 +1046,7 @@ void Engine::resetGraphicsResources()
     // lla §4.3：图形重建时清空眼点缓存（不拆除同步）。
     if (_synchronSystem)
         _synchronSystem->resetEyeCaches();
+    _hostPublisher.reset();
 
     _entityMap.clear();
     _currentExtent = extent;
@@ -1189,11 +1209,11 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
         frameStatsHandler->enabled = &_reportFrameStats;
         _viewer->addEventHandler(frameStatsHandler);
 
-        // 实机命令触发：仅 Host 引擎（有 ready IG）挂 F3 热键。
-        if (_synchronSystem && _synchronSystem->hasHost())
+        // 实机命令触发：仅 Host 引擎（有 HostSync）挂 F3 热键。
+        if (_hostSync)
         {
             auto commandHandler = CommandTriggerHandler::create();
-            commandHandler->synchronSystem = _synchronSystem.get();
+            commandHandler->host = _hostSync.get();
             _viewer->addEventHandler(commandHandler);
         }
 
@@ -1325,21 +1345,20 @@ bool Engine::update()
 
     _viewer->handleEvents();
 
-    // Host→IG：先采样权威眼（覆盖前），再让 SynchronSystem 决策，应用本帧位姿。
-    if (_synchronSystem)
+    // Host→IG：先采样权威眼（覆盖前）；IG 决策器收包/决策，应用本帧位姿。
+    if (_hostSync)
     {
-        if (_synchronSystem->hasHost())
+        if (auto camera = mainCamera())
         {
-            if (auto camera = mainCamera())
+            if (auto lookAt = camera->viewMatrix.cast<vsg::LookAt>())
             {
-                if (auto lookAt = camera->viewMatrix.cast<vsg::LookAt>())
-                {
-                    const aerovista::sync::CameraLookAt view{
-                        toSyncDVec3(lookAt->eye), toSyncDVec3(lookAt->center), toSyncDVec3(lookAt->up)};
-                    _synchronSystem->captureAuthorityEye(view);
-                }
+                _hostPublisher.captureAuthorityEye(
+                    *lookAt, ellipsoidModel().get(), _synchronSystem->lastAppliedHostEye());
             }
         }
+    }
+    if (_synchronSystem)
+    {
         _synchronSystem->update();
         if (auto pose = _synchronSystem->takePendingCameraPose())
             applySyncCameraPose(*pose);
@@ -1394,12 +1413,12 @@ void Engine::postFrame()
     // 子系统：update+render 后读最终状态 / 扇出。
     // 模拟时间基于 steady_clock 连续推进（时钟同步方案.md §5 方案 B）：
     // 渲染卡顿时时间戳跟上真实流逝，IG 外推不因 host 帧节奏波动而放大误差。
-    if (_synchronSystem)
+    if (_hostSync)
     {
         const auto now = std::chrono::steady_clock::now();
         const double elapsedMs =
             std::chrono::duration<double, std::milli>(now - _simStartTime).count();
-        _synchronSystem->postFrame(_simStartMs + elapsedMs);
+        _hostPublisher.postHostFrame(*_hostSync, _simStartMs + elapsedMs, ellipsoidModel().get());
     }
 }
 

@@ -18,14 +18,14 @@
 ```text
 vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
-       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + 门面）
+       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + IG 决策层）
             ├─ 传输层：UdpSocket / CigiWire / EventProcess / HostSync / IgSync
             │           / SyncConfig / SyncProtocol
-            ├─ 门面层：SynchronSystem（纯数据流：场景模式注入 + 采样喂入 + 产出位姿）
+            ├─ IG 决策层：SynchronSystem（收包 + frame 校验 + offset 合成 + 产出位姿）
             └─ 外部依赖：cigicl-static、ws2_32（vsg 仅作构建期依赖，见 §3.0）
 ```
 
-- 库同时含传输层与门面层。
+- 库同时含传输层与 IG 决策层；Host 采样/扇出由宿主（Engine）直接持有 `HostSync` 完成，不经 `SynchronSystem`。
 - 库公开接口零 vsg（内部复用 vsg header-only 数学，构建期依赖）；不依赖 `Engine`。vsg 依赖策略见 §3.0。
 - **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto`/`sync_json` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。
 
@@ -38,7 +38,7 @@ vsgEngine (exe)
 ## 2. 库结构
 
 - 传输层（`UdpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
-- 门面层（`SynchronSystem`）公开接口零 vsg（自有 POD + 注入接口）、不依赖 Engine，通过纯数据流与宿主交互（§3.1）。
+- IG 决策层（`SynchronSystem`）公开接口零 vsg（自有 POD + 注入接口）、不依赖 Engine，收包后做 frame 校验 / offset 合成 / stale policy / 断线兜底，产出位姿由宿主取走（§3.1）。
 - 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`SyncRoleConfig`/`IgConfig`/`HostConfig`/`SyncPaceConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
@@ -49,11 +49,11 @@ vsgEngine (exe)
 **消除的是对 `Engine`（宿主引擎类）的依赖；公开接口零 vsg，内部复用 vsg header-only 数学（构建期依赖）。** 分两层：
 
 - **传输层**（`UdpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
-- **门面层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。场景模式（椭球变换）/channelId 由宿主注入，权威 LookAt 由宿主采样喂入（自有 POD `CameraLookAt`），产出位姿由宿主应用——门面不触碰宿主的相机对象（数据流，见 §3.1）。
+- **IG 决策层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。场景模式（椭球变换）/channelId 由宿主注入，Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，产出位姿由宿主应用——SynchronSystem 不触碰宿主的相机对象，也不承担 Host 采样/扇出（数据流，见 §3.1）。
 
 vsg 的分层复用：
 
-1. **公开边界零 vsg**：`HostEyePose`/`OffsetDeg` 用自有 POD `DVec3`（`SyncMath.h`），不暴露 `vsg::dvec3`；`captureAuthorityEye` 接收 POD `CameraLookAt`；`SynchronSystem` 不再继承 `vsg::Object`（工厂 `SynchronSystem::create()` 返回 `std::unique_ptr`）。消费方（含完全无 vsg 的 viewhost）编译期零 vsg 头。
+1. **公开边界零 vsg**：`HostEyePose`/`OffsetDeg` 用自有 POD `DVec3`（`SyncMath.h`），不暴露 `vsg::dvec3`；`SynchronSystem` 不再继承 `vsg::Object`（工厂 `SynchronSystem::create()` 返回 `std::unique_ptr`）。消费方（含完全无 vsg 的 viewhost）编译期零 vsg 头。
 2. **内部复用 vsg header-only 数学**：`SynchronSystem.cpp` 内 `#include <vsg/maths/...>` 使用 `dvec3`/`dquat`/`dmat4`/`normalize`/`dot`/`length`/`radians`，这些 `constexpr`/模板内联进 `aerovistaSync` 库，不产生 `vsg::` 外部链接符号，viewhost 链接期零 vsg 库。CMake 中 `vsg::vsg` 为 `PRIVATE` 构建依赖，不传递给消费方。
 3. **大地测量学注入接口**：LLA↔ECEF、ENU 方向换算通过 `EllipsoidTransform` 注入接口（`SyncMath.h`）由宿主实现——engine 用 `vsg::EllipsoidModel` 实现（`VsgEllipsoidTransform` 适配器），viewhost 纯 Host 无需注入。彻底去掉了 `vsg::EllipsoidModel`/`vsg::LookAt` 这类非 header-only 依赖。
 
@@ -62,27 +62,28 @@ vsg 的分层复用：
 
 ### 3.1 相机交互：纯数据流
 
-SynchronSystem 与宿主相机通过**数据流**交互，不持有宿主的任何相机对象。采用数据流而非接口回调的原因：宿主继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。
+SynchronSystem 是**IG 位姿决策器**，与宿主相机通过**数据流**交互，不持有宿主的任何相机对象。采用数据流而非接口回调的原因：宿主继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。
 
 ```cpp
-// SynchronSystem（sync 库）：
+// SynchronSystem（sync 库，IG 决策器）：
 void setEllipsoidTransform(const EllipsoidTransform* transform);    // 场景模式注入：非空=椭球，空=本地（唯一入口）
 void setChannelId(int channelId);                                   // 错误日志
 
-void captureAuthorityEye(const CameraLookAt& lookAt);               // Host 引擎：handleEvents 后喂当前相机 LookAt
 void update();                                                       // 收包 + 决策，产出本帧位姿
 std::optional<HostEyePose> takePendingCameraPose();                 // 取走本帧应写相机的位姿
-void postFrame(double simTimeMs);
 
-// 宿主每帧：
-//   采样（仅 Host）→ update() → takePendingCameraPose() → 按 frame 自己写相机（每帧一次）
+// 宿主（IG 侧）每帧：
+//   preFrame() 收包 → update() 决策 → takePendingCameraPose() → 按 frame 自己写相机（每帧一次）
 //   WorldLocal → setCameraPose；LLA → setCameraPoseLla
+//
+// Host 采样/扇出不经过 SynchronSystem：宿主（Engine）自行持有 HostSync，
+//   每帧 captureAuthorityEye(lookAt) 采样（LookAt→位姿+防回声）+ postHostFrame(simTimeMs) 扇出。
 ```
 
-- 门面对相机的「读」全部变成**显式输入**：场景模式（`setEllipsoidTransform`，空=本地）、采样（`captureAuthorityEye(lookAt)`）。
+- 门面对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，场景模式经 `setEllipsoidTransform()`（空=本地）注入。
 - 门面对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（含 frame），宿主自行应用。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
-- 宿主 `Engine` 提供 `stepSync()`（决策 + 应用，无采样）供测试/`tickSync` 使用；真实帧循环在 `update()` 内完成采样 + 应用。
+- **Host 侧**：宿主 `Engine` 直接持有 `HostSync`，采样（LookAt→位姿 + 防回声）与扇出（IGCtrl）在 Engine 内完成；`stepSync()`（决策 + 应用，无采样）供测试/`tickSync` 使用。
 
 ### 3.2 配置结构归属
 
@@ -92,7 +93,7 @@ void postFrame(double simTimeMs);
 
 ### 3.3 命令面桥
 
-`Engine::bindSyncCommandHandler` 调用 `igSync().setCommandHandler(...)`、`CommandTriggerHandler` 依赖 `SynchronSystem::hostSync()` 均为**引擎 → sync 库**方向的调用，不构成库的反向依赖。命令面桥保持直调，无需接口解耦。
+`Engine::bindSyncCommandHandler` 调用 `igSync().setCommandHandler(...)`、`CommandTriggerHandler` 依赖 `Engine::hostSync()`（HostSync 端点）均为**引擎 → sync 库**方向的调用，不构成库的反向依赖。命令面桥保持直调，无需接口解耦。
 
 ## 4. 配置设计
 

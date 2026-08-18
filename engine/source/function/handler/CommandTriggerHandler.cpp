@@ -63,15 +63,14 @@ namespace
 
 void CommandTriggerHandler::apply(vsg::KeyPressEvent& keyPress)
 {
-    if (!synchronSystem || !synchronSystem->hasHost())
+    if (!host)
         return;
-    HostSync& host = synchronSystem->hostSync();
 
     if (keyPress.keyBase == vsg::KEY_F9)
     {
-        const bool loadOk = host.sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadModelPayload(7, "teapot"));
-        const bool placeOk = host.sendCommand(cigi_wire::Command::PLACE_MODEL,
-                                              makePlaceModelPayload(7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+        const bool loadOk = host->sendCommand(cigi_wire::Command::LOAD_MODEL, makeLoadModelPayload(7, "teapot"));
+        const bool placeOk = host->sendCommand(cigi_wire::Command::PLACE_MODEL,
+                                               makePlaceModelPayload(7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
         std::cout << "[Cmd] F3 LOAD+PLACE id=7 teapot: delivered=" << (loadOk && placeOk) << std::endl;
         return;
     }
@@ -79,8 +78,8 @@ void CommandTriggerHandler::apply(vsg::KeyPressEvent& keyPress)
     if (keyPress.keyBase == vsg::KEY_F10)
     {
         // MOVEMODEL：向上移动 0.1 m（Y+，本坐标系 Z-up 时向上为 Y+；增量无姿态变化）。
-        const bool moveOk = host.sendCommand(cigi_wire::Command::MOVE_MODEL,
-                                             makeMoveModelPayload(7, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0));
+        const bool moveOk = host->sendCommand(cigi_wire::Command::MOVE_MODEL,
+                                              makeMoveModelPayload(7, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0));
         std::cout << "[Cmd] F4 MOVE id=7 +Y 0.1m: delivered=" << moveOk << std::endl;
     }
 }

@@ -1,4 +1,4 @@
-// 时钟同步方案.md §6 验收：IG 时钟同步注入 / 相位展开 / simTimeUs 换算 / 冻结阈值。
+﻿// 时钟同步方案.md §6 验收：IG 时钟同步注入 / 相位展开 / simTimeUs 换算 / 冻结阈值。
 // 接口已实现：IgSync 注入式 + 系统时钟基准（§6 验收点）。
 
 #include <catch2/catch_approx.hpp>
@@ -298,7 +298,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 
         REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         // Host 不加载 graphics，用 tickOnFrame 驱动完整帧循环，postFrame 等超时后发送。
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
@@ -352,7 +352,7 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
         REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(engineC.initSync(makeTestIgOnlyRole(kBase + 5, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 3);
+        REQUIRE(engineA.hostSync().readyIgCount() == 3);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
         WHEN("all engines tick and Host fans out real time stamps to both IGs")
@@ -420,7 +420,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 
         REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
@@ -472,7 +472,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
         REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
         WHEN("the Host pauses between frames and then sends the next time stamp")
@@ -520,7 +520,7 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
 
         REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。

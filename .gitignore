@@ -43,6 +43,7 @@
 build/
 Build/
 build-*/
+out/
 
 # CMake generated files
 CMakeFiles/
@@ -69,3 +70,4 @@ vcpkg_installed/
 Testing/
 .cache/
 .claude/
+test_out.txt

@@ -662,7 +662,7 @@ SCENARIO("single Engine with Host and IG exchanges CIGI frame control over ticks
             THEN("Host and IG exchanged CIGI IGCtrl/SOF via the Engine loop")
             {
                 SynchronSystem& sync = engine.synchronSystem();
-                HostSync& host = sync.hostSync();
+                HostSync& host = engine.hostSync();
                 IgSync& ig = sync.igSync();
 
                 REQUIRE(host.igCtrlSentCount() == kTicks);
@@ -709,7 +709,7 @@ SCENARIO("three Engines exchange CIGI frame control across one Host and three IG
             REQUIRE(engineA.initSync(roleA));
             REQUIRE(engineB.initSync(roleB));
             REQUIRE(engineC.initSync(roleC));
-            REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 3);
+            REQUIRE(engineA.hostSync().readyIgCount() == 3);
             REQUIRE(engineA.initGraphics(modelPath));
 
             constexpr int kTicks = 10;
@@ -723,7 +723,7 @@ SCENARIO("three Engines exchange CIGI frame control across one Host and three IG
 
             THEN("each IG got about N CIGI IGCtrl and A's Host got about N times 3 SOF")
             {
-                HostSync& host = engineA.synchronSystem().hostSync();
+                HostSync& host = engineA.hostSync();
                 IgSync& igA = engineA.synchronSystem().igSync();
                 IgSync& igB = engineB.synchronSystem().igSync();
                 IgSync& igC = engineC.synchronSystem().igSync();
@@ -1308,7 +1308,7 @@ SCENARIO("Host-local IG channel also applies Host eye to its camera",
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engineA.init(modelPath, makeHostIgRole(18001, 18600)));
-        REQUIRE(engineA.synchronSystem().hasHost());
+        REQUIRE(engineA.hasHost());
         REQUIRE(engineA.synchronSystem().igLinked());
 
         const HostEyePose localPose{{1.0, 1.0, 1.0}, {5.0, 0.0, 0.0}};
@@ -1348,7 +1348,7 @@ SCENARIO("remote IG applies Host eye from live CIGI packets with channel offset"
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
 
         OffsetDeg offsetB{60.0, 0.0, 0.0};
@@ -1419,7 +1419,7 @@ SCENARIO("Host fans out the new authority pose instead of an echoed old pose",
 
             AND_THEN("Host last sent authority eye is Pose_new when observable")
             {
-                auto sent = engineA.synchronSystem().lastSentHostEye();
+                auto sent = engineA.lastSentHostEye();
                 REQUIRE(sent.has_value());
                 requirePoseNear(*sent, poseNew);
             }
@@ -1443,7 +1443,7 @@ SCENARIO("three channels share Host eye and differ only by channel offset",
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(engineC.initSync(makeIgOnlyRole(kBase + 5, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 3);
+        REQUIRE(engineA.hostSync().readyIgCount() == 3);
         REQUIRE(engineA.initGraphics(modelPath));
 
         OffsetDeg offsetA{0.0, 0.0, 0.0};
@@ -1581,7 +1581,7 @@ namespace
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
             while (std::chrono::steady_clock::now() < deadline)
             {
-                if (a.synchronSystem().hostSync().readyIgCount() == 3)
+                if (a.hostSync().readyIgCount() == 3)
                     return;
                 for (Engine* ig : {&b, &c})
                 {
@@ -1590,7 +1590,7 @@ namespace
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
-            REQUIRE(a.synchronSystem().hostSync().readyIgCount() == 3);
+            REQUIRE(a.hostSync().readyIgCount() == 3);
         }
 
         void tick(const int frames = 2)
@@ -1728,7 +1728,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath)); // sync-only IG：单进程避免第二个 Vulkan Device
 
@@ -1894,7 +1894,7 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
 
@@ -2001,7 +2001,7 @@ SCENARIO("ellipsoid anti-echo skips sampling when LookAt matches lastApplied ECE
         // Precondition (lla §4.4)：当前 LookAt 的 ECEF eye/forward/up 与 `_lastApplied` 重建一致。
         requireLookAtMatchesLlaPose(engineA, *emA, applied->position, applied->eulerYprDeg, 1e-2, 1e-6);
 
-        auto sentBefore = engineA.synchronSystem().lastSentHostEye();
+        auto sentBefore = engineA.lastSentHostEye();
         REQUIRE(sentBefore.has_value());
         REQUIRE(sentBefore->frame == HostEyeCoordFrame::LLA);
         requirePoseNear(*sentBefore, intent, 1e-3);
@@ -2012,7 +2012,7 @@ SCENARIO("ellipsoid anti-echo skips sampling when LookAt matches lastApplied ECE
 
             THEN("Host does not sample a new intent; lastSent stays the prior LLA eye")
             {
-                auto sentAfter = engineA.synchronSystem().lastSentHostEye();
+                auto sentAfter = engineA.lastSentHostEye();
                 REQUIRE(sentAfter.has_value());
                 REQUIRE(sentAfter->frame == HostEyeCoordFrame::LLA);
                 // Idle → resend `_lastSent`, not a LookAt→LLA re-sample (would drift YPR via float).
@@ -2037,7 +2037,7 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
 
@@ -2072,7 +2072,7 @@ SCENARIO("Host ellipsoid vs IG local rejects mismatched eye and keeps SOF health
         const vsg::Path teapotPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(readymapPath));
         REQUIRE(engineB.initSceneMode(teapotPath));
         REQUIRE(ellipsoidOf(engineA));
@@ -2105,7 +2105,7 @@ SCENARIO("Host ellipsoid vs IG local rejects mismatched eye and keeps SOF health
             THEN("B rejects without polluting camera; first [ERROR]; SOF/ready healthy")
             {
                 REQUIRE(engineB.synchronSystem().eyePoseRejectedByFrameMismatch() > rejectedBefore);
-                REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+                REQUIRE(engineA.hostSync().readyIgCount() == 2);
                 REQUIRE(engineB.synchronSystem().igSync().sofSentCount() > sofBefore);
 
                 auto emA = ellipsoidOf(engineA);
@@ -2225,7 +2225,7 @@ SCENARIO("Host local vs IG ellipsoid rejects mismatched Attach eye and keeps SOF
         const vsg::Path readymapPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(teapotPath));
         REQUIRE(engineB.initSceneMode(readymapPath));
         REQUIRE_FALSE(engineA.ellipsoidModel());
@@ -2256,7 +2256,7 @@ SCENARIO("Host local vs IG ellipsoid rejects mismatched Attach eye and keeps SOF
             THEN("B rejects by frame mismatch; camera unchanged; first [ERROR]; SOF/ready healthy")
             {
                 REQUIRE(engineB.synchronSystem().eyePoseRejectedByFrameMismatch() > rejectedBefore);
-                REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+                REQUIRE(engineA.hostSync().readyIgCount() == 2);
                 REQUIRE(engineB.synchronSystem().igSync().sofSentCount() > sofBefore);
                 REQUIRE_FALSE(engineB.synchronSystem().lastAppliedHostEye().has_value());
 
@@ -2283,7 +2283,7 @@ SCENARIO("local XYZ Host→IG follow remains green under mode-isolation regressi
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
         REQUIRE_FALSE(engineA.ellipsoidModel());
@@ -2440,8 +2440,8 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
         engine.stepSync();
 
         REQUIRE(engine.synchronSystem().lastAppliedHostEye().has_value());
-        REQUIRE(engine.synchronSystem().lastSentHostEye().has_value());
-        REQUIRE(engine.synchronSystem().hasHost());
+        REQUIRE(engine.lastSentHostEye().has_value());
+        REQUIRE(engine.hasHost());
         REQUIRE(engine.synchronSystem().hasIg());
 
         WHEN("initGraphics rebuilds the scene without SynchronSystem::shutdown")
@@ -2451,8 +2451,8 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
             THEN("eye caches are empty while Host/IG links remain")
             {
                 REQUIRE_FALSE(engine.synchronSystem().lastAppliedHostEye().has_value());
-                REQUIRE_FALSE(engine.synchronSystem().lastSentHostEye().has_value());
-                REQUIRE(engine.synchronSystem().hasHost());
+                REQUIRE_FALSE(engine.lastSentHostEye().has_value());
+                REQUIRE(engine.hasHost());
                 REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE(engine.synchronSystem().igLinked());
             }
@@ -2482,7 +2482,7 @@ SCENARIO("Local to Ellipsoid initGraphics clears caches and switches scene mode"
         REQUIRE(engine.setCameraPose(toVsg(localPose.position), toVsg(localPose.eulerYprDeg)));
         REQUIRE(engine.tickOnFrame());
 
-        auto sentBefore = engine.synchronSystem().lastSentHostEye();
+        auto sentBefore = engine.lastSentHostEye();
         REQUIRE(sentBefore.has_value());
         REQUIRE(sentBefore->frame == HostEyeCoordFrame::WORLD_LOCAL);
 
@@ -2493,7 +2493,7 @@ SCENARIO("Local to Ellipsoid initGraphics clears caches and switches scene mode"
             THEN("eye caches are cleared and the scene is ellipsoid")
             {
                 REQUIRE_FALSE(engine.synchronSystem().lastAppliedHostEye().has_value());
-                REQUIRE_FALSE(engine.synchronSystem().lastSentHostEye().has_value());
+                REQUIRE_FALSE(engine.lastSentHostEye().has_value());
                 REQUIRE(ellipsoidOf(engine));
                 REQUIRE(engine.synchronSystem().igLinked());
             }
@@ -2523,7 +2523,7 @@ SCENARIO("Ellipsoid to Local initGraphics clears caches and switches scene mode"
         for (int i = 0; i < 3; ++i)
             REQUIRE(engine.tickOnFrame());
 
-        auto sentBefore = engine.synchronSystem().lastSentHostEye();
+        auto sentBefore = engine.lastSentHostEye();
         REQUIRE(sentBefore.has_value());
         REQUIRE(sentBefore->frame == HostEyeCoordFrame::LLA);
 
@@ -2534,7 +2534,7 @@ SCENARIO("Ellipsoid to Local initGraphics clears caches and switches scene mode"
             THEN("eye caches are cleared and the scene is local")
             {
                 REQUIRE_FALSE(engine.synchronSystem().lastAppliedHostEye().has_value());
-                REQUIRE_FALSE(engine.synchronSystem().lastSentHostEye().has_value());
+                REQUIRE_FALSE(engine.lastSentHostEye().has_value());
                 REQUIRE_FALSE(ellipsoidOf(engine));
                 REQUIRE(engine.synchronSystem().igLinked());
             }
@@ -2557,7 +2557,7 @@ SCENARIO("WorldLocal lastSent is discarded on ellipsoid scene and not fanned out
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
         REQUIRE(ellipsoidOf(engineA));
@@ -2577,9 +2577,9 @@ SCENARIO("WorldLocal lastSent is discarded on ellipsoid scene and not fanned out
 
         // Residual wrong-type cache (lla §4.3)：场景已椭球，`_lastSent` 仍为 WorldLocal。
         const HostEyePose staleLocal{{9.0, 8.0, 7.0}, {15.0, 0.0, 0.0}, HostEyeCoordFrame::WORLD_LOCAL};
-        engineA.synchronSystem().seedLastSentHostEye(staleLocal);
-        REQUIRE(engineA.synchronSystem().lastSentHostEye().has_value());
-        REQUIRE(engineA.synchronSystem().lastSentHostEye()->frame == HostEyeCoordFrame::WORLD_LOCAL);
+        engineA.seedLastSentHostEye(staleLocal);
+        REQUIRE(engineA.lastSentHostEye().has_value());
+        REQUIRE(engineA.lastSentHostEye()->frame == HostEyeCoordFrame::WORLD_LOCAL);
 
         const auto rejectedBefore = engineB.synchronSystem().eyePoseRejectedByFrameMismatch();
 
@@ -2590,7 +2590,7 @@ SCENARIO("WorldLocal lastSent is discarded on ellipsoid scene and not fanned out
 
             THEN("A drops lastSent; B is not hit with a frame-mismatch eye")
             {
-                REQUIRE_FALSE(engineA.synchronSystem().lastSentHostEye().has_value());
+                REQUIRE_FALSE(engineA.lastSentHostEye().has_value());
                 REQUIRE(engineB.synchronSystem().eyePoseRejectedByFrameMismatch() == rejectedBefore);
             }
         }
@@ -2611,7 +2611,7 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engineA.initSync(makeHostIgRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.synchronSystem().hostSync().readyIgCount() == 2);
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
         REQUIRE_FALSE(engineA.ellipsoidModel());
@@ -2625,8 +2625,8 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
         engineA.stepSync();
 
         const HostEyePose staleLla{{39.9, 116.4, 500.0}, {20.0, 0.0, 0.0}, HostEyeCoordFrame::LLA};
-        engineA.synchronSystem().seedLastSentHostEye(staleLla);
-        REQUIRE(engineA.synchronSystem().lastSentHostEye()->frame == HostEyeCoordFrame::LLA);
+        engineA.seedLastSentHostEye(staleLla);
+        REQUIRE(engineA.lastSentHostEye()->frame == HostEyeCoordFrame::LLA);
 
         const auto rejectedBefore = engineB.synchronSystem().eyePoseRejectedByFrameMismatch();
 
@@ -2637,7 +2637,7 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
 
             THEN("A drops lastSent; B is not hit with a frame-mismatch eye")
             {
-                REQUIRE_FALSE(engineA.synchronSystem().lastSentHostEye().has_value());
+                REQUIRE_FALSE(engineA.lastSentHostEye().has_value());
                 REQUIRE(engineB.synchronSystem().eyePoseRejectedByFrameMismatch() == rejectedBefore);
             }
         }
@@ -2652,7 +2652,7 @@ SCENARIO("Lla lastSent is discarded on local scene and not fanned out",
 SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
          "[acceptance][bdd][sync][viewhost][cigi]")
 {
-    GIVEN("a viewhost SynchronSystem loaded from a host-only config file, and an IG engine targeting it")
+    GIVEN("a viewhost HostSync loaded from a host-only config file, and an IG engine targeting it")
     {
         constexpr int kBase = 21000;
 
@@ -2666,11 +2666,10 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         std::string error;
         REQUIRE(loadHostConfig(viewhostFile.path(), host, &error));
 
-        auto viewhost = SynchronSystem::create();
-        SyncRoleConfig role;
-        role.enableHost = true;
-        role.hostConfig = host;
-        REQUIRE(viewhost->initialize(role, SyncSystemConfig{/*requireIgConnect=*/false}));
+        // viewhost 纯 Host：直接持 HostSync（直发，不经 SynchronSystem 门面）。
+        auto viewhost = std::make_unique<HostSync>();
+        REQUIRE(viewhost->initialize(host));
+        viewhost->run();
 
         // 带 IG 的 engine（纯 IG，连 viewhost）。
         Engine engineIg;
@@ -2681,7 +2680,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         WHEN("both link over TCP and UDP handshake")
         {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
-            while (viewhost->hostSync().readyIgCount() < 1 &&
+            while (viewhost->readyIgCount() < 1 &&
                    std::chrono::steady_clock::now() < deadline)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -2689,26 +2688,26 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 
             THEN("viewhost sees one ready IG")
             {
-                REQUIRE(viewhost->hostSync().readyIgCount() == 1);
+                REQUIRE(viewhost->readyIgCount() == 1);
                 REQUIRE(engineIg.synchronSystem().igLinked());
             }
 
             THEN("CIGI IGCtrl flows Host→IG and SOF flows IG→Host")
             {
-                const std::uint32_t sentBefore = viewhost->hostSync().igCtrlSentCount();
+                const std::uint32_t sentBefore = viewhost->igCtrlSentCount();
                 const std::uint32_t recvBefore = engineIg.synchronSystem().igSync().igCtrlReceivedCount();
-                const std::uint32_t sofBefore = viewhost->hostSync().sofReceivedCount();
+                const std::uint32_t sofBefore = viewhost->sofReceivedCount();
 
                 constexpr int kTicks = 5;
                 for (int i = 0; i < kTicks; ++i)
                 {
-                    viewhost->postFrame(i * 16.667); // 无渲染节拍：viewhost 扇出
-                    engineIg.tickSync();             // IG 收包 + 回 SOF
+                    viewhost->update(i * 16.667); // 无渲染节拍：viewhost 扇出
+                    engineIg.tickSync();          // IG 收包 + 回 SOF
                 }
 
-                REQUIRE(viewhost->hostSync().igCtrlSentCount() > sentBefore);
+                REQUIRE(viewhost->igCtrlSentCount() > sentBefore);
                 REQUIRE(engineIg.synchronSystem().igSync().igCtrlReceivedCount() > recvBefore);
-                REQUIRE(viewhost->hostSync().sofReceivedCount() > sofBefore);
+                REQUIRE(viewhost->sofReceivedCount() > sofBefore);
             }
         }
     }
@@ -2723,7 +2722,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
          "[acceptance][bdd][sync][standalone][cigi]")
 {
-    GIVEN("host SynchronSystem from hostConfig file, and IG SynchronSystem from igConfig file")
+    GIVEN("host HostSync from hostConfig file, and IG SynchronSystem from igConfig file")
     {
         constexpr int kBase = 22000;
 
@@ -2746,12 +2745,10 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
         std::string igError;
         REQUIRE(loadIgConfig(igFile.path(), ig, &igError));
 
-        // 两侧各自 SynchronSystem：host-only / ig-only。
-        auto hostSync = SynchronSystem::create();
-        SyncRoleConfig hostRole;
-        hostRole.enableHost = true;
-        hostRole.hostConfig = host;
-        REQUIRE(hostSync->initialize(hostRole, SyncSystemConfig{/*requireIgConnect=*/false}));
+        // 两侧：host 用 HostSync 直发；IG 用 SynchronSystem（IG 决策器）。
+        auto hostSync = std::make_unique<HostSync>();
+        REQUIRE(hostSync->initialize(host));
+        hostSync->run();
 
         auto igSync = SynchronSystem::create();
         SyncRoleConfig igRole;
@@ -2767,7 +2764,7 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
         WHEN("IG connects to host and both link")
         {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
-            while (hostSync->hostSync().readyIgCount() < 1 &&
+            while (hostSync->readyIgCount() < 1 &&
                    std::chrono::steady_clock::now() < deadline)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -2775,27 +2772,27 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
 
             THEN("host sees the standalone IG and IG is linked")
             {
-                REQUIRE(hostSync->hostSync().readyIgCount() == 1);
+                REQUIRE(hostSync->readyIgCount() == 1);
                 REQUIRE(igSync->igLinked());
             }
 
             THEN("CIGI IGCtrl and SOF flow both ways over TCP/UDP")
             {
-                const std::uint32_t sentBefore = hostSync->hostSync().igCtrlSentCount();
+                const std::uint32_t sentBefore = hostSync->igCtrlSentCount();
                 const std::uint32_t recvBefore = igSync->igSync().igCtrlReceivedCount();
-                const std::uint32_t sofBefore = hostSync->hostSync().sofReceivedCount();
+                const std::uint32_t sofBefore = hostSync->sofReceivedCount();
 
                 constexpr int kTicks = 5;
                 for (int i = 0; i < kTicks; ++i)
                 {
-                    hostSync->postFrame(i * 16.667); // host 扇出 IGCtrl
-                    igSync->preFrame();              // IG 收 IGCtrl + 回 SOF
+                    hostSync->update(i * 16.667); // host 扇出 IGCtrl
+                    igSync->preFrame();           // IG 收 IGCtrl + 回 SOF
                     igSync->update();
                 }
 
-                REQUIRE(hostSync->hostSync().igCtrlSentCount() > sentBefore);
+                REQUIRE(hostSync->igCtrlSentCount() > sentBefore);
                 REQUIRE(igSync->igSync().igCtrlReceivedCount() > recvBefore);
-                REQUIRE(hostSync->hostSync().sofReceivedCount() > sofBefore);
+                REQUIRE(hostSync->sofReceivedCount() > sofBefore);
             }
         }
     }

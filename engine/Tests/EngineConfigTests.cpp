@@ -628,7 +628,7 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
 
             THEN("neither Host nor IG is started")
             {
-                REQUIRE_FALSE(engine.synchronSystem().hasHost());
+                REQUIRE_FALSE(engine.hasHost());
                 REQUIRE_FALSE(engine.synchronSystem().hasIg());
             }
         }
@@ -677,9 +677,9 @@ SCENARIO("main channel file starts Host and IG using configured addresses", "[ac
             THEN("IG and Host run with addresses from the loaded config")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(engine.synchronSystem().hasHost());
+                REQUIRE(engine.hasHost());
                 REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
-                REQUIRE(hostConfigEquals(engine.synchronSystem().hostSync().addressConfig(), engine.config.hostConfig));
+                REQUIRE(hostConfigEquals(engine.hostSync().addressConfig(), engine.config.hostConfig));
             }
         }
     }
@@ -701,7 +701,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
             THEN("IG is started and Host is not")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE_FALSE(engine.synchronSystem().hasHost());
+                REQUIRE_FALSE(engine.hasHost());
                 REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
             }
         }
@@ -748,7 +748,7 @@ SCENARIO("host-only config starts Host and does not start IG", "[acceptance][bdd
 
             THEN("only Host is started")
             {
-                REQUIRE(engine.synchronSystem().hasHost());
+                REQUIRE(engine.hasHost());
                 REQUIRE_FALSE(engine.synchronSystem().hasIg());
             }
         }
@@ -772,7 +772,7 @@ SCENARIO("channelId does not start Host when hostConfig is absent", "[acceptance
 
             THEN("sync stays off despite channelId 0")
             {
-                REQUIRE_FALSE(engine.synchronSystem().hasHost());
+                REQUIRE_FALSE(engine.hasHost());
                 REQUIRE_FALSE(engine.synchronSystem().hasIg());
             }
         }
@@ -861,7 +861,7 @@ SCENARIO("main channel requireIgConnect true succeeds when Host is local", "[acc
             THEN("init succeeds and IG is linked")
             {
                 REQUIRE(engine.init());
-                REQUIRE(engine.synchronSystem().hasHost());
+                REQUIRE(engine.hasHost());
                 REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE(engine.synchronSystem().igLinked());
             }
