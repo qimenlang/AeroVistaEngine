@@ -33,7 +33,7 @@ vsgEngine (exe)
 
 - 不改变握手 / 数据面协议与线格式（`sync_proto`、CIGI V4）。
 - 不改变线程模型与命令面时序（主线程执行场景、命令读循环线程回执）。
-- 不做 Host 独立进程改造（那是 [多通道同步模块设计.md](./多通道同步模块设计.md) §1.1 的远期项）。
+- 不做 Host 独立进程的协议 / 上行改造（独立 Host 进程已有 viewhost 示例，见 [viewhost设计.md](./viewhost设计.md)；「指定输入 IG 上行」仍属后期）。
 
 ## 2. 库结构
 
@@ -76,14 +76,15 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 //   preFrame() 收包 → update() 决策 → takePendingCameraPose() → 按 frame 自己写相机（每帧一次）
 //   WorldLocal → setCameraPose；LLA → setCameraPoseLla
 //
-// Host 采样/扇出不经过 SynchronSystem：宿主（Engine）自行持有 HostSync，
-//   每帧 captureAuthorityEye(lookAt) 采样（LookAt→位姿+防回声）+ postHostFrame(simTimeMs) 扇出。
+// Host 采样/扇出不经过 SynchronSystem：宿主（Engine）自行持有 HostSync + HostPosePublisher，
+//   每帧 HostPosePublisher::captureAuthorityEye(lookAt) 采样（LookAt→位姿+防回声）
+//   + HostPosePublisher::postHostFrame(simTimeMs) 扇出。
 ```
 
-- 门面对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，场景模式经 `setEllipsoidTransform()`（空=本地）注入。
-- 门面对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（含 frame），宿主自行应用。
+- SynchronSystem 对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，场景模式经 `setEllipsoidTransform()`（空=本地）注入。
+- SynchronSystem 对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（含 frame），宿主自行应用。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
-- **Host 侧**：宿主 `Engine` 直接持有 `HostSync`，采样（LookAt→位姿 + 防回声）与扇出（IGCtrl）在 Engine 内完成；`stepSync()`（决策 + 应用，无采样）供测试/`tickSync` 使用。
+- **Host 侧**：宿主 `Engine` 直接持有 `HostSync`，采样（LookAt→位姿 + 防回声）与扇出（IGCtrl）经 `HostPosePublisher` 完成；`stepSync()`（决策 + 应用，无采样）供测试/`tickSync` 使用。
 
 ### 3.2 配置结构归属
 
@@ -137,13 +138,15 @@ viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引�
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析只含 `hostConfig` 块的文件。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件。
-- viewhost 用法：
+- viewhost（纯 Host）用法：直接持 `HostSync` 传输层（不经 IG 决策器 `SynchronSystem`），`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `update(simTimeMs, eye*)` 扇出：
 
 ```cpp
 HostConfig host;
 loadHostConfig("viewhost.json", host, &error);
-SyncRoleConfig role; role.enableHost = true; role.hostConfig = host;
-SynchronSystem::create()->initialize(role);
+HostSync hostSync;
+hostSync.initialize(host);
+hostSync.run();
+// 每帧：hostSync.update(simTimeMs, &eye);
 ```
 
 - 独立 IG 用法（外部 engine 挂载，可自由选择配置来源）：
@@ -167,8 +170,8 @@ SynchronSystem::create()->initialize(role);
 **`requireInt` 严格整数**：整数字段（端口等）拒绝小数，sync 侧与引擎侧行为一致。
 
 **验收测试**：
-- `HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → `SynchronSystem::create()` → `initialize(enableHost=true)` 拉起 HostSync，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
-- `HostIGTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（`loadHostConfig`/`loadIgConfig` → 各自 `SynchronSystem`），IG 侧装配参数程序化注入（`setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`），双通道 CIGI 收发。
+- `HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
+- `HostIGTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `SynchronSystem`），IG 侧装配参数程序化注入（`setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`），双通道 CIGI 收发。
 - `EngineConfigTests.cpp` 的 `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝）。
 
 ### 4.2 `syncSystem` 配置组（SynchronSystem 装配属性）

@@ -13,11 +13,6 @@
     "targetTcpPort": 8100,
     "targetUdpPortRecv": 8000
   },
-  "hostConfig": {
-    "udpPortSend": 8001,
-    "udpPortRecv": 8000,
-    "tcpPort": 8100
-  },
   "window": { "x": 640, "y": 0, "width": 640, "height": 1080 },
   "entities": [
     {
