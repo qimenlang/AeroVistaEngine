@@ -1,4 +1,4 @@
-{
+﻿{
   "syncSystem": {
     "channelId": 2,
     "offsetDeg": { "yaw": -18.05, "pitch": 0.0, "roll": 0.0 },
@@ -7,7 +7,6 @@
   },
   "coordFrame": "Ellipsoid",
   "igConfig": {
-    "bindAddr": "127.0.0.1",
     "udpPortSend": 8000,
     "udpPortRecv": 8005,
     "targetAddr": "127.0.0.1",

@@ -106,12 +106,12 @@ namespace
     {
         std::ostringstream oss;
         oss << R"({ "coordFrame": "Ellipsoid", )"
-            << R"("igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" << base
+            << R"("igConfig": { "udpPortSend": )" << base
             << R"(, "udpPortRecv": )" << igUdpRecv << R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )"
             << (base + 100) << R"(, "targetUdpPortRecv": )" << base << R"( }, )";
         if (isHost)
         {
-            oss << R"("hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" << (base + 1)
+            oss << R"("hostConfig": { "udpPortSend": )" << (base + 1)
                 << R"(, "udpPortRecv": )" << base << R"(, "tcpPort": )" << (base + 100) << R"( }, )";
         }
         oss << R"("model": "models/teapot.vsgt", )"

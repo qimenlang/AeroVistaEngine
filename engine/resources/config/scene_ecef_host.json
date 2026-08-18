@@ -7,7 +7,6 @@
   },
   "coordFrame": "Ellipsoid",
   "igConfig": {
-    "bindAddr": "127.0.0.1",
     "udpPortSend": 8000,
     "udpPortRecv": 8001,
     "targetAddr": "127.0.0.1",
@@ -15,7 +14,6 @@
     "targetUdpPortRecv": 8000
   },
   "hostConfig": {
-    "bindAddr": "127.0.0.1",
     "udpPortSend": 8001,
     "udpPortRecv": 8000,
     "tcpPort": 8100

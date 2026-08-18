@@ -89,7 +89,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 - `OffsetDeg`、`HostEyeStalePolicy`、`SyncRoleConfig`、`IgConfig`、`HostConfig`、`SyncPaceConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
-- **`IgConfig` 合并本地绑定 + 远端 Host 目标**（`bindAddr`/`udpPortSend`/`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
+- **`IgConfig` 合并本地收发端口 + 远端 Host 目标**（`udpPortSend`/`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
 
 ### 3.3 命令面桥
 
@@ -103,29 +103,30 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 ```jsonc
 // viewhost（Host-only）
-{ "hostConfig": { "bindAddr": "0.0.0.0", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
+{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
 
 // engine（IG-only）
 {
   "igConfig": {
-    "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8005,   // 本地绑定
+    "udpPortSend": 8000, "udpPortRecv": 8005,   // 本地收发
     "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000  // 远端 Host
   }
 }
 ```
 
 **字段语义**：
-- `hostConfig`：Host 本地传输参数（`bindAddr`/`udpPortSend`/`udpPortRecv`/`tcpPort`）。
-- `igConfig`：IG 本地绑定（`bindAddr`/`udpPortSend`/`udpPortRecv`）+ 远端 Host 目标（`targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）。
+- `hostConfig`：Host 本地传输参数（`udpPortSend`/`udpPortRecv`/`tcpPort`）。
+- `igConfig`：IG 本地收发端口（`udpPortSend`/`udpPortRecv`）+ 远端 Host 目标（`targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）。
 
 **设计理由**：
-- `bindAddr`/`targetAddr` 明确区分「本地绑定」与「远端目标」，语义清晰。
+- 本地 UDP 接收 / TCP 监听**固定绑定所有网卡**（`INADDR_ANY`，即 `0.0.0.0`）；`targetAddr` 才是可配的远端 Host 目标。
+- 已否决 `bindAddr` 字段：实现从未消费「本地绑定网卡」（接收/监听均写死 `INADDR_ANY`），移除以免误导「改配置即可限网卡」。
 - IG 侧一个配置块自洽（本地 + 远端），viewhost 侧一个配置块自洽，两端配置简单。
 - 远端字段加 `target` 前缀，避免与本地同名端口字段冲突。
 
 **校验规则**：`requireIgConnect` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。
 
-**C++ 类型**：`IgConfig`（6 字段）/ `HostConfig`（4 字段）；`SyncRoleConfig` = `{enableHost, enableIg, hostConfig, igConfig}`。
+**C++ 类型**：`IgConfig`（5 字段）/ `HostConfig`（3 字段）；`SyncRoleConfig` = `{enableHost, enableIg, hostConfig, igConfig}`。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
@@ -156,8 +157,8 @@ SynchronSystem::create()->initialize(role);
 
 **配置形态**（schema 与 engine 侧块一致，包裹方案）：
 ```jsonc
-{ "hostConfig": { "bindAddr": "0.0.0.0", "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
-{ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": 8000, "udpPortRecv": 8005,
+{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
+{ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8005,
                 "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
 ```
 

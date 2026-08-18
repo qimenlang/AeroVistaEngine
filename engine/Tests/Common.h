@@ -43,12 +43,12 @@ private:
 
 inline HostConfig makeTestHostConfig(int base)
 {
-    return HostConfig{"127.0.0.1", base + 1, base, base + 100};
+    return HostConfig{base + 1, base, base + 100};
 }
 
 inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
 {
-    return IgConfig{"127.0.0.1", base, udpRecvPort, "127.0.0.1", base + 100, base};
+    return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
 }
 
 inline SyncRoleConfig makeTestHostIgRole(int igUdpRecv, int base)

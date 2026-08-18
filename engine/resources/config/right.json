@@ -6,7 +6,6 @@
     "requireIgConnect": false
   },
   "igConfig": {
-    "bindAddr": "127.0.0.1",
     "udpPortSend": 8000,
     "udpPortRecv": 8005,
     "targetAddr": "127.0.0.1",

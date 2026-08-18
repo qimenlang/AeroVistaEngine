@@ -42,14 +42,14 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 namespace
 {
     // 默认端口见 doc/design/多通道同步模块设计.md
-    HostConfig makeHostLocal(const std::string& addr = "127.0.0.1")
+    HostConfig makeHostLocal()
     {
-        return HostConfig{addr, 8001, 8000, 8100};
+        return HostConfig{8001, 8000, 8100};
     }
 
-    IgConfig makeIgLocal(const std::string& localAddr = "127.0.0.1", int udpRecvPort = 8001)
+    IgConfig makeIgLocal(int udpRecvPort = 8001)
     {
-        return IgConfig{localAddr, 8000, udpRecvPort, "127.0.0.1", 8100, 8000};
+        return IgConfig{8000, udpRecvPort, "127.0.0.1", 8100, 8000};
     }
 
     // UDP 可丢：actual 落在 [expected-slack, expected]
@@ -100,7 +100,7 @@ namespace
     }
 
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true},"igConfig":{"bindAddr":"127.0.0.1","udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"bindAddr":"127.0.0.1","udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
 } // namespace
 
 TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
@@ -441,7 +441,7 @@ SCENARIO("IG connect fails when UDP peer ports are wrong but TCP port is valid",
             WHEN("the IG connects using a Host target with wrong UDP ports")
             {
                 // Connect 使用 targetUdpPortRecv 作为 Host UDP 收端口。
-                IgConfig badUdpConfig{"127.0.0.1", 8000, 8001, "127.0.0.1", 8100, 9999};
+                IgConfig badUdpConfig{8000, 8001, "127.0.0.1", 8100, 9999};
                 const bool connected = ig.connect(badUdpConfig);
 
                 THEN("overall connect fails and neither plane is ready")
@@ -467,11 +467,11 @@ SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync]
         {
             IgSync ig1;
             IgSync ig2;
-            REQUIRE(ig1.initialize(makeIgLocal("127.0.0.1", 8001)));
-            REQUIRE(ig2.initialize(makeIgLocal("127.0.0.1", 8003)));
+            REQUIRE(ig1.initialize(makeIgLocal(8001)));
+            REQUIRE(ig2.initialize(makeIgLocal(8003)));
 
-            REQUIRE(ig1.connect(makeIgLocal("127.0.0.1", 8001)));
-            REQUIRE(ig2.connect(makeIgLocal("127.0.0.1", 8003)));
+            REQUIRE(ig1.connect(makeIgLocal(8001)));
+            REQUIRE(ig2.connect(makeIgLocal(8003)));
 
             THEN("both IGs are synced and Host reports two ready IGs")
             {
@@ -690,17 +690,17 @@ SCENARIO("three Engines exchange CIGI frame control across one Host and three IG
         roleA.enableHost = true;
         roleA.enableIg = true;
         roleA.hostConfig = makeHostLocal();
-        roleA.igConfig = makeIgLocal("127.0.0.1", 8001);
+        roleA.igConfig = makeIgLocal(8001);
 
         SyncRoleConfig roleB{};
         roleB.enableHost = false;
         roleB.enableIg = true;
-        roleB.igConfig = makeIgLocal("127.0.0.1", 8003);
+        roleB.igConfig = makeIgLocal(8003);
 
         SyncRoleConfig roleC{};
         roleC.enableHost = false;
         roleC.enableIg = true;
-        roleC.igConfig = makeIgLocal("127.0.0.1", 8005);
+        roleC.igConfig = makeIgLocal(8005);
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
@@ -900,12 +900,12 @@ namespace
     // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
     HostConfig makeHostLocalEye(int base = 18000)
     {
-        return HostConfig{"127.0.0.1", base + 1, base, base + 100};
+        return HostConfig{base + 1, base, base + 100};
     }
 
     IgConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
     {
-        return IgConfig{"127.0.0.1", base, udpRecvPort, "127.0.0.1", base + 100, base};
+        return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
     }
 
     SyncRoleConfig makeHostIgRole(int igUdpRecv, int base = 18000)
@@ -1506,7 +1506,7 @@ namespace
               },
               "coordFrame": ")" +
                            coordFrame + R"(",
-              "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
+              "igConfig": { "udpPortSend": )" +
                            std::to_string(kBase) +
                            R"(, "udpPortRecv": )" + std::to_string(udpRecv) +
                            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
@@ -1514,7 +1514,7 @@ namespace
         if (isHost)
         {
             body += R"(
-              "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
+              "hostConfig": { "udpPortSend": )" +
                     std::to_string(kBase + 1) +
                     R"(, "udpPortRecv": )" + std::to_string(kBase) + R"(, "tcpPort": )" +
                     std::to_string(kBase + 100) + R"( },)";
@@ -2133,11 +2133,11 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
               "requireIgConnect": true
               },
-              "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+              "igConfig": { "udpPortSend": )") +
             std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
-              "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )" +
+              "hostConfig": { "udpPortSend": )" +
             std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( },
               "model": "models/readymap.vsgt",
@@ -2152,7 +2152,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "requireIgConnect": false
               },
               "coordFrame": "Ellipsoid",
-              "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+              "igConfig": { "udpPortSend": )") +
             std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
@@ -2658,7 +2658,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 
         // viewhost 配置：与 makeTestIgOnlyRole 的 target（tcp=base+100, udpRecv=base）对齐。
         const TempConfigFile viewhostFile(
-            std::string(R"({ "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::string(R"({ "hostConfig": { "udpPortSend": )") +
             std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
 
@@ -2728,12 +2728,12 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
 
         // host 独立配置（udpSend=base+1, udpRecv=base, tcp=base+100）。
         const TempConfigFile hostFile(
-            std::string(R"({ "hostConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::string(R"({ "hostConfig": { "udpPortSend": )") +
             std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
         // IG 独立配置（本地 udpRecv=base+3，target 指向 host 的 tcp=base+100 / udpRecv=base）。
         const TempConfigFile igFile(
-            std::string(R"({ "igConfig": { "bindAddr": "127.0.0.1", "udpPortSend": )") +
+            std::string(R"({ "igConfig": { "udpPortSend": )") +
             std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( } })");
