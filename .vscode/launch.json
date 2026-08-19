@@ -29,6 +29,16 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "aerovistaViewHost",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/vs2019/thirdparty/sync/examples/viewhost/Debug/aerovistaViewHost.exe",
+            "args": [
+            ],
+            "cwd": "${workspaceFolder}/out/build/vs2019/thirdparty/sync/examples/viewhost/Debug",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "vsgviewer",
             "type": "lldb",
             "request": "launch",

@@ -217,10 +217,18 @@ void ViewHostDlg::onTick()
 - `_eye` 构造后**立即初始化**为：`isLla = true`，位置 = 初始演示眼点（lat/lon/alt，位于模型群附近），`yaw = 0`、`pitch = roll = 0`。**禁止**用 `HostSync::EyePose` 默认构造（其 `isLla=false` 会与默认 LLA 矛盾，首帧发出 WorldLocal）。
 - 进入手动模式：从「当前 `_eye`」起始累积，保证切入手动瞬间眼点不跳变。
 
+**键盘切换控制（空格热键，写死）**：
+
+- **空格** = 切换「开始控制 / 停止控制」，与点击 toggle 按钮等价（同一 `OnToggleControl`）。
+- 实现：重写 `PreTranslateMessage`，在消息派发给任何控件前拦截 `WM_KEYDOWN` + `VK_SPACE`，调 `OnToggleControl()` 并 `return TRUE` 吞掉该消息。
+- **为何用 `PreTranslateMessage` 而非 `OnKeyDown`**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框（见上面「三个坑」之 1）；`PreTranslateMessage` 全局先拦截，与焦点无关。`return TRUE` 吞掉消息避免焦点在按钮上时空格被当成「触发按钮」二次消费。
+- **助记键冲突处理（已落地）**：toggle 按钮**不带** `&S` 助记键——字母助记键会被 `IsDialogMessage` 直接激活按钮（按 S 会切换控制而非后退），故按钮文本为纯文字「开始控制」；`退出(&X)` 保留（X 不与操控键冲突）。
+
 **按键映射（初版写死）**：
 
 | 键 | 动作 |
 | --- | --- |
+| 空格 | 切换 开始控制 ↔ 停止控制 |
 | W | 前进（机头方向，水平面） |
 | S | 后退 |
 | A | 左移（机头左侧） |
@@ -289,6 +297,7 @@ void ViewHostDlg::onTick()
 - **平移参考系 = 机头局部（否决地理固定 N/S/E/W）**：WASD 沿当前 `yaw` 的机头局部水平面移动，配合方向键 yaw/pitch 的姿态控制更符合「驾驶」直觉；上下用绝对垂直 alt（§4.2）。
 - **测试范围分层（写死）**：UI / `HostDriver` 薄封装不测（`HostSync` 已由 `HostIGTests` 覆盖）；步进换算是新增纯数值逻辑，挂 `engine/Tests` 的 `[unit]` 测试，与示例共用同一份源码（§6）。
 - **圆周轨迹已移除（决策）**：viewhost 只保留键盘手动操控眼点，不做自动圆周轨迹；`Trajectory` / `TrajectoryConfig` 已删除。眼点由初始值起步，经 `applyManualStep` 累积。
+- **空格热键切换控制（§4.4）**：toggle 按钮**不带助记键**（字母助记键与 WASD/CE 操控键冲突，按 S 会误触发切换）；键盘切换改由 `PreTranslateMessage` 拦截空格实现，避免「按 S 切换控制」的坑。
 
 ## 9. 与实现关系
 
