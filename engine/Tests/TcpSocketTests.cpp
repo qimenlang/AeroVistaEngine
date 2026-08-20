@@ -11,6 +11,7 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <vector>
 
 using aerovista::sync::RecvKind;
 using aerovista::sync::RecvOutcome;
@@ -136,4 +137,31 @@ TEST_CASE("TcpSocket close 幂等", "[unit]")
     REQUIRE_FALSE(pair.server.valid());
     pair.server.close(); // 幂等，不崩溃
     REQUIRE_FALSE(pair.server.valid());
+}
+
+TEST_CASE("TcpSocket 并发 create/destroy 压力不破坏 WSA 引用计数", "[unit][stress]")
+{
+    // 多线程高频 acquire/release WSA 引用计数。若 fetch_add/fetch_sub 非原子，
+    // 计数失衡会提前 WSACleanup，之后 socket() 返回 WSANOTINITIALISED。
+    constexpr int kThreads = 8;
+    constexpr int kIterations = 100;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int t = 0; t < kThreads; ++t)
+    {
+        threads.emplace_back([kIterations] {
+            for (int i = 0; i < kIterations; ++i)
+            {
+                TcpSocket sock;
+                if (sock.listen(0))
+                    sock.close();
+            }
+        });
+    }
+    for (auto& t : threads)
+        t.join();
+
+    TcpSocket after;
+    REQUIRE(after.listen(0));
+    after.close();
 }
