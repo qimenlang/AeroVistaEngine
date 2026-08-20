@@ -147,4 +147,4 @@ recv(sock, buf, len)
 | **Peer 表** | Host 侧维护的「当前有哪些 IG、怎么联系、是否就绪」的名单 |
 
 Host 要向多 IG **单播扇出**时，必须知道每个 IG 的 `IP` + `udpRecvPort`，以及 TCP/UDP 是否都握手完成；这些信息就记在 peer 表里。  
-本项目实现：`HostSync` 内 `IgPeer{ip, udpRecvPort, tcp, tcpReady, udpReady}`；两端 ready 才计入 `readyIgCount` 并参与 IGCtrl 扇出。详见 [多通道同步模块设计.md](../design/多通道同步模块设计.md) §2.3。
+本项目实现：`HostSync` 内 `IgPeer{clientId, ip, udpRecvPort, tcp, tcpReady, udpReady}`；两端 ready 才计入 `readyIgCount` 并参与 IGCtrl 扇出。详见 [多通道同步模块设计.md](../design/多通道同步模块设计.md) §2.3。

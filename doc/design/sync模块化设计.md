@@ -19,7 +19,7 @@
 vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
        └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + IG 决策层）
-            ├─ 传输层：UdpSocket / CigiWire / EventProcess / HostSync / IgSync
+            ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / HostSync / IgSync
             │           / SyncConfig / SyncProtocol
             ├─ IG 决策层：SynchronSystem（收包 + frame 校验 + offset 合成 + 产出位姿）
             └─ 外部依赖：cigicl-static、ws2_32（vsg 仅作构建期依赖，见 §3.0）
@@ -37,7 +37,7 @@ vsgEngine (exe)
 
 ## 2. 库结构
 
-- 传输层（`UdpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - IG 决策层（`SynchronSystem`）公开接口零 vsg（自有 POD + 注入接口）、不依赖 Engine，收包后做 frame 校验 / offset 合成 / stale policy / 断线兜底，产出位姿由宿主取走（§3.1）。
 - 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`SyncRoleConfig`/`IgConfig`/`HostConfig`/`SyncPaceConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
@@ -48,7 +48,7 @@ vsgEngine (exe)
 
 **消除的是对 `Engine`（宿主引擎类）的依赖；公开接口零 vsg，内部复用 vsg header-only 数学（构建期依赖）。** 分两层：
 
-- **传输层**（`UdpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - **IG 决策层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。场景模式（椭球变换）/channelId 由宿主注入，Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，产出位姿由宿主应用——SynchronSystem 不触碰宿主的相机对象，也不承担 Host 采样/扇出（数据流，见 §3.1）。
 
 vsg 的分层复用：

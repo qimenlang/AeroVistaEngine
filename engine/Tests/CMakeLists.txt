@@ -6,6 +6,8 @@ set(SOURCES
     HostIGTests.cpp
     SyncClockTests.cpp
     SyncCommandTests.cpp
+    TcpSocketTests.cpp
+    UdpSocketTests.cpp
     EngineConfigTests.cpp
     ModelConfigTests.cpp
     ViewHostMathTests.cpp
