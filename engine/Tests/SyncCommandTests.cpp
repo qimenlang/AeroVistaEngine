@@ -116,7 +116,7 @@ namespace
         }
         oss << R"("model": "models/teapot.vsgt", )"
             << R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 }, )"
-            << R"("syncSystem": { "requireIgConnect": )" << (isHost ? "true" : "false") << R"( } })";
+            << R"("syncSystem": { "requireConnectedIg": )" << (isHost ? "true" : "false") << R"( } })";
         return oss.str();
     }
 
@@ -133,7 +133,7 @@ namespace
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init()); // host+ig：建 Vulkan Device + 场景
         // B：sync + scene mode only（避免单进程第二个 Vulkan Device）。
-        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.syncSystem.requireIgConnect));
+        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.syncSystem.requireConnectedIg));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
 
         // 握手异步：轮询直到 A 的 ready peer = self + B 共 2 个。

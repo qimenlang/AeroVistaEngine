@@ -963,7 +963,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 bool Engine::init()
 {
     applyConfigToEngine();
-    // 父键 enable；装配配置（channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect）来自 syncSystem 组。
+    // 父键 enable；装配配置（channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg）来自 syncSystem 组。
     if (!initSync(config.toSyncRole(), config.syncSystem))
         return false;
 
@@ -980,11 +980,11 @@ bool Engine::init(const vsg::Path& modelPath)
     return init(modelPath, SyncRoleConfig{});
 }
 
-bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireIgConnect)
+bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireConnectedIg)
 {
-    // 程序化路径（测试）：仅指定 requireIgConnect，其余装配配置用默认值。
+    // 程序化路径（测试）：仅指定 requireConnectedIg，其余装配配置用默认值。
     SyncSystemConfig syncSystem;
-    syncSystem.requireIgConnect = requireIgConnect;
+    syncSystem.requireConnectedIg = requireConnectedIg;
     return initSync(syncRole, syncSystem);
 }
 

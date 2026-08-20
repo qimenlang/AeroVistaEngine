@@ -85,10 +85,10 @@ namespace
         return v->asString();
     }
 
-    void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasRequireIgConnect)
+    void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasRequireConnectedIg)
     {
-        if (hasRequireIgConnect && !cfg.hasIgConfig)
-            throw std::runtime_error("requireIgConnect without igConfig is invalid");
+        if (hasRequireConnectedIg && !cfg.hasIgConfig)
+            throw std::runtime_error("requireConnectedIg without igConfig is invalid");
     }
 
     std::string basenameOfModel(const std::string& modelPath)
@@ -253,15 +253,15 @@ namespace
 
     SyncSystemConfig parseSyncSystemConfig(const JsonObject& obj)
     {
-        rejectUnknownKeys(obj, {"channelId", "offsetDeg", "hostEyeStalePolicy", "requireIgConnect"});
+        rejectUnknownKeys(obj, {"channelId", "offsetDeg", "hostEyeStalePolicy", "requireConnectedIg"});
         SyncSystemConfig ss;
         ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
         if (const JsonValue* v = find(obj, "offsetDeg"))
             ss.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
         if (find(obj, "hostEyeStalePolicy") != nullptr)
             ss.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(obj, "hostEyeStalePolicy", ""));
-        if (find(obj, "requireIgConnect") != nullptr)
-            ss.requireIgConnect = requireBool(obj, "requireIgConnect");
+        if (find(obj, "requireConnectedIg") != nullptr)
+            ss.requireConnectedIg = requireBool(obj, "requireConnectedIg");
         return ss;
     }
 
@@ -312,7 +312,7 @@ namespace
             cfg.camera = parseCamera(requireObjectValue(*v, "camera"), cfg.coordFrame);
         }
 
-        validateIgEndpointPairing(cfg, cfg.syncSystem.requireIgConnect);
+        validateIgEndpointPairing(cfg, cfg.syncSystem.requireConnectedIg);
         return cfg;
     }
 } // namespace

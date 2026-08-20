@@ -57,8 +57,8 @@ public:
     bool init(const vsg::Path& modelPath, const aerovista::sync::SyncRoleConfig& syncRole);
 
     /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。
-    bool initSync(const aerovista::sync::SyncRoleConfig& syncRole, bool requireIgConnect = true);
-    /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect）。
+    bool initSync(const aerovista::sync::SyncRoleConfig& syncRole, bool requireConnectedIg = true);
+    /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg）。
     bool initSync(const aerovista::sync::SyncRoleConfig& syncRole,
                   const aerovista::sync::SyncSystemConfig& syncSystem);
     /// 加载/注入 EllipsoidModel 以做同步模式检查（不创建 Vulkan Device）。

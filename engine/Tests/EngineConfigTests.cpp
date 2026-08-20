@@ -30,9 +30,9 @@ namespace
 {
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
-        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":false},"igConfig":{"udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":false},"igConfig":{"udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -780,12 +780,12 @@ SCENARIO("channelId does not start Host when hostConfig is absent", "[acceptance
 }
 
 // =============================================================================
-// 验收：requireIgConnect（配置项决定连失败是否令 init 失败；缺省恒 false）
+// 验收：requireConnectedIg（配置项决定连失败是否令 init 失败；缺省恒 false）
 // =============================================================================
 
-SCENARIO("IG-only with requireIgConnect false can init when Host is down", "[acceptance][bdd][config]")
+SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[acceptance][bdd][config]")
 {
-    GIVEN("a config with requireIgConnect false and no Host process")
+    GIVEN("a config with requireConnectedIg false and no Host process")
     {
         Engine engine;
         const TempConfigFile file(kLeftJson);
@@ -804,10 +804,10 @@ SCENARIO("IG-only with requireIgConnect false can init when Host is down", "[acc
     }
 }
 
-SCENARIO("IG-only omitting requireIgConnect defaults to false and can init when Host is down",
+SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init when Host is down",
          "[acceptance][bdd][config]")
 {
-    GIVEN("an IG-only config that does not set requireIgConnect")
+    GIVEN("an IG-only config that does not set requireConnectedIg")
     {
         const TempConfigFile file(std::string("{") + jsonIgConfig(18005) + ", " +
                                   kMinimalModel + ", " + kMinimalWindow + "}");
@@ -817,7 +817,7 @@ SCENARIO("IG-only omitting requireIgConnect defaults to false and can init when 
 
         WHEN("the Engine initializes without a Host")
         {
-            THEN("init succeeds (default requireIgConnect is false, no derivation)")
+            THEN("init succeeds (default requireConnectedIg is false, no derivation)")
             {
                 REQUIRE(engine.init());
                 REQUIRE(engine.synchronSystem().hasIg());
@@ -827,11 +827,11 @@ SCENARIO("IG-only omitting requireIgConnect defaults to false and can init when 
     }
 }
 
-SCENARIO("IG-only with requireIgConnect true fails init when Host is down", "[acceptance][bdd][config]")
+SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[acceptance][bdd][config]")
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
-        const TempConfigFile file(std::string("{") + jsonIgConfig(18003) + R"(, "syncSystem": { "requireIgConnect": true }, )" +
+        const TempConfigFile file(std::string("{") + jsonIgConfig(18003) + R"(, "syncSystem": { "requireConnectedIg": true }, )" +
                                   kMinimalModel + ", " + kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
@@ -847,9 +847,9 @@ SCENARIO("IG-only with requireIgConnect true fails init when Host is down", "[ac
     }
 }
 
-SCENARIO("main channel requireIgConnect true succeeds when Host is local", "[acceptance][bdd][config]")
+SCENARIO("main channel requireConnectedIg true succeeds when Host is local", "[acceptance][bdd][config]")
 {
-    GIVEN("a config with Host+IG and requireIgConnect true")
+    GIVEN("a config with Host+IG and requireConnectedIg true")
     {
         Engine engine;
         const TempConfigFile file(kMainJson);
@@ -910,7 +910,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config]
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig accepts igConfig without requireIgConnect", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg", "[unit][config][parse]")
 {
     // igConfig 自包含本地绑定 + 远端目标，不再需要独立的 hostEndpoint 配对。
     const TempConfigFile file(std::string("{") + jsonIgConfig() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
@@ -921,9 +921,9 @@ TEST_CASE("loadEngineChannelConfig accepts igConfig without requireIgConnect", "
     REQUIRE_FALSE(cfg.hasHostConfig);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects requireIgConnect without igConfig", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig", "[unit][config][parse]")
 {
-    const TempConfigFile file(std::string(R"({ "syncSystem": { "requireIgConnect": true }, )") + kMinimalModel + ", " +
+    const TempConfigFile file(std::string(R"({ "syncSystem": { "requireConnectedIg": true }, )") + kMinimalModel + ", " +
                               kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -1047,7 +1047,7 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
 {
     const TempConfigFile file(
         R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
-        R"("hostEyeStalePolicy": "Freeze", "requireIgConnect": true }, )"
+        R"("hostEyeStalePolicy": "Freeze", "requireConnectedIg": true }, )"
         R"("igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )"
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
         R"("model": "models/lz.vsgt" })");
@@ -1057,7 +1057,7 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
     REQUIRE(cfg.syncSystem.channelId == 3);
     REQUIRE(offsetEquals(cfg.syncSystem.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
     REQUIRE(cfg.syncSystem.hostEyeStalePolicy == HostEyeStalePolicy::FREEZE);
-    REQUIRE(cfg.syncSystem.requireIgConnect);
+    REQUIRE(cfg.syncSystem.requireConnectedIg);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group", "[unit][config][parse][syncSystem]")

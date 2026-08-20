@@ -100,7 +100,7 @@ namespace
     }
 
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireIgConnect":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
 } // namespace
 
 TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
@@ -1025,7 +1025,7 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
         role.enableIg = true;
         role.igConfig = makeIgLocalEye(18001, 18000);
         // Host 未启动 → Connect 失败，但仍完成本地 Init。
-        REQUIRE(engine.synchronSystem().initialize(role, SyncSystemConfig{/*requireIgConnect=*/false}));
+        REQUIRE(engine.synchronSystem().initialize(role, SyncSystemConfig{/*requireConnectedIg=*/false}));
         REQUIRE_FALSE(engine.synchronSystem().igLinked());
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
@@ -1501,7 +1501,7 @@ namespace
                            std::to_string(channelId) + R"(,
               "offsetDeg": { "yaw": )" +
                            std::to_string(yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
-              "requireIgConnect": )" +
+              "requireConnectedIg": )" +
                            (isHost ? std::string("true") : std::string("false")) + R"(
               },
               "coordFrame": ")" +
@@ -1569,15 +1569,15 @@ namespace
             REQUIRE(c.loadConfig(igCFile.path()));
             REQUIRE(a.init());
             // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
-            REQUIRE(b.initSync(b.config.toSyncRole(), b.config.syncSystem.requireIgConnect));
+            REQUIRE(b.initSync(b.config.toSyncRole(), b.config.syncSystem.requireConnectedIg));
             REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
             b.synchronSystem().setOffsetDeg(b.config.syncSystem.offsetDeg);
-            REQUIRE(c.initSync(c.config.toSyncRole(), c.config.syncSystem.requireIgConnect));
+            REQUIRE(c.initSync(c.config.toSyncRole(), c.config.syncSystem.requireConnectedIg));
             REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
             c.synchronSystem().setOffsetDeg(c.config.syncSystem.offsetDeg);
 
             // 握手是异步网络时序：Windows 下偶发 UDP_SYNC 丢包/调度延迟会让 connect 失败。
-            // B/C 的 requireIgConnect=false 会静默继续，此时对未同步的 IG 重连并等待全部 ready。
+            // B/C 的 requireConnectedIg=false 会静默继续，此时对未同步的 IG 重连并等待全部 ready。
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
             while (std::chrono::steady_clock::now() < deadline)
             {
@@ -2131,7 +2131,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "syncSystem": {
               "channelId": 0,
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
-              "requireIgConnect": true
+              "requireConnectedIg": true
               },
               "igConfig": { "udpPortSend": )") +
             std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
@@ -2149,7 +2149,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "syncSystem": {
               "channelId": 1,
               "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
-              "requireIgConnect": false
+              "requireConnectedIg": false
               },
               "coordFrame": "Ellipsoid",
               "igConfig": { "udpPortSend": )") +
@@ -2168,7 +2168,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
         // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
-        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.syncSystem.requireIgConnect));
+        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.syncSystem.requireConnectedIg));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
         engineB.synchronSystem().setOffsetDeg(engineB.config.syncSystem.offsetDeg);
 
@@ -2184,6 +2184,20 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         const vsg::dvec3 hostEcef = emA->convertLatLongAltitudeToECEF(lla);
         const vsg::dvec3 igEcefSameLla = emB->convertLatLongAltitudeToECEF(lla);
         REQUIRE(vsg::length(hostEcef - igEcefSameLla) > 0.5);
+
+        // requireConnectedIg=false 时握手失败会静默继续，而 `IgSync::connect` 内部重试
+        // （TCP×16、握手×8）在 Windows 下仍可能因 UDP_SYNC_ACK 偶发丢包耗尽（多通道同步模块设计.md P1）。
+        // 测试侧持续重连直到 B 与 A 全部 ready，用反复 connect 兜住单次重试耗尽的问题。
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            if (engineA.hostSync().readyIgCount() == 2)
+                break;
+            if (engineB.synchronSystem().hasIg() && !engineB.synchronSystem().igSync().udpSynced())
+                engineB.synchronSystem().igSync().connect(engineB.config.igConfig);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        REQUIRE(engineA.hostSync().readyIgCount() == 2);
 
         WHEN("A publishes that LLA eye and B follows over CIGI")
         {

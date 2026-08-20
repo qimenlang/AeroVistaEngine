@@ -74,7 +74,7 @@ struct CameraConfig
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，设计 §3.1）。
 struct EngineChannelConfig
 {
-    // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireIgConnect。
+    // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg。
     SyncSystemConfig syncSystem{};
 
     HostConfig hostConfig{};

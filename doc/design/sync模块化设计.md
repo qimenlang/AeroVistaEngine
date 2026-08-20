@@ -125,7 +125,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 - IG 侧一个配置块自洽（本地 + 远端），viewhost 侧一个配置块自洽，两端配置简单。
 - 远端字段加 `target` 前缀，避免与本地同名端口字段冲突。
 
-**校验规则**：`requireIgConnect` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。
+**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。
 
 **C++ 类型**：`IgConfig`（5 字段）/ `HostConfig`（3 字段）；`SyncRoleConfig` = `{enableHost, enableIg, hostConfig, igConfig}`。
 
@@ -176,7 +176,7 @@ SynchronSystem::create()->initialize(role);
 
 ### 4.2 `syncSystem` 配置组（SynchronSystem 装配属性）
 
-`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect` 是 **SynchronSystem 的属性**，与 engine 渲染属性、host/ig 传输属性正交。独立成组后 engine 属性 / syncSystem 属性 / ig·host 属性三类分明，配置项可自由组合成不同配置文件。
+`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg` 是 **SynchronSystem 的属性**，与 engine 渲染属性、host/ig 传输属性正交。独立成组后 engine 属性 / syncSystem 属性 / ig·host 属性三类分明，配置项可自由组合成不同配置文件。
 
 **配置形态**：
 ```jsonc
@@ -185,7 +185,7 @@ SynchronSystem::create()->initialize(role);
     "channelId": 0,
     "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
     "hostEyeStalePolicy": "ReuseLast",
-    "requireIgConnect": true
+    "requireConnectedIg": true
   },
   "igConfig": { ... },
   "hostConfig": { ... },
@@ -194,13 +194,13 @@ SynchronSystem::create()->initialize(role);
 ```
 
 **归属边界**：
-- `syncSystem` 组 = SynchronSystem 装配属性（IG 侧消费为主：offset/stale/requireIgConnect；channelId 两端标识）。
+- `syncSystem` 组 = SynchronSystem 装配属性（IG 侧消费为主：offset/stale/requireConnectedIg；channelId 两端标识）。
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entities`/`camera`/`coordFrame` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
+**消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
 
-> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireIgConnect` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`hostConfig`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`）。
+> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`hostConfig`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`）。
 
 ## 5. 否决与决策记录
 

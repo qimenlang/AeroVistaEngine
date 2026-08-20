@@ -3,7 +3,7 @@
     "channelId": 2,
     "offsetDeg": { "yaw": -18.05, "pitch": 0.0, "roll": 0.0 },
     "hostEyeStalePolicy": "ReuseLast",
-    "requireIgConnect": false
+    "requireConnectedIg": false
   },
   "igConfig": {
     "udpPortSend": 8000,
