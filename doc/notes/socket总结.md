@@ -42,7 +42,7 @@ TCP 与 UDP **端口号可以相同**（如 `8000/tcp` 与 `8000/udp`）：内�
 为何倾向走 **TCP（或 UDP+ACK）**：这类指令「执行与否」必须有答案；失败要能重试。常配 **ACK/NACK**（成功/失败回执）和序号，避免重复执行（幂等）。  
 与 **UDP 同步面**（每帧 IGCtrl/SOF）分开：帧同步可丢，加载/切库/复位不能 silently 丢。
 
-**命令面载荷选型**：走 CIGI `IGMsg`（V4，`MsgID` + 变长 `Msg`），不用 `IGCtrl`——`IGCtrl` 是帧级控制（数据面已用），`IGMsg` 是独立指令通道、可承载自定义指令码，且不与其冲突。TCP 字节流需按 CIGI 包头 `PacketID + PacketSize` 长度分帧。详见 [多通道同步模块设计.md](../design/多通道同步模块设计.md) §8.5。
+**命令面载荷与链路选择**：所有 CIGI 报文在 TCP/UDP 都支持发送，按语义选链路——**持续周期性下发（实时控制位姿）走 UDP（无回执，丢包自愈）；一次性精准送达（摆放位姿、指令）走 TCP（传输层可靠，无业务回执）**。命令帧在 TCP 上承载多种报文：`CigiEntityPositionCtrlV4`（摆放位姿，`0x01` 定长 48B）、`CigiSymbolTextDefV4`（文本指令，`Text` 空格分隔、`std::string` 变长）。**均 fire-and-forget、无应用层 ACK/NACK**。TCP 字节流需按 CIGI 包头 `PacketID + PacketSize` 长度分帧。详见 [状态同步设计初版.md](../design/状态同步设计初版.md) §4。
 
 ---
 

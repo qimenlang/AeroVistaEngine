@@ -1,5 +1,7 @@
 ﻿# viewhost 设计（MFC Host 宿主程序）
 
+> **⚠️ 数据面发送接口过时声明（2026-08-21）**：本文第 116/158 行描述的「`HostSync::update()` 驱动 UDP 扇出」已过时——初版现行契约（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）为 **`HostSync` 无 `update`，由业务侧组装报文进 `udpOutgoing()` 后 `flushUdp()`**。viewhost 实现时应以初版为准。
+
 面向「用 MFC 对话框程序作为独立 Host 进程，经 `aerovistaSync` 的 `HostSync` 向多个携带 IG 的 Engine 扇出同一 Host 眼点，模拟多通道同步」的设计。
 
 基础协议 / 行为见 [多通道同步模块设计.md](./多通道同步模块设计.md)；库结构与接入见 [sync模块化设计.md](./sync模块化设计.md) 与 [../../thirdparty/sync/README.md](../../thirdparty/sync/README.md)。
