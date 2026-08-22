@@ -10,14 +10,14 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include <aerovista/sync/HostSync.h>
+#include <aerovista/sync/CigiWire.h>
 
 #include <cmath>
 
 #include "ViewHostMath.h"
 
-using aerovista::sync::HostSync;
 using aerovista::viewhost::applyManualStep;
+namespace cigi_wire = aerovista::sync::cigi_wire;
 
 namespace
 {
@@ -33,10 +33,10 @@ namespace
         return std::abs(a - b) <= eps;
     }
 
-    HostSync::EyePose makeLlaEye(double lat, double lon, double alt, double yaw = 0.0)
+    cigi_wire::EyePose makeLlaEye(double lat, double lon, double alt, double yaw = 0.0)
     {
-        HostSync::EyePose eye;
-        eye.isLla = true;
+        cigi_wire::EyePose eye;
+        eye.frame = cigi_wire::EyeFrame::LLA;
         eye.x = lat;
         eye.y = lon;
         eye.z = alt;

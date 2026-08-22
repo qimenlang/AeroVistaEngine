@@ -60,6 +60,14 @@ namespace
         return actual >= minOk && actual <= exp;
     }
 
+    /// 矛盾 A：Host 数据面帧由业务侧组装（IGCtrl + 可选眼点）后 flushUdp；无 HostSync::update。
+    void hostSendFrame(HostSync& host, double simTimeMs)
+    {
+        auto& omsg = host.udpOutgoing();
+        cigi_wire::appendHostFrame(omsg, host.nextFrameCntr(), simTimeMs, nullptr);
+        host.flushUdp();
+    }
+
     /// 钉住数据面线契约（帧号 + 可选眼点 + SOF 回显）；经 cigi_wire 堆上 Session，避免栈溢出。
     void requireCigiDataPlaneWireContract()
     {
@@ -507,7 +515,7 @@ SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each upda
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                hostSendFrame(host, i * (1000.0 / 60.0));
                 ig.update();
             }
 
@@ -538,7 +546,7 @@ SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                hostSendFrame(host, i * (1000.0 / 60.0));
                 ig.update(/*sendSof=*/true);
             }
 
@@ -574,7 +582,7 @@ SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
             constexpr int kFrames = 10;
             for (int i = 0; i < kFrames; ++i)
             {
-                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                hostSendFrame(host, i * (1000.0 / 60.0));
                 ig.update(/*sendSof=*/false);
             }
 
@@ -609,12 +617,14 @@ SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
             for (int i = 0; i < kFrames; ++i)
             {
                 // Host 本轮 CIGI IGCtrl.FrameCntr == i（经 HostSync API 暴露为 lastIgCtrlFrameCntr）
-                host.update(/*simTimeMs=*/i * (1000.0 / 60.0));
+                hostSendFrame(host, i * (1000.0 / 60.0));
                 ig.update();
 
                 if (ig.igCtrlReceivedCount() > prevReceived)
                 {
-                    REQUIRE(ig.lastIgCtrlFrameCntr() == static_cast<std::uint32_t>(i));
+                    // 异步 I/O 线程 + 队列下，一次 update 可能批量处理多条积压帧，
+                    // lastIgCtrlFrameCntr 是最新帧号——断言其不超前于本帧已发送的帧号（方向不变）。
+                    REQUIRE(ig.lastIgCtrlFrameCntr() <= static_cast<std::uint32_t>(i));
                     prevReceived = ig.igCtrlReceivedCount();
                     ++matchedFrames;
                 }
@@ -2715,8 +2725,8 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
                 constexpr int kTicks = 5;
                 for (int i = 0; i < kTicks; ++i)
                 {
-                    viewhost->update(i * 16.667); // 无渲染节拍：viewhost 扇出
-                    engineIg.tickSync();          // IG 收包 + 回 SOF
+                    hostSendFrame(*viewhost, i * 16.667); // 无渲染节拍：业务侧扇出
+                    engineIg.tickSync();                  // IG 收包 + 回 SOF
                 }
 
                 REQUIRE(viewhost->igCtrlSentCount() > sentBefore);
@@ -2799,8 +2809,8 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
                 constexpr int kTicks = 5;
                 for (int i = 0; i < kTicks; ++i)
                 {
-                    hostSync->update(i * 16.667); // host 扇出 IGCtrl
-                    igSync->preFrame();           // IG 收 IGCtrl + 回 SOF
+                    hostSendFrame(*hostSync, i * 16.667); // 业务侧扇出 IGCtrl
+                    igSync->preFrame();                   // IG 收 IGCtrl + 回 SOF
                     igSync->update();
                 }
 

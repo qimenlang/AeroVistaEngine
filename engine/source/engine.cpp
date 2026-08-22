@@ -9,7 +9,6 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -22,7 +21,6 @@ using aerovista::sync::HostSync;
 using aerovista::sync::SynchronSystem;
 using aerovista::sync::SyncPaceConfig;
 using aerovista::sync::SyncRoleConfig;
-namespace cigi_wire = aerovista::sync::cigi_wire;
 
 namespace
 {
@@ -415,32 +413,6 @@ namespace
         return true;
     }
 
-    // 命令载荷小端读取（状态同步设计初版.md §2.2：本机字节序，Windows x86 为 LE）。
-    std::uint32_t readLeU32(const std::vector<std::uint8_t>& p, std::size_t offset)
-    {
-        std::uint32_t v = 0;
-        for (int i = 3; i >= 0; --i)
-            v = static_cast<std::uint32_t>((v << 8) | p[offset + static_cast<std::size_t>(i)]);
-        return v;
-    }
-
-    double readLeF64(const std::vector<std::uint8_t>& p, std::size_t offset)
-    {
-        std::uint64_t v = 0;
-        for (int i = 7; i >= 0; --i)
-            v = (v << 8) | p[offset + static_cast<std::size_t>(i)];
-        double d = 0.0;
-        std::memcpy(&d, &v, sizeof(d));
-        return d;
-    }
-
-    bool pathHasExtension(const std::string& path)
-    {
-        const std::size_t dot = path.find_last_of('.');
-        const std::size_t slash = path.find_last_of("/\\");
-        return dot != std::string::npos && (slash == std::string::npos || dot > slash);
-    }
-
 } // namespace
 
 #ifndef RESOURCE_DIR
@@ -607,133 +579,17 @@ vsg::dmat4 Engine::makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::E
     return vsg::translate(position) * rotationMatrixYpr(ypr);
 }
 
-void Engine::bindSyncCommandHandler()
+void Engine::setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg)
 {
-    if (!_synchronSystem || !_synchronSystem->hasIg())
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
         return;
-    _synchronSystem->igSync().setCommandHandler(
-        [this](cigi_wire::Command cmd, std::uint16_t /*seq*/,
-               const std::vector<std::uint8_t>& payload) { return executeSyncCommand(cmd, payload); });
-}
-
-bool Engine::executeSyncCommand(cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload)
-{
-    switch (cmd)
-    {
-    case cigi_wire::Command::LOAD_MODEL: return loadModelFromPayload(payload);
-    case cigi_wire::Command::PLACE_MODEL: return placeModelFromPayload(payload);
-    case cigi_wire::Command::MOVE_MODEL: return moveModelFromPayload(payload);
-    default: return false;
-    }
-}
-
-bool Engine::loadModelFromPayload(const std::vector<std::uint8_t>& payload)
-{
-    if (payload.size() < 4)
-        return false;
-    // LOADMODEL 载荷（初版 §2.2）：[id(4B)] [path…]。id 由 Host 在 payload 携带（与 PLACEMODEL 一致），
-    // IG 直接用该 id 组装 Entity 放入实体表，由后续 PLACEMODEL(同 id) 升级位姿。
-    const std::uint32_t id = readLeU32(payload, 0);
-    // path 为变长字符串：从 payload[4] 到末尾（去掉尾部填充 NUL，兼容对齐补零）。
-    std::size_t pathLen = payload.size() - 4;
-    while (pathLen > 0 && payload[4 + pathLen - 1] == 0)
-        --pathLen;
-    const std::string path(payload.begin() + 4, payload.begin() + 4 + static_cast<std::ptrdiff_t>(pathLen));
-    if (path.empty())
-        return false;
-
-    // LOADMODEL 为慢命令（初版 §4/§5.2）：真实加载模型文件，耗时由 IO 决定。
-    auto node = tryLoadModelNode(path);
-    if (!node)
-        return false;
-
-    Entity entity;
-    entity.id = static_cast<int>(id);
-    entity.path = path;
-    entity.node = node;
-    _entityMap[static_cast<int>(id)] = std::move(entity);
-    return true;
-}
-
-vsg::ref_ptr<vsg::Node> Engine::tryLoadModelNode(const std::string& path)
-{
-    auto options = vsg::Options::create();
-    options->paths.push_back(vsg::Path(RESOURCE_DIR));
-    options->add(vsgXchange::all::create());
-
-    vsg::Path target = vsg::Path(RESOURCE_DIR) / "models" / path;
-    if (!pathHasExtension(path))
-    {
-        const vsg::Path alt = vsg::Path(RESOURCE_DIR) / "models" / (path + ".vsgt");
-        if (alt.type() != vsg::FILE_NOT_FOUND)
-            target = alt;
-    }
-    const auto object = vsg::read(target, options);
-    return object.cast<vsg::Node>();
-}
-
-bool Engine::placeModelFromPayload(const std::vector<std::uint8_t>& p)
-{
-    if (p.size() < 52)
-        return false;
-    const std::uint32_t id = readLeU32(p, 0);
-    const vsg::dvec3 pos(readLeF64(p, 4), readLeF64(p, 12), readLeF64(p, 20));
-    const vsg::dvec3 ypr(readLeF64(p, 28), readLeF64(p, 36), readLeF64(p, 44));
-    // PLACEMODEL 目标必须已存在：id=0 升级 LOAD 骨架实体，其他 id 必须已配置/已加载，否则失败。
-    // ECEF 下 pos = LLA（lat°, lon°, alt m），与 eye/EntityConfig 的 ECEF 约定一致（初版 §2.2）。
-    if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
-        return setEntityPoseLla(static_cast<int>(id), pos, ypr);
-    return setEntityPose(static_cast<int>(id), pos, ypr);
-}
-
-bool Engine::moveModelFromPayload(const std::vector<std::uint8_t>& p)
-{
-    if (p.size() < 52)
-        return false;
-    const std::uint32_t id = readLeU32(p, 0);
-    const vsg::dvec3 deltaPosition(readLeF64(p, 4), readLeF64(p, 12), readLeF64(p, 20));
-    const vsg::dvec3 deltaYpr(readLeF64(p, 28), readLeF64(p, 36), readLeF64(p, 44));
-    return moveEntityById(static_cast<int>(id), deltaPosition, deltaYpr);
-}
-
-bool Engine::moveEntityById(int id, const vsg::dvec3& deltaPosition, const vsg::dvec3& deltaYprDeg)
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return false; // MOVEMODEL 目标实体不存在 → RESULT-NACK
-    Entity& entity = it->second;
-    entity.localPosition += deltaPosition;
-    entity.localYpr += deltaYprDeg;
-    recomputeEntityTransform(entity);
-    return true;
-}
-
-bool Engine::setEntityPose(int id, const vsg::dvec3& position, const vsg::dvec3& yprDeg)
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return false; // PLACEMODEL 目标实体不存在 → RESULT-NACK
-    Entity& entity = it->second;
-    entity.localPosition = position;
-    entity.localYpr = yprDeg;
-    entity.hasLocalPose = true;
-    ensureEntityTransform(entity);
-    recomputeEntityTransform(entity);
-    return true;
-}
-
-bool Engine::setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg)
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return false; // PLACEMODEL 目标实体不存在 → RESULT-NACK
     Entity& entity = it->second;
     entity.ellipsoidLla = lla;
     entity.ellipsoidYpr = yprDeg;
     entity.hasEllipsoidPose = true;
     ensureEntityTransform(entity);
     recomputeEntityTransform(entity);
-    return true;
 }
 
 void Engine::ensureEntityTransform(Entity& entity)
@@ -1012,8 +868,6 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& sy
     if (!_synchronSystem->initialize(syncRole, syncSystem))
         return false;
 
-    // 命令执行桥在同步初始化时绑定（不依赖图形）：IG-only 引擎（测试无 initGraphics）同样可执行命令。
-    bindSyncCommandHandler();
     return true;
 }
 

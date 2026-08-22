@@ -106,9 +106,6 @@ public:
     bool entityName(int id, std::string& outName) const;
     vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
 
-    /// MOVEMODEL 累加移动（状态同步设计初版.md §11）：实体不存在 → false。
-    bool moveEntityById(int id, const vsg::dvec3& deltaPosition, const vsg::dvec3& deltaYprDeg);
-
     /// 应用 SynchronSystem 产出的相机位姿（按 frame 分派 setCameraPose / setCameraPoseLla）。
     void applySyncCameraPose(const aerovista::sync::HostEyePose& pose);
 
@@ -121,20 +118,11 @@ private:
     vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;
     bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
 
-    // 命令面执行桥（状态同步设计初版.md §6：IG 命令读循环 → 引擎场景操作）
-    void bindSyncCommandHandler();
-    bool executeSyncCommand(aerovista::sync::cigi_wire::Command cmd, const std::vector<std::uint8_t>& payload);
-    bool loadModelFromPayload(const std::vector<std::uint8_t>& payload);
-    bool placeModelFromPayload(const std::vector<std::uint8_t>& payload);
-    bool moveModelFromPayload(const std::vector<std::uint8_t>& payload);
-    /// 实体已存在 → 更新位姿 + transform；不存在 → false。
-    bool setEntityPose(int id, const vsg::dvec3& position, const vsg::dvec3& yprDeg);
-    /// ECEF：实体已存在 → 更新 LLA 位姿 + transform；不存在 → false。
-    bool setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg);
+    /// ECEF：实体已存在 → 更新 LLA 位姿 + transform（实体预加载 §11 后由业务 processor 调用）。
+    void setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg);
     /// 实体无 transform 时创建（挂 node，scene 存在则 addChild）。
     void ensureEntityTransform(Entity& entity);
     void recomputeEntityTransform(Entity& entity);
-    vsg::ref_ptr<vsg::Node> tryLoadModelNode(const std::string& path);
 
     /// 帧相位：按固定顺序编排子系统与 viewer。
     void preFrame();

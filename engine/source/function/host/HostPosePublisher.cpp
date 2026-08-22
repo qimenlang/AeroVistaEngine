@@ -1,10 +1,13 @@
 ﻿#include "HostPosePublisher.h"
 
+#include <aerovista/sync/CigiWire.h>
+
 #include <cmath>
 
 using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
 using aerovista::sync::HostSync;
+namespace cigi_wire = aerovista::sync::cigi_wire;
 
 namespace
 {
@@ -199,8 +202,8 @@ void HostPosePublisher::postHostFrame(HostSync& host, double simTimeMs, const vs
         }
     }
 
-    HostSync::EyePose wire{};
-    const HostSync::EyePose* wirePtr = nullptr;
+    cigi_wire::EyePose wire{};
+    const cigi_wire::EyePose* wirePtr = nullptr;
     if (sendEye)
     {
         wire.x = sendEye->position.x;
@@ -209,12 +212,16 @@ void HostPosePublisher::postHostFrame(HostSync& host, double simTimeMs, const vs
         wire.yawDeg = sendEye->eulerYprDeg.x;
         wire.pitchDeg = sendEye->eulerYprDeg.y;
         wire.rollDeg = sendEye->eulerYprDeg.z;
-        wire.isLla = (sendEye->frame == HostEyeCoordFrame::LLA);
+        wire.frame = (sendEye->frame == HostEyeCoordFrame::LLA) ? cigi_wire::EyeFrame::LLA
+                                                                : cigi_wire::EyeFrame::WORLD_LOCAL;
         wirePtr = &wire;
         _lastSent = *sendEye;
     }
 
-    host.update(simTimeMs, wirePtr);
+    // 矛盾 A：业务侧组装数据面帧节拍（IGCtrl + 眼点）后统一 flushUdp。
+    auto& omsg = host.udpOutgoing();
+    cigi_wire::appendHostFrame(omsg, host.nextFrameCntr(), simTimeMs, wirePtr);
+    host.flushUdp();
 }
 
 void HostPosePublisher::reset()

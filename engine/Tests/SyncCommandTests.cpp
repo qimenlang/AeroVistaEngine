@@ -74,13 +74,14 @@ namespace
 
     // engine 层定义的业务 processor（§8.1）：捕获 EntityPositionCtrlV4 字段。
     // OnPacketReceived 只在主线程解包时调用（§6），测试主线程读写，无并发，用普通成员。
+    // ownship（EntityID==0）是数据面眼点保留实体（§4.1），业务 processor 须过滤。
     class TestPlaceProcessor : public CigiBaseEventProcessor
     {
     public:
         void OnPacketReceived(CigiBasePacket* packet) override
         {
             auto* place = dynamic_cast<CigiEntityPositionCtrlV4*>(packet);
-            if (!place)
+            if (!place || place->GetEntityID() == 0)
                 return;
             received = true;
             entityId = place->GetEntityID();
@@ -418,7 +419,10 @@ SCENARIO("Host streams real-time entity pose over UDP via udpOutgoing/flushUdp",
 
         WHEN("Host assembles EntityPositionCtrlV4 and flushes UDP each frame")
         {
+            // 矛盾 A：udpOutgoing 不再自动前置 IGCtrl，业务侧组装完整消息（IGCtrl + 命令报文）。
             auto& udp = engineA.hostSync().udpOutgoing();
+            CigiIGCtrlV4 igCtrl;
+            udp << igCtrl;
             CigiEntityPositionCtrlV4 place;
             place.SetEntityID(7);
             place.SetAttachState(CigiBaseEntityPositionCtrl::Detach);

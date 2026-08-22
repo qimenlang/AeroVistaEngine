@@ -8,18 +8,29 @@
             "name": "vsgEngine",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/out/build/clang-Ninja/engine/vsgEngine.exe",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/vsgEngine.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         },
         {
-            "name": "vsgEngine Tests",
+            "name": "vsgEngine Tests Console",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/out/build/clang-Ninja/engine/Tests/vsgEngineTests.exe",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/Tests/vsgEngineTests.exe",
             "args": [
-                "[acceptance][bdd][sync][lla][mode-mismatch]",
+                "-s",
+                "-d yes"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "vsgEngine Tests Output File",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/Tests/vsgEngineTests.exe",
+            "args": [
                 "-s",
                 "-d yes",
                 "-o",
