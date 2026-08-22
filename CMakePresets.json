@@ -2,8 +2,22 @@
     "version": 8,
     "configurePresets": [
         {
-            "name": "clang-Ninja",
-            "displayName": "alienware Clang 19.1.0 x86_64-pc-windows-msvc - Ninja",
+            "name": "clang-Ninja-Release",
+            "displayName": "clang-Ninja-Release 19.1.0 x86_64-pc-windows-msvc - Ninja",
+            "description": "正在使用编译器: C = C:\\Program Files\\LLVM\\bin\\clang.exe, CXX = C:\\Program Files\\LLVM\\bin\\clang++.exe",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
+                "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe",
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "clang-Ninja-Debug",
+            "displayName": "clang-Ninja-Debug 19.1.0 x86_64-pc-windows-msvc - Ninja",
             "description": "正在使用编译器: C = C:\\Program Files\\LLVM\\bin\\clang.exe, CXX = C:\\Program Files\\LLVM\\bin\\clang++.exe",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
@@ -118,7 +132,7 @@
             "name": "clang-ninja-CI",
             "description": "",
             "displayName": "",
-            "configurePreset": "clang-Ninja"
+            "configurePreset": "clang-Ninja-Debug"
         }
     ]
 }
