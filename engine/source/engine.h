@@ -118,8 +118,6 @@ private:
     vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;
     bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
 
-    /// ECEF：实体已存在 → 更新 LLA 位姿 + transform（实体预加载 §11 后由业务 processor 调用）。
-    void setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg);
     /// 实体无 transform 时创建（挂 node，scene 存在则 addChild）。
     void ensureEntityTransform(Entity& entity);
     void recomputeEntityTransform(Entity& entity);

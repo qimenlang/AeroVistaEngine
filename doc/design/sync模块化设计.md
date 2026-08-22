@@ -39,7 +39,7 @@ vsgEngine (exe)
 
 - 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - IG 决策层（`SynchronSystem`）公开接口零 vsg（自有 POD + 注入接口）、不依赖 Engine，收包后做 frame 校验 / offset 合成 / stale policy / 断线兜底，产出位姿由宿主取走（§3.1）。
-- 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`SyncRoleConfig`/`IgConfig`/`HostConfig`/`SyncPaceConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
+- 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`SyncRoleConfig`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。`SyncPaceConfig` 已于 2026-08 删除（无消费方）。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
 ## 3. 关键设计决策
@@ -88,7 +88,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 ### 3.2 配置结构归属
 
-- `OffsetDeg`、`HostEyeStalePolicy`、`SyncRoleConfig`、`IgConfig`、`HostConfig`、`SyncPaceConfig` **全部归 sync 库**（`SyncConfig.h`）。
+- `OffsetDeg`、`HostEyeStalePolicy`、`SyncRoleConfig`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
 - **`IgConfig` 合并本地收发端口 + 远端 Host 目标**（`udpPortSend`/`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
 

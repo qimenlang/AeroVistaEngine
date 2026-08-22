@@ -19,7 +19,6 @@
 
 #include "Common.h"
 
-using aerovista::sync::FrameGate;
 using aerovista::sync::HostConfig;
 using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
@@ -29,9 +28,7 @@ using aerovista::sync::IgConfig;
 using aerovista::sync::IgStatus;
 using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
-using aerovista::sync::SendPace;
 using aerovista::sync::SynchronSystem;
-using aerovista::sync::SyncPaceConfig;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
 // 协议分层（测试约定）：
@@ -563,18 +560,13 @@ SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync
 SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
          "[integration][sync][status][freerun][cigi]")
 {
-    GIVEN("a connected Host and IG with FreeRun send pace (CIGI SOF does not gate)")
+    GIVEN("a connected Host and IG (send is never gated by SOF)")
     {
         HostSync host;
         IgSync ig;
         REQUIRE(host.initialize(makeHostLocal()));
         REQUIRE(ig.initialize(makeIgLocal()));
         REQUIRE(ig.connect(makeIgLocal()));
-
-        SyncPaceConfig pace{};
-        pace.igCtrlSendPace = SendPace::FREE_RUN;
-        pace.frameGate = FrameGate::FREE_RUN;
-        host.setPaceConfig(pace);
 
         WHEN("Host sends 10 CIGI IGCtrl while IG receives but never replies SOF")
         {

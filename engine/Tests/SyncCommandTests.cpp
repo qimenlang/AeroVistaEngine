@@ -1,6 +1,5 @@
 ﻿// 状态同步设计初版.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
-// ATDD 红测：stub 阶段新 API（tcpOutgoing/flushTcp/udpOutgoing/flushUdp/registerEventProcessor）
-// 为空实现，E2E 断言应失败（红）；线格式契约直接测 CCL（绿，锚定）。
+// 命令面全绿：2 线格式契约（直接测 CCL）+ 6 E2E + 4 分帧单测。
 
 #include <aerovista/sync/CigiIncludes.h>
 
@@ -210,7 +209,7 @@ TEST_CASE("CigiSymbolTextDefV4 packs variable-length Text", "[unit][sync][cmd][w
 }
 
 // =============================================================================
-// 2. E2E 红测（依赖 stub 新 API，断言应失败）
+// 2. E2E：真实 socket 收发（tcpOutgoing/flushTcp/registerEventProcessor）
 // =============================================================================
 
 SCENARIO("Host places an entity pose over TCP via tcpOutgoing/flushTcp",
@@ -314,7 +313,7 @@ SCENARIO("Host fans out a command to multiple IGs via flushTcp",
 
             THEN("both IGs received the pose via registered processors")
             {
-                REQUIRE(procB->received); // 红：stub flushTcp 为 no-op
+                REQUIRE(procB->received); // 全部 ready IG 都应收到
                 REQUIRE(procC->received);
             }
         }
@@ -322,7 +321,7 @@ SCENARIO("Host fans out a command to multiple IGs via flushTcp",
 }
 
 // =============================================================================
-// 3. 新增红测（开发阶段待补的验收点，§10）
+// 3. 命令面行为 E2E（§10 验收点）
 // =============================================================================
 
 SCENARIO("IG dispatches different text commands by first token",
@@ -357,7 +356,7 @@ SCENARIO("IG dispatches different text commands by first token",
             THEN("IG received both commands in order with distinct tokens")
             {
                 const auto texts = textProc->texts();
-                REQUIRE(texts.size() == 2); // 红：stub flush 为 no-op
+                REQUIRE(texts.size() == 2);
                 REQUIRE(texts.at(0) == "place 7 121.47 31.23 500");
                 REQUIRE(texts.at(1) == "reset");
             }
@@ -397,7 +396,7 @@ SCENARIO("Host sends multiple packets in one message and IG dispatches each by P
 
             THEN("both processors were triggered")
             {
-                REQUIRE(placeProc->received); // 红：stub flush 为 no-op
+                REQUIRE(placeProc->received);
                 REQUIRE(textProc->count() > 0);
             }
         }
@@ -435,7 +434,7 @@ SCENARIO("Host streams real-time entity pose over UDP via udpOutgoing/flushUdp",
 
             THEN("IG received the real-time pose via registered processor")
             {
-                REQUIRE(placeProc->received); // 红：stub flushUdp 为 no-op
+                REQUIRE(placeProc->received);
             }
         }
     }

@@ -19,7 +19,6 @@ using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
 using aerovista::sync::HostSync;
 using aerovista::sync::SynchronSystem;
-using aerovista::sync::SyncPaceConfig;
 using aerovista::sync::SyncRoleConfig;
 
 namespace
@@ -579,19 +578,6 @@ vsg::dmat4 Engine::makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::E
     return vsg::translate(position) * rotationMatrixYpr(ypr);
 }
 
-void Engine::setEntityPoseLla(int id, const vsg::dvec3& lla, const vsg::dvec3& yprDeg)
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return;
-    Entity& entity = it->second;
-    entity.ellipsoidLla = lla;
-    entity.ellipsoidYpr = yprDeg;
-    entity.hasEllipsoidPose = true;
-    ensureEntityTransform(entity);
-    recomputeEntityTransform(entity);
-}
-
 void Engine::ensureEntityTransform(Entity& entity)
 {
     if (entity.transform)
@@ -860,7 +846,6 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& sy
             std::cerr << "Engine: HostSync initialize failed\n";
             return false;
         }
-        _hostSync->setPaceConfig(SyncPaceConfig{});
         _hostSync->run();
     }
 
