@@ -14,10 +14,14 @@
 
 #include "CigiBaseCollDetSegDef.h"
 #include "CigiBaseCollDetSegResp.h"
+#include "CigiBaseCollDetVolDef.h"
+#include "CigiBaseCollDetVolResp.h"
 #include "CigiBaseEntityPositionCtrl.h"
 #include "CigiBaseEventProcessor.h"
 #include "CigiCollDetSegDefV4.h"
 #include "CigiCollDetSegRespV4.h"
+#include "CigiCollDetVolDefV4.h"
+#include "CigiCollDetVolRespV4.h"
 #include "CigiEntityPositionCtrlV4.h"
 #include "CigiHostSession.h"
 #include "CigiIGCtrlV4.h"
@@ -739,6 +743,77 @@ SCENARIO("IG sends a UDP message and Host processor receives it",
                 REQUIRE(hostMsgProc->count() == 1);
                 REQUIRE(hostMsgProc->messages().at(0).first == 0x2001);
                 REQUIRE(hostMsgProc->messages().at(0).second == "udp status ok");
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 6. 碰撞检测体积对（ATDD 红测）：Host 发 CollDetVolDefV4 → IG 回 CollDetVolRespV4
+//    设计规则：processor 定义于 EventProcess（§8.1），由 IgSync/HostSync 内置注册并缓存，
+//    经 takeReceivedCollDetVolDef()/takeReceivedCollDetVolResp() 取缓存——当前接口不存在，
+//    测试编译失败（真红）；实现后转绿。
+// =============================================================================
+
+SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
+         "[acceptance][bdd][sync][cmd][e2e]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 31900);
+
+        WHEN("Host sends CollDetVolDefV4 over TCP, IG processes and replies CollDetVolRespV4")
+        {
+            // Host → IG：碰撞检测体积定义（首版默认值填充）。
+            {
+                auto& tcp = engineA.hostSync().tcpOutgoing();
+                CigiCollDetVolDefV4 def;
+                def.SetEntityID(7);
+                def.SetVolID(3);
+                def.SetVolEn(true);
+                tcp << def;
+                engineA.hostSync().flushTcp();
+            }
+
+            // IG 主线程解包（drainIncoming）并经内置 processor 缓存。
+            std::optional<CigiCollDetVolDefV4> igDef;
+            for (int i = 0; i < 20 && !igDef; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineB.tickSync();
+                igDef = engineB.synchronSystem().igSync().takeReceivedCollDetVolDef();
+            }
+            REQUIRE(igDef.has_value()); // 红：takeReceivedCollDetVolDef 尚未实现（编译红）
+            REQUIRE(igDef->GetEntityID() == 7);
+            REQUIRE(igDef->GetVolID() == 3);
+            REQUIRE(igDef->GetVolEn());
+
+            // IG → Host：碰撞检测体积响应（首版默认值填充）。
+            {
+                auto& tcp = engineB.synchronSystem().igSync().tcpOutgoing();
+                CigiCollDetVolRespV4 resp;
+                resp.SetEntityID(igDef->GetEntityID());
+                resp.SetCollType(CigiBaseCollDetVolResp::Entity);
+                tcp << resp;
+                engineB.synchronSystem().igSync().flushTcp();
+            }
+
+            // Host push 模式：等待 peer 线程收包入队后，主线程 drain 解包，经内置 processor 缓存。
+            std::optional<CigiCollDetVolRespV4> hostResp;
+            for (int i = 0; i < 20 && !hostResp; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineA.hostSync().drainIncoming();
+                hostResp = engineA.hostSync().takeReceivedCollDetVolResp();
+            }
+
+            THEN("Host received the CollDetVolResp via built-in processor cache")
+            {
+                REQUIRE(hostResp.has_value()); // 红：takeReceivedCollDetVolResp 尚未实现（编译红）
+                REQUIRE(hostResp->GetEntityID() == 7);
+                REQUIRE(hostResp->GetCollType() == CigiBaseCollDetVolResp::Entity);
             }
         }
     }
