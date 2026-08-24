@@ -65,53 +65,116 @@ namespace
         host.flushUdp();
     }
 
-    /// 钉住数据面线契约（帧号 + 可选眼点 + SOF 回显）；经 cigi_wire 堆上 Session，避免栈溢出。
-    void requireCigiDataPlaneWireContract()
-    {
-        constexpr std::uint32_t kFrame = 7;
-        constexpr double kSimTimeMs = 123.45; // → TimeStamp 12345（10 µs 步进）
-        const cigi_wire::EyePose eye{11.0, 22.0, 33.0, 40.0, 0.0, 0.0};
-
-        std::vector<unsigned char> withEye;
-        REQUIRE(cigi_wire::packHostFrame(kFrame, kSimTimeMs, &eye, withEye));
-        REQUIRE_FALSE(cigi_wire::isAvsyMagic(withEye.data(), static_cast<int>(withEye.size())));
-
-        cigi_wire::HostFrame frame{};
-        REQUIRE(cigi_wire::unpackHostFrame(withEye.data(), static_cast<int>(withEye.size()), frame));
-        REQUIRE(frame.frameCntr == kFrame);
-        REQUIRE(frame.timeStampValid);
-        REQUIRE(frame.timeStamp == cigi_wire::simTimeMsToTimeStamp(kSimTimeMs));
-        REQUIRE(frame.eye.has_value());
-        REQUIRE(frame.eye->x == Catch::Approx(eye.x));
-        REQUIRE(frame.eye->y == Catch::Approx(eye.y));
-        REQUIRE(frame.eye->z == Catch::Approx(eye.z));
-        REQUIRE(frame.eye->yawDeg == Catch::Approx(eye.yawDeg));
-        REQUIRE(frame.eye->frame == cigi_wire::EyeFrame::WORLD_LOCAL);
-        REQUIRE(frame.eye->entityId == 0);
-        REQUIRE(frame.eye->parentId == 1);
-
-        std::vector<unsigned char> noEye;
-        REQUIRE(cigi_wire::packHostFrame(kFrame + 1, kSimTimeMs, nullptr, noEye));
-        cigi_wire::HostFrame frameNoEye{};
-        REQUIRE(cigi_wire::unpackHostFrame(noEye.data(), static_cast<int>(noEye.size()), frameNoEye));
-        REQUIRE(frameNoEye.frameCntr == kFrame + 1);
-        REQUIRE_FALSE(frameNoEye.eye.has_value());
-
-        std::vector<unsigned char> sofBuf;
-        REQUIRE(cigi_wire::packSof(kFrame, sofBuf));
-        std::uint32_t sofFrame = 0;
-        REQUIRE(cigi_wire::unpackSof(sofBuf.data(), static_cast<int>(sofBuf.size()), sofFrame));
-        REQUIRE(sofFrame == kFrame);
-    }
-
     const char* kMainJson =
         R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
 } // namespace
 
-TEST_CASE("CIGI V4 data-plane wire contract: IGCtrl, optional EntityPosition, SOF",
+TEST_CASE("CIGI HostFrame wire contract: IGCtrl with optional EntityPosition eye",
           "[unit][cigi][wire-contract]")
 {
-    requireCigiDataPlaneWireContract();
+    constexpr std::uint32_t kFrame = 7;
+    constexpr double kSimTimeMs = 123.45; // → TimeStamp 12345（10 µs 步进）
+    const cigi_wire::EyePose eye{11.0, 22.0, 33.0, 40.0, 0.0, 0.0};
+
+    std::vector<unsigned char> withEye;
+    REQUIRE(cigi_wire::packHostFrame(kFrame, kSimTimeMs, &eye, withEye));
+    REQUIRE_FALSE(cigi_wire::isAvsyMagic(withEye.data(), static_cast<int>(withEye.size())));
+
+    cigi_wire::HostFrame frame{};
+    REQUIRE(cigi_wire::unpackHostFrame(withEye.data(), static_cast<int>(withEye.size()), frame));
+    REQUIRE(frame.frameCntr == kFrame);
+    REQUIRE(frame.timeStampValid);
+    REQUIRE(frame.timeStamp == cigi_wire::simTimeMsToTimeStamp(kSimTimeMs));
+    REQUIRE(frame.eye.has_value());
+    REQUIRE(frame.eye->x == Catch::Approx(eye.x));
+    REQUIRE(frame.eye->y == Catch::Approx(eye.y));
+    REQUIRE(frame.eye->z == Catch::Approx(eye.z));
+    REQUIRE(frame.eye->yawDeg == Catch::Approx(eye.yawDeg));
+    REQUIRE(frame.eye->frame == cigi_wire::EyeFrame::WORLD_LOCAL);
+    REQUIRE(frame.eye->entityId == 0);
+    REQUIRE(frame.eye->parentId == 1);
+}
+
+TEST_CASE("CIGI HostFrame wire contract: IGCtrl without eye", "[unit][cigi][wire-contract]")
+{
+    constexpr std::uint32_t kFrame = 8;
+    constexpr double kSimTimeMs = 123.45;
+
+    std::vector<unsigned char> noEye;
+    REQUIRE(cigi_wire::packHostFrame(kFrame, kSimTimeMs, nullptr, noEye));
+    cigi_wire::HostFrame frameNoEye{};
+    REQUIRE(cigi_wire::unpackHostFrame(noEye.data(), static_cast<int>(noEye.size()), frameNoEye));
+    REQUIRE(frameNoEye.frameCntr == kFrame);
+    REQUIRE_FALSE(frameNoEye.eye.has_value());
+}
+
+TEST_CASE("CIGI Sof wire contract: SOF frame counter round-trip", "[unit][cigi][wire-contract]")
+{
+    constexpr std::uint32_t kFrame = 7;
+
+    std::vector<unsigned char> sofBuf;
+    REQUIRE(cigi_wire::packSof(kFrame, sofBuf));
+    std::uint32_t sofFrame = 0;
+    REQUIRE(cigi_wire::unpackSof(sofBuf.data(), static_cast<int>(sofBuf.size()), sofFrame));
+    REQUIRE(sofFrame == kFrame);
+}
+
+namespace
+{
+    // 手工构造一条「首包非 IGCtrl/SOF」的最小 CIGI4 消息（绕过 Pack 的版本域歧义）。
+    // 布局：PacketSize(2,LE) + PacketID(2,LE) + 版本域(2) + 保留(2)。
+    std::vector<unsigned char> makeBadFirstPacketMsg(std::uint16_t packetId)
+    {
+        std::vector<unsigned char> msg(8, 0);
+        msg[0] = 8; // PacketSize=8（LE）
+        msg[1] = 0;
+        msg[2] = static_cast<unsigned char>(packetId & 0xFF); // PacketID
+        msg[3] = static_cast<unsigned char>(packetId >> 8);
+        msg[4] = 4; // CIGI 主版本 4（CIGI4 版本域在字节 4）
+        return msg;
+    }
+} // namespace
+
+TEST_CASE("CIGI IG rejects a message whose first packet is not IGCtrl",
+          "[unit][cigi][wire-contract][negative]")
+{
+    // CCL 硬约束（CigiIncomingMsg.cpp CheckFirstPacket）：IG 入站消息首包必须 IGCtrl（0x0000），
+    // 否则拒绝。构造首包 PacketID=0x0001（EntityPosition，非 IGCtrl）。
+    const auto badMsg = makeBadFirstPacketMsg(0x0001);
+
+    auto ig = std::make_unique<CigiIGSession>(1, 4096, 1, 4096);
+    int stat = CIGI_SUCCESS;
+    try
+    {
+        stat = ig->GetIncomingMsgMgr().ProcessIncomingMsg(
+            const_cast<unsigned char*>(badMsg.data()), static_cast<int>(badMsg.size()));
+    }
+    catch (...)
+    {
+        stat = CIGI_ERROR_MISSING_IG_CONTROL_PACKET; // 抛异常也视为拒绝
+    }
+    REQUIRE(stat != CIGI_SUCCESS);
+}
+
+TEST_CASE("CIGI Host rejects a message whose first packet is not SOF",
+          "[unit][cigi][wire-contract][negative]")
+{
+    // CCL 硬约束（CigiIncomingMsg.cpp CheckFirstPacket）：Host 入站消息首包必须 SOF（0xffff），
+    // 否则拒绝。构造首包 PacketID=0x0001（IGCtrl，非 SOF）。
+    const auto badMsg = makeBadFirstPacketMsg(0x0001);
+
+    auto host = std::make_unique<CigiHostSession>(1, 4096, 1, 4096);
+    int stat = CIGI_SUCCESS;
+    try
+    {
+        stat = host->GetIncomingMsgMgr().ProcessIncomingMsg(
+            const_cast<unsigned char*>(badMsg.data()), static_cast<int>(badMsg.size()));
+    }
+    catch (...)
+    {
+        stat = CIGI_ERROR_MISSING_SOF_PACKET; // 抛异常也视为拒绝
+    }
+    REQUIRE(stat != CIGI_SUCCESS);
 }
 
 // lla位姿传输设计.md §5 / §7 线契约：Attach+XYZ 与 Detach+LLA、EntityID/ParentID、帧间切换。

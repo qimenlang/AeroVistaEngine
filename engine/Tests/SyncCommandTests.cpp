@@ -1,5 +1,6 @@
 ﻿// 状态同步设计初版.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
 // 命令面全绿：2 线格式契约（直接测 CCL）+ 6 E2E + 4 分帧单测。
+// §7 双 session 隔离红测（2026-08）：2 负向（flushUdp 误发 TCP 缓冲当前会真发 → 红）+ 2 正向（flushTcp 正常送达 → 绿）。
 
 #include <aerovista/sync/CigiIncludes.h>
 
@@ -814,6 +815,166 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
                 REQUIRE(hostResp.has_value()); // 红：takeReceivedCollDetVolResp 尚未实现（编译红）
                 REQUIRE(hostResp->GetEntityID() == 7);
                 REQUIRE(hostResp->GetCollType() == CigiBaseCollDetVolResp::Entity);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 7. 双 session 隔离（状态同步设计初版.md §5.1/§7.1/§8.1 验收，ATDD 红测）：
+//    tcpOutgoing/flushTcp 只操作 _tcpSession、udpOutgoing/flushUdp 只操作 _udpSession——
+//    命令面内容被 flushUdp 误发时对端收不到。当前单 session 下误发会真发（负向红）。
+// =============================================================================
+
+SCENARIO("Host TCP-filled message is not sent via flushUdp",
+         "[acceptance][bdd][sync][cmd][e2e][negative]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 32000);
+
+        auto placeProc = std::make_shared<TestPlaceProcessor>();
+        engineB.synchronSystem().igSync().registerEventProcessor(
+            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
+
+        WHEN("Host fills a TCP outgoing message but flushes UDP")
+        {
+            auto& tcp = engineA.hostSync().tcpOutgoing();
+            CigiEntityPositionCtrlV4 place;
+            place.SetEntityID(7);
+            place.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+            place.SetLat(31.23);
+            place.SetLon(121.47);
+            place.SetAlt(500.0);
+            tcp << place;
+            engineA.hostSync().flushUdp(); // 误用：TCP 缓冲走 UDP flush
+
+            // 给对端留足解包机会：若误发，IG 会收到并触发 processor（单 session 下即红）；
+            // 双 session 后 flushUdp 打包空的 _udpSession（无内容）→ 不发 → IG 无报文可解。
+            tickBoth(engineA, engineB);
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            tickBoth(engineA, engineB);
+
+            THEN("IG received nothing (flushUdp ignores the TCP session buffer)")
+            {
+                REQUIRE_FALSE(placeProc->received);
+            }
+        }
+    }
+}
+
+SCENARIO("Host TCP-filled message is delivered via flushTcp",
+         "[acceptance][bdd][sync][cmd][e2e]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 32050);
+
+        auto placeProc = std::make_shared<TestPlaceProcessor>();
+        engineB.synchronSystem().igSync().registerEventProcessor(
+            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
+
+        WHEN("Host fills a TCP outgoing message and flushes TCP")
+        {
+            auto& tcp = engineA.hostSync().tcpOutgoing();
+            CigiEntityPositionCtrlV4 place;
+            place.SetEntityID(7);
+            place.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+            place.SetLat(31.23);
+            place.SetLon(121.47);
+            place.SetAlt(500.0);
+            tcp << place;
+            engineA.hostSync().flushTcp();
+            tickBoth(engineA, engineB);
+
+            THEN("IG received the pose with matching fields")
+            {
+                REQUIRE(placeProc->received);
+                REQUIRE(placeProc->entityId == 7);
+                REQUIRE(placeProc->attachState == CigiBaseEntityPositionCtrl::Detach);
+                REQUIRE(placeProc->lat == Catch::Approx(31.23));
+                REQUIRE(placeProc->lon == Catch::Approx(121.47));
+                REQUIRE(placeProc->alt == Catch::Approx(500.0));
+            }
+        }
+    }
+}
+
+SCENARIO("IG TCP-filled message is not sent via flushUdp",
+         "[acceptance][bdd][sync][cmd][e2e][negative]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 32100);
+
+        auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
+        engineA.hostSync().registerEventProcessor(CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+
+        WHEN("IG fills a TCP outgoing message but flushes UDP")
+        {
+            auto& tcp = engineB.synchronSystem().igSync().tcpOutgoing();
+            CigiIGMsgV4 status;
+            status.SetMsgID(0x1001);
+            status.SetMsg("status ok");
+            tcp << status;
+            engineB.synchronSystem().igSync().flushUdp(); // 误用：TCP 缓冲走 UDP flush
+
+            // 若误发，Host 的 UDP I/O 线程会收到 → drain 解包触发 processor（单 session 下即红）；
+            // 双 session 后 flushUdp 打包空的 _udpSession（无内容）→ 不发 → Host 无报文可解。
+            for (int i = 0; i < 5; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineA.hostSync().drainIncoming();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            engineA.hostSync().drainIncoming();
+
+            THEN("Host received nothing (flushUdp ignores the TCP session buffer)")
+            {
+                REQUIRE(hostMsgProc->count() == 0);
+            }
+        }
+    }
+}
+
+SCENARIO("IG TCP-filled message is delivered via flushTcp",
+         "[acceptance][bdd][sync][cmd][e2e]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 32150);
+
+        auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
+        engineA.hostSync().registerEventProcessor(CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+
+        WHEN("IG fills a TCP outgoing message and flushes TCP")
+        {
+            auto& tcp = engineB.synchronSystem().igSync().tcpOutgoing();
+            CigiIGMsgV4 status;
+            status.SetMsgID(0x1001);
+            status.SetMsg("status ok");
+            tcp << status;
+            engineB.synchronSystem().igSync().flushTcp();
+
+            for (int i = 0; i < 20 && hostMsgProc->count() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineA.hostSync().drainIncoming();
+            }
+
+            THEN("Host received the IGMsg via registered processor")
+            {
+                REQUIRE(hostMsgProc->count() == 1);
+                REQUIRE(hostMsgProc->messages().at(0).first == 0x1001);
+                REQUIRE(hostMsgProc->messages().at(0).second == "status ok");
             }
         }
     }
