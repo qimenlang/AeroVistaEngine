@@ -513,6 +513,7 @@ SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each upda
             for (int i = 0; i < kFrames; ++i)
             {
                 hostSendFrame(host, i * (1000.0 / 60.0));
+                ig.drainIncoming();
                 ig.update();
             }
 
@@ -544,7 +545,8 @@ SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync
             for (int i = 0; i < kFrames; ++i)
             {
                 hostSendFrame(host, i * (1000.0 / 60.0));
-                ig.update(/*sendSof=*/true);
+                ig.drainIncoming(/*sendSof=*/true);
+                ig.update();
             }
 
             THEN("SOF sent equals IGCtrl received; Host SOF count cannot exceed what IG sent")
@@ -575,7 +577,8 @@ SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
             for (int i = 0; i < kFrames; ++i)
             {
                 hostSendFrame(host, i * (1000.0 / 60.0));
-                ig.update(/*sendSof=*/false);
+                ig.drainIncoming(/*sendSof=*/false);
+                ig.update();
             }
 
             THEN("Host sent all IGCtrl without depending on SOF")
@@ -610,6 +613,7 @@ SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
             {
                 // Host 本轮 CIGI IGCtrl.FrameCntr == i（经 HostSync API 暴露为 lastIgCtrlFrameCntr）
                 hostSendFrame(host, i * (1000.0 / 60.0));
+                ig.drainIncoming();
                 ig.update();
 
                 if (ig.igCtrlReceivedCount() > prevReceived)

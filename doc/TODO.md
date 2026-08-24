@@ -14,3 +14,10 @@
   - TSan（`-fsanitize=thread`）：预期 Windows 上不支持，编译报错。
 - [ ] 若 ASan / UBSan 实测可用，再评估是否新增独立 CMake preset（如 `clang-asan` / `clang-ubsan`）及是否接入 CI。
 - [ ] 相关总结见 [doc/notes/Sanitizer.md](./notes/Sanitizer.md)。
+
+---
+
+## 收包入口对等化（IG 侧 runPendingCommands/update vs Host 侧 drainIncoming）
+
+- [x] 已完成（2026-08）：`IgSync::drainIncoming(sendSof)` 统一 drain TCP+UDP → 解包（先 UDP 后 TCP），与 `HostSync::drainIncoming()` 对等；`IgSync::update()` 收敛为帧级维护（外推冻结 + RUNNING 状态，不收包）；`runPendingCommands` 删除；`SynchronSystem::preFrame` 调 `drainIncoming(true)+update()`，`update()` 仅眼点决策。
+- [x] 设计文档（状态同步设计初版.md §8.1/§8.2/§12）已同步。

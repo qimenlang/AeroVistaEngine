@@ -486,7 +486,7 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 本项目 IG 按自研解包消费眼点，仍按上表组包，保证与标准约束及日后对接第三方 IG 时一致。  
 验收「线契约」必须**同时**覆盖 Attach 与 Detach：前者是本地回归，后者是椭球路径；另测 Attach↔Detach 切换合法。
 
-`packHostFrame`：按 `HostEyePose` 分支设置上表组合；`unpack` 校验 Detach⇒`ParentID==0`（不符则拒收该眼点并计入可观测错误，可与 frame mismatch 分列或归入 wire 校验计数）。
+`appendHostFrame`（业务侧组装，HostPosePublisher 调用；`packHostFrame` 为其测试锚定包装）：按 `HostEyePose` 分支设置上表组合；`unpack` 校验 Detach⇒`ParentID==0`（不符则拒收该眼点并计入可观测错误，可与 frame mismatch 分列或归入 wire 校验计数）。
 
 相机侧闭环仍是：**解包 → `WorldPos`/`LlaPos` → `setCameraPose` / `setCameraPoseLla` 写 LookAt**；不把眼点做成「挂在场景父链上再乘 world Transform」的实体节点。
 

@@ -12,15 +12,23 @@
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
 
+#include "CigiBaseCollDetSegDef.h"
+#include "CigiBaseCollDetSegResp.h"
 #include "CigiBaseEntityPositionCtrl.h"
 #include "CigiBaseEventProcessor.h"
+#include "CigiCollDetSegDefV4.h"
+#include "CigiCollDetSegRespV4.h"
 #include "CigiEntityPositionCtrlV4.h"
 #include "CigiHostSession.h"
 #include "CigiIGCtrlV4.h"
+#include "CigiIGMsgV4.h"
 #include "CigiSymbolTextDefV4.h"
 
+#include <chrono>
+#include <cstring>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using aerovista::sync::HostSync;
@@ -119,6 +127,70 @@ namespace
 
     private:
         std::vector<std::string> _texts;
+    };
+
+    // 业务 processor：捕获 IG→Host 的 CigiIGMsgV4（CCL 原生 IG→Host 报文，§8.1 对等）。
+    class TestIgMsgProcessor : public CigiBaseEventProcessor
+    {
+    public:
+        void OnPacketReceived(CigiBasePacket* packet) override
+        {
+            auto* igmsg = dynamic_cast<CigiIGMsgV4*>(packet);
+            if (!igmsg)
+                return;
+            // CCL 把 IGMsg.Msg 按 8 字节对齐（含 NUL 填充），按 C 字符串语义取文本。
+            const std::size_t len = ::strnlen(igmsg->GetMsg(), igmsg->GetMsgLen());
+            _messages.emplace_back(igmsg->GetMsgID(), std::string(igmsg->GetMsg(), len));
+        }
+        std::size_t count() const
+        {
+            return _messages.size();
+        }
+        std::vector<std::pair<std::uint16_t, std::string>> messages() const
+        {
+            return _messages;
+        }
+
+    private:
+        std::vector<std::pair<std::uint16_t, std::string>> _messages;
+    };
+
+    // 捕获 CigiCollDetSegDefV4（Host→IG）：记录 EntityID / SegmentEn / Mask。
+    class TestCollDetSegDefProcessor : public CigiBaseEventProcessor
+    {
+    public:
+        void OnPacketReceived(CigiBasePacket* packet) override
+        {
+            auto* def = dynamic_cast<CigiCollDetSegDefV4*>(packet);
+            if (!def)
+                return;
+            got = true;
+            entityId = def->GetEntityID();
+            segmentEn = def->GetSegmentEn();
+            mask = def->GetMask();
+        }
+        bool got = false;
+        std::uint16_t entityId = 0;
+        bool segmentEn = false;
+        std::uint32_t mask = 0;
+    };
+
+    // 捕获 CigiCollDetSegRespV4（IG→Host）：记录 EntityID / Material。
+    class TestCollDetSegRespProcessor : public CigiBaseEventProcessor
+    {
+    public:
+        void OnPacketReceived(CigiBasePacket* packet) override
+        {
+            auto* resp = dynamic_cast<CigiCollDetSegRespV4*>(packet);
+            if (!resp)
+                return;
+            got = true;
+            entityId = resp->GetEntityID();
+            material = resp->GetMaterial();
+        }
+        bool got = false;
+        std::uint16_t entityId = 0;
+        std::uint32_t material = 0;
     };
 
     // 用 CCL HostSession 组装一条 CIGI 消息（自动前置 IGCtrl 帧头），返回线上字节。
@@ -518,4 +590,156 @@ TEST_CASE("CigiFrameAssembler keeps a multi-packet message as one frame",
     REQUIRE(frames.size() == 1);
     REQUIRE(frames[0] == msg);
     REQUIRE(assembler.bufferEmpty());
+}
+
+// =============================================================================
+// 5. 双向命令面：IG 发送报文 → Host 注册 processor 处理（HostSync::registerEventProcessor）
+// =============================================================================
+
+SCENARIO("IG sends a message to Host and Host processor receives it",
+         "[acceptance][bdd][sync][cmd][e2e]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 31600);
+
+        // Host 侧对等注册：处理 IG 发来的 CigiIGMsgV4（CCL 原生 IG→Host 报文，§8.1 对等）。
+        auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
+        engineA.hostSync().registerEventProcessor(
+            CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+
+        WHEN("IG assembles CigiIGMsgV4 and flushes TCP")
+        {
+            auto& tcp = engineB.synchronSystem().igSync().tcpOutgoing();
+            CigiIGMsgV4 status;
+            status.SetMsgID(0x1001);
+            status.SetMsg("status ok");
+            tcp << status;
+            engineB.synchronSystem().igSync().flushTcp();
+
+            // Host 收包为 push 模式：等待 peer 线程收包分帧入队后，主线程 drain 解包。
+            for (int i = 0; i < 20 && hostMsgProc->count() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineA.hostSync().drainIncoming();
+            }
+
+            THEN("Host received the IGMsg via registered processor")
+            {
+                REQUIRE(hostMsgProc->count() == 1);
+                REQUIRE(hostMsgProc->messages().at(0).first == 0x1001);
+                REQUIRE(hostMsgProc->messages().at(0).second == "status ok");
+            }
+        }
+    }
+}
+
+SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
+         "[acceptance][bdd][sync][cmd][e2e]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 31700);
+
+        // 双向注册：IG 处理 Host 发来的 CollDetSegDefV4；Host 处理 IG 回发的 CollDetSegRespV4。
+        auto igDefProc = std::make_shared<TestCollDetSegDefProcessor>();
+        engineB.synchronSystem().igSync().registerEventProcessor(
+            CIGI_COLL_DET_SEG_DEF_PACKET_ID_V4, igDefProc.get());
+        auto hostRespProc = std::make_shared<TestCollDetSegRespProcessor>();
+        engineA.hostSync().registerEventProcessor(
+            CIGI_COLL_DET_SEG_RESP_PACKET_ID_V4, hostRespProc.get());
+
+        WHEN("Host sends CollDetSegDefV4 over TCP, IG processes and replies CollDetSegRespV4")
+        {
+            // Host → IG：碰撞检测段定义。
+            {
+                auto& tcp = engineA.hostSync().tcpOutgoing();
+                CigiCollDetSegDefV4 def;
+                def.SetEntityID(7);
+                def.SetSegmentEn(true);
+                def.SetMask(0x00FF00FFu);
+                tcp << def;
+                engineA.hostSync().flushTcp();
+            }
+
+            // IG 主线程解包（drainIncoming）并确认收到。
+            for (int i = 0; i < 20 && !igDefProc->got; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineB.tickSync();
+            }
+            REQUIRE(igDefProc->got);
+            REQUIRE(igDefProc->entityId == 7);
+            REQUIRE(igDefProc->segmentEn);
+            REQUIRE(igDefProc->mask == 0x00FF00FFu);
+
+            // IG → Host：碰撞检测段响应。
+            {
+                auto& tcp = engineB.synchronSystem().igSync().tcpOutgoing();
+                CigiCollDetSegRespV4 resp;
+                resp.SetEntityID(igDefProc->entityId);
+                resp.SetMaterial(0xABC);
+                tcp << resp;
+                engineB.synchronSystem().igSync().flushTcp();
+            }
+
+            // Host push 模式：等待 peer 线程收包入队后，主线程 drain 解包。
+            for (int i = 0; i < 20 && !hostRespProc->got; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineA.hostSync().drainIncoming();
+            }
+
+            THEN("Host received the CollDetSegResp via registered processor")
+            {
+                REQUIRE(hostRespProc->got);
+                REQUIRE(hostRespProc->entityId == 7);
+                REQUIRE(hostRespProc->material == 0xABC);
+            }
+        }
+    }
+}
+
+SCENARIO("IG sends a UDP message and Host processor receives it",
+         "[acceptance][bdd][sync][cmd][e2e][debug]")
+{
+    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(engineA, engineB, 31800);
+
+        // Host 对等注册：处理 IG 经 UDP 发来的 CigiIGMsgV4（§8.1 对等，收发均支持 TCP/UDP）。
+        auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
+        engineA.hostSync().registerEventProcessor(
+            CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+
+        WHEN("IG assembles CigiIGMsgV4 and flushes UDP")
+        {
+            auto& udp = engineB.synchronSystem().igSync().udpOutgoing();
+            CigiIGMsgV4 status;
+            status.SetMsgID(0x2001);
+            status.SetMsg("udp status ok");
+            udp << status;
+            engineB.synchronSystem().igSync().flushUdp();
+
+            // Host push 模式：等待 I/O 线程收包入队（UDP 非阻塞 1ms 轮询）后，主线程 drain 解包。
+            for (int i = 0; i < 5 && hostMsgProc->count() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineA.hostSync().drainIncoming();
+            }
+
+            THEN("Host received the UDP IGMsg via registered processor")
+            {
+                REQUIRE(hostMsgProc->count() == 1);
+                REQUIRE(hostMsgProc->messages().at(0).first == 0x2001);
+                REQUIRE(hostMsgProc->messages().at(0).second == "udp status ok");
+            }
+        }
+    }
 }

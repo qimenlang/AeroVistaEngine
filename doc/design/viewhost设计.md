@@ -1,6 +1,6 @@
-﻿# viewhost 设计（MFC Host 宿主程序）
+# viewhost 设计（MFC Host 宿主程序）
 
-> **⚠️ 数据面发送接口已变更（2026-08-22 矛盾 A 完成）**：本文第 116/158 行描述的「`HostSync::update()` 驱动 UDP 扇出」**已删除**——现行契约（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）为 **`HostSync` 无 `update`，由业务侧组装报文进 `udpOutgoing()`（`cigi_wire::appendHostFrame`）后 `flushUdp()`**；`HostSync::EyePose` 已移至 **`cigi_wire::EyePose`**（`isLla` 布尔 → `frame` 枚举）。`HostDriver::update` 已按此实现。
+> **已按新接口同步（2026-08-24）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `udpOutgoing() + cigi_wire::appendHostFrame + flushUdp()`（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
 
 面向「用 MFC 对话框程序作为独立 Host 进程，经 `aerovistaSync` 的 `HostSync` 向多个携带 IG 的 Engine 扇出同一 Host 眼点，模拟多通道同步」的设计。
 
@@ -27,7 +27,7 @@
 ### 1.1 目标
 
 1. 提供一个独立的 Windows MFC 宿主程序 `viewhost`，作为多通道同步的 **Host 端数据源**，向携带 IG 的 Engine 进程扇出同一 Host 眼点。
-2. 复用 `aerovistaSync` 的 `HostSync`（不重写网络 / 协议 / 线程模型），只做「宿主壳」：读配置 → 启动 `HostSync` → 按帧驱动 `update()` 扇出 → 显示连接状态。
+2. 复用 `aerovistaSync` 的 `HostSync`（不重写网络 / 协议 / 线程模型），只做「宿主壳」：读配置 → 启动 `HostSync` → 按帧驱动业务侧组装扇出 → 显示连接状态。
 3. 落地 [多通道同步模块设计.md](./多通道同步模块设计.md) §1.1 的「HostSync 独立进程」远期项（当前 HostSync 挂在主窗 Engine 上）。
 
 ### 1.2 非目标
@@ -39,23 +39,18 @@
 
 ### 1.3 与 sync 库的关系
 
-`HostSync` 是**零 vsg 依赖**的纯 C++ 类型（Winsock + 标准库），MFC 程序链接无阻碍：
+`HostSync` 是**零 vsg 依赖**的纯 C++ 类型（Winsock + 标准库），MFC 程序链接无阻碍。数据面发送接口（新契约，[状态同步设计初版.md](./状态同步设计初版.md) §7.1）：
 
-```40:52:thirdparty/sync/include/aerovista/sync/HostSync.h
-        bool initialize(const HostConfig& local);
-        void shutdown();
-
-        void run();
-        struct EyePose
-        {
-            double x = 0, y = 0, z = 0;
-            double yawDeg = 0, pitchDeg = 0, rollDeg = 0;
-            /// 映射到 cigi_wire::EyeFrame / AttachState（lla设计 §5）。
-            bool isLla = false;
-        };
-        /// 向所有 ready IG 扇出 IGCtrl（可选带 Host 眼点）。
-        void update(double simTimeMs = 0.0, const EyePose* eye = nullptr);
+```cpp
+// HostDriver::update —— 业务侧组装数据面帧节拍（IGCtrl + 眼点）后统一 flushUdp
+auto& omsg = _host.udpOutgoing();                                  // 只 BeginMsg
+cigi_wire::appendHostFrame(omsg, _host.nextFrameCntr(), simTimeMs, eye); // IGCtrl + 眼点
+_host.flushUdp();                                                   // PackageMsg + 扇出
 ```
+
+- `udpOutgoing()` 只 `BeginMsg`，不再自动前置 IGCtrl；帧号经 `HostSync::nextFrameCntr()` 分配。
+- `cigi_wire::appendHostFrame`（`CigiWire.h`）负责 IGCtrl + ownship 眼点的 CCL 组装（WorldLocal→Attach+XYZ / LLA→Detach+LLA，LLA 越界丢弃内置）。
+- 数据面与命令面统一走 CCL 会话；`HostSync::update`/`EyePose` 已删除。
 
 依赖传递（[sync模块化设计.md](./sync模块化设计.md) §3.0）：
 
@@ -72,7 +67,7 @@
 
 ```text
 viewhost（纯 Host）
-  └→ HostSync（initialize + run + 每帧 update 扇出同一眼点）
+  └→ HostSync（initialize + run + 每帧 HostDriver::update 扇出同一眼点）
        ├→ IG A（Engine，channelId=0，offset 0）
        ├→ IG B（Engine，channelId=1，offset +18.05°）
        └→ IG C（Engine，channelId=2，offset −18.05°）
@@ -115,22 +110,23 @@ thirdparty/sync/examples/viewhost/
 1. loadHostConfig(viewhost.json, host, &error)      // sync 库内解析，只含 hostConfig 块
 2. HostSync::initialize(host)                        // bind UDP + TCP listen，起 accept/UDP 线程
 3. HostSync::run()                                   // 置 RUNNING（一次，非每帧）
-4. 定时器按目标 fps 调 HostSync::update(simTimeMs, &eye)   // 每帧扇出 IGCtrl（可选眼点）
+4. 定时器按目标 fps 调 HostDriver::update(simTimeMs, &eye)  // 每帧 udpOutgoing<<IGCtrl<<眼点→flushUdp
 5. HostSync::shutdown()                              // 退出时收尾
 ```
 
 ### 4.2 眼点表示与平移参考系（默认 LLA）
 
-**默认 LLA（已选定）**：眼点用椭球模式 LLA 表示，`HostSync::EyePose.isLla = true`，字段语义见 [lla位姿传输设计.md](./lla位姿传输设计.md) §3.1 / §3.2 与 `CigiWire.h`：
+**默认 LLA（已选定）**：眼点用椭球模式 LLA 表示，`cigi_wire::EyePose.frame = EyeFrame::LLA`，字段语义见 [lla位姿传输设计.md](./lla位姿传输设计.md) §3.1 / §3.2 与 `CigiWire.h`：
 
 | EyePose 字段 | LLA 语义 |
 | --- | --- |
+| `frame` | `EyeFrame::LLA`（Detach+LLA 编码） |
 | `x` | 纬度 lat（度，`[-90, 90]`） |
 | `y` | 经度 lon（度，`[-180, 180]`） |
 | `z` | 海拔 alt（米，相对椭球面） |
 | `yawDeg` / `pitchDeg` / `rollDeg` | 当地 **ENU** YPR（东-北-天；`yaw=0` 朝北，`+yaw` 左转朝西） |
 
-> **术语澄清**：viewhost 作为 Host 端发的是 **LLA**（`isLla=true`），**不是** ECEF。ECEF（地心米制笛卡尔）是 IG 侧椭球场景的渲染工作坐标（[lla位姿传输设计.md](./lla位姿传输设计.md) §2）；`HostSync::EyePose` 只有 `isLla` 布尔，无「直接发 ECEF」选项。默认 LLA 即配合 engine 椭球场景（`scene_ecef_*.json`，`coordFrame: "Ellipsoid"`）。
+> **术语澄清**：viewhost 作为 Host 端发的是 **LLA**（`frame=LLA`），**不是** ECEF。ECEF（地心米制笛卡尔）是 IG 侧椭球场景的渲染工作坐标（[lla位姿传输设计.md](./lla位姿传输设计.md) §2）；`cigi_wire::EyePose` 只有 `frame` 枚举（WORLD_LOCAL / LLA），无「直接发 ECEF」选项。默认 LLA 即配合 engine 椭球场景（`scene_ecef_*.json`，`coordFrame: "Ellipsoid"`）。
 
 **平移参考系（机头局部 + 绝对垂直）**：
 
@@ -157,7 +153,7 @@ alt += dUp
 ### 4.3 帧节拍与线程模型
 
 - **HostSync 内部已有线程**：`_acceptThread`（TCP accept）、`_udpThread`（UDP 收 SOF / 握手）、`_clientThreads`（每 client 一个）。viewhost **不额外造网络线程**。
-- **扇出驱动**：`HostSync::update()` 是 UDP 非阻塞扇出（FreeRun，不等 SOF），不会长时间占用调用线程。**初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**，对齐示例的「主循环 + sleep」模式，实现最简。
+- **扇出驱动**：`HostDriver::update`（内部 `udpOutgoing() << IGCtrl << 眼点 → flushUdp()`）是 UDP 非阻塞扇出（FreeRun，不等 SOF），不会长时间占用调用线程。**初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**，对齐示例的「主循环 + sleep」模式，实现最简。
 - 若未来需要更高节拍稳定性，再迁移到专用工作线程 + `PostMessage` 回传状态（本版不做）。
 
 **simTimeMs 推进与帧增量（写死）**：
@@ -216,7 +212,7 @@ void ViewHostDlg::onTick()
 
 **`_eye` 初始化（写死，与默认 LLA 对齐）**：
 
-- `_eye` 构造后**立即初始化**为：`isLla = true`，位置 = 初始演示眼点（lat/lon/alt，位于模型群附近），`yaw = 0`、`pitch = roll = 0`。**禁止**用 `HostSync::EyePose` 默认构造（其 `isLla=false` 会与默认 LLA 矛盾，首帧发出 WorldLocal）。
+- `_eye` 构造后**立即初始化**为：`frame = EyeFrame::LLA`，位置 = 初始演示眼点（lat/lon/alt，位于模型群附近），`yaw = 0`、`pitch = roll = 0`。**禁止**用 `cigi_wire::EyePose` 默认构造（其 `frame=WORLD_LOCAL` 会与默认 LLA 矛盾，首帧发出 WorldLocal）。
 - 进入手动模式：从「当前 `_eye`」起始累积，保证切入手动瞬间眼点不跳变。
 
 **键盘切换控制（空格热键，写死）**：
@@ -272,13 +268,13 @@ void ViewHostDlg::onTick()
 - **不测**：MFC UI（`CDialog` 消息循环 / `GetAsyncKeyState` 轮询）、`HostDriver`（`HostSync` 薄封装）。`HostSync` 的握手 / 扇出 / LLA 组包已由 `engine/Tests` 的 `HostIGTests`（`[viewhost]` / `[standalone]`）覆盖；UI 壳无新逻辑，测它成本高、价值低。
 - **测（`[unit]`）**：viewhost 新增的**纯数值逻辑**——键盘步进→LLA 换算（§4.2 的 `forward_enu` / `right_enu` / lat·lon 增量）。这是现有测试覆盖不到的新逻辑，且边界易错：lat clamp、lon normalize 到 `(-180,180]`、`cos(lat)` 除零、yaw normalize。
 
-**约束（写死）**：步进换算必须保持**纯 C++**——不依赖 MFC / vsg，只依赖 `HostSync::EyePose` 这一 POD 类型（include `HostSync.h` 即可，不产生链接依赖），否则无法挂入 `engine/Tests`。
+**约束（写死）**：步进换算必须保持**纯 C++**——不依赖 MFC / vsg，只依赖 `cigi_wire::EyePose` 这一 POD 类型（include `CigiWire.h` 即可，不产生链接依赖），否则无法挂入 `engine/Tests`。
 
 **挂载**：
 
 - 新增 `engine/Tests/ViewHostMathTests.cpp`，加入 `engine/Tests/CMakeLists.txt` 的 `SOURCES`。
 - 换算实现（`ViewHostMath.cpp`）也加入该测试 target 的编译单元——**测试与示例共用同一份源码**，不复制逻辑。
-- 测试 target 已链接 `vsgEngineLib`（间接含 `aerovistaSync`，提供 `HostSync::EyePose`），无需新增链接。
+- 测试 target 已链接 `vsgEngineLib`（间接含 `aerovistaSync`，提供 `cigi_wire::EyePose`），无需新增链接。
 
 ## 7. 与现有文档关系
 
@@ -291,10 +287,10 @@ void ViewHostDlg::onTick()
 ## 8. 否决与决策记录
 
 - **多通道在 IG 侧（澄清）**：viewhost 不感知通道数与 `offsetDeg`，只持一个 `HostSync` 扇出同一眼点。
-- **扇出驱动走 UI 定时器（初版写死）**：`update()` 非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
+- **扇出驱动走 UI 定时器（初版写死）**：`HostDriver::update`（`udpOutgoing+appendHostFrame+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
 - **触发方式选 toggle 按钮（否决左键开始 / 右键结束）**：右键在 Windows 惯例为上下文菜单语义，且按钮控件对右键不产生点击通知，需在对话框层额外处理 `WM_RBUTTON*`；左/右键还缺状态可见性。改为单一 toggle 按钮（文字+颜色反映状态）承载「开始控制 ↔ 停止控制」。
 - **键盘读取用 `GetAsyncKeyState` 轮询（否决 `OnKeyDown`）**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框，且按下有重复延迟；物理键状态轮询与焦点无关、连续输入跟手，但需 toggle 开关避免与文字输入冲突（§4.5）。
-- **默认 LLA 眼点（非 ECEF）**：viewhost 发 `isLla=true` 的 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`HostSync::EyePose` 无发 ECEF 选项（§4.2）。
+- **默认 LLA 眼点（非 ECEF）**：viewhost 发 `frame=LLA` 的 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。
 - **程序放 `thirdparty/sync/examples/`**：viewhost 是 sync 库的 Host 接入示例，与 `minimal_viewhost.cpp` 并列，不进 `tools/`（§3）。
 - **平移参考系 = 机头局部（否决地理固定 N/S/E/W）**：WASD 沿当前 `yaw` 的机头局部水平面移动，配合方向键 yaw/pitch 的姿态控制更符合「驾驶」直觉；上下用绝对垂直 alt（§4.2）。
 - **测试范围分层（写死）**：UI / `HostDriver` 薄封装不测（`HostSync` 已由 `HostIGTests` 覆盖）；步进换算是新增纯数值逻辑，挂 `engine/Tests` 的 `[unit]` 测试，与示例共用同一份源码（§6）。
@@ -308,5 +304,6 @@ void ViewHostDlg::onTick()
 | `thirdparty/sync/examples/viewhost/` 工程 + 对话框控制台 | 已实现 |
 | `HostDriver`（HostSync 封装）+ `applyManualStep`（步进换算，纯 C++） | 已实现 |
 | 复用 `loadHostConfig` / `HostSync` 全链路（无 sync 库改动） | 已实现 |
+| **新接口适配（2026-08-24，矛盾 A）** | `HostDriver::update` 用 `udpOutgoing+appendHostFrame+flushUdp`；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
 | `engine/Tests/ViewHostMathTests.cpp`：步进换算 `[unit]` 测试 | 已添加 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |

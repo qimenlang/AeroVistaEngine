@@ -586,7 +586,7 @@ void Engine::ensureEntityTransform(Entity& entity)
     if (entity.node)
         mt->addChild(entity.node);
     entity.transform = mt;
-    // 主线程执行（runPendingCommands）：与渲染遍历天然串行，无需锁。
+    // 主线程执行（drainIncoming）：与渲染遍历天然串行，无需锁。
     // 运行期挂载的模型节点需编译 GPU pipeline：初始场景在 finishGraphicsAfterScene 编译，
     // 新挂载节点的 GraphicsPipeline::_implementation 为空 → record 时 vk() 越界。
     if (auto group = _scene.cast<vsg::Group>())

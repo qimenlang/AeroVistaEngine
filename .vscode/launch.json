@@ -9,7 +9,10 @@
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/vsgEngine.exe",
-            "args": [],
+            "args": [
+                "-c",
+                "${workspaceFolder}/engine/resources/config/scene_ecef_host.json"
+            ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
         },
