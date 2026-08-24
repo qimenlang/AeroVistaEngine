@@ -21,3 +21,17 @@
 
 - [x] 已完成（2026-08）：`IgSync::drainIncoming(sendSof)` 统一 drain TCP+UDP → 解包（先 UDP 后 TCP），与 `HostSync::drainIncoming()` 对等；`IgSync::update()` 收敛为帧级维护（外推冻结 + RUNNING 状态，不收包）；`runPendingCommands` 删除；`SynchronSystem::preFrame` 调 `drainIncoming(true)+update()`，`update()` 仅眼点决策。
 - [x] 设计文档（状态同步设计初版.md §8.1/§8.2/§12）已同步。
+
+---
+
+## IG 时钟同步逻辑入 processor（待评估）
+
+- [ ] 现状：`IgSync::processIncomingUdp` 里 `IgCtrlCaptureProc`（基础设施 processor）只捕获 IGCtrl 帧号/时间戳；相位展开（`queueHostTimeStamp`/`applyPhaseUnwrap`）与 `receivedAtUs` 消费仍留在 IgSync 侧，时钟状态（`_hasTimeStamp`/`_extendedTimeTicks`/`_lastSimTimeUs` 等）归 IgSync 成员。
+- [ ] 方向：把时钟同步逻辑（相位展开 + 补偿 + 外推 + 冻结）整体移入一个 IGCtrl 的 `CigiBaseEventProcessor`（如 `SimTimeCaptureProc`），processor 内产出 `simTimeUs`；`frameStatsIgCtrlLine` 已通过 `igSync().simTimeUs()` 输出 HUD。
+- [ ] 约束：`receivedAtUs` 必须由 I/O 线程在 recv 时刻记录并注入 processor（不能改为「主线程处理时刻」——UDP 空队列等待最多 5ms，会引入 ~30% 帧周期误差）；`SyncClockTests` 直接调 `queueHostTimeStamp`/`simTimeUsAt`/`frozen` 等公开接口，迁移需保留或重设计这些接口。待定。
+
+## 时钟同步逻辑的 `receivedAtUs` 是否可去（待评估）
+
+- [ ] 背景：UDP payload 当前带 `receivedAtUs`（I/O 线程 recv 时刻），用于时钟同步 §4.0 的 `simTimeUs(now) = lastSimTimeUs + (nowUs - lastReceivedAtUs)`。
+- [ ] 不能简单去掉：主线程 processor 解包时刻比 recv 时刻晚 0~5ms（UDP 空队列等待），60fps 下 ~30% 帧周期误差。
+- [ ] 待定：是否可接受误差 / 是否需改为「I/O 线程解包」或其他注入方式。
