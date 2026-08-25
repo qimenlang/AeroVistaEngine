@@ -51,30 +51,11 @@ inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
     return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
 }
 
-inline SyncRoleConfig makeTestHostIgRole(int igUdpRecv, int base)
-{
-    SyncRoleConfig role{};
-    role.enableHost = true;
-    role.enableIg = true;
-    role.hostConfig = makeTestHostConfig(base);
-    role.igConfig = makeTestIgConfig(igUdpRecv, base);
-    return role;
-}
-
 inline SyncRoleConfig makeTestIgOnlyRole(int igUdpRecv, int base)
 {
     SyncRoleConfig role{};
     role.enableHost = false;
     role.enableIg = true;
     role.igConfig = makeTestIgConfig(igUdpRecv, base);
-    return role;
-}
-
-inline SyncRoleConfig makeTestHostOnlyRole(int base)
-{
-    SyncRoleConfig role{};
-    role.enableHost = true;
-    role.enableIg = false;
-    role.hostConfig = makeTestHostConfig(base);
     return role;
 }

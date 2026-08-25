@@ -1,7 +1,7 @@
 ﻿# LLA 位姿传输设计
 
 在已落地的本地笛卡尔 Host→IG 相机同步之上，增加 **LLA + 当地姿态** 作为椭球模式下的权威眼点语义。  
-帧时序、连接态、无新包 / 断线 / 防回声沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5；坐标系背景见 [坐标系统总结.md](../notes/坐标系统总结.md)。  
+帧时序、连接态、无新包 / 断线沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5（防回声已随拆进程移除）；坐标系背景见 [坐标系统总结.md](../notes/坐标系统总结.md)。  
 本文取代「仅做场景 JSON 装配、暂不动同步」的前置草案方向（见 [坐标系统模块设计.md](./坐标系统模块设计.md)），把范围收束到 **能传、能采、能写** 的 LLA 同步闭环。
 
 ---
@@ -214,7 +214,7 @@ center  = eye + forward * d                  // d：视线距，见下
 **第一版约定**：
 
 - 主路径（`LookAt` / view matrix）保持 **double**；`d` 与本地模式对齐，默认 **`d = 1.0`**（或与现 `setCameraPose` 的 `kLookDistance` 同一常量）。
-- **不要**为 float 隐患盲目改 1000 而不评估 Trackball。若权威窗依赖 Trackball，改 `d` 须单独验收操作手感。
+- **不要**为 float 隐患盲目改 1000 而不评估 Trackball。若 IG 侧相机交互依赖 Trackball，改 `d` 须单独验收操作手感。
 - 若确有 float 世界算子（阴影、拾取等）直接消费 ECEF 点：靠 **原点回退 / `CoordinateFrame`** 等精度方案，而不是指望加大 `d` 一劳永逸。
 - 实现若发现某条 float 路径必须从 `center-eye` 取方向，可在该处用 double 算方向再窄化，或仅在那条路径用更大临时偏移——与写入 `LookAt` 的 `d` 解耦。
 
@@ -255,7 +255,9 @@ forward_ig = R_host · (Rz(δ) · ForwardBase)                     // 绕 Host �
 
 第一版 **不**做通道平移偏移。
 
-### 3.5 采样（LookAt → LLA + YPR）
+### 3.5 采样（LookAt → LLA + YPR）——已随拆进程移除
+
+> **（2026-08 拆进程）**：Host 采样原由 engine 的 `HostPosePublisher`（`lookAtToLlaEye` / `lookAtToWorldLocalEye`）承担；engine 不再承担 Host 后该路径删除。Host 眼点由 viewhost 键盘累积直接产生 LLA + 当地 YPR（`applyManualStep`，见 [viewhost设计.md](./viewhost设计.md) §4.2），**不经 LookAt 采样**。下列换算仅作历史参考 / 线格式测试锚定。
 
 ```text
 lla     = convertECEFToLatLongAltitude(eye)
@@ -285,7 +287,7 @@ M_inv   = computeWorldToLocalTransform(lla)
 
 `setCameraPoseLla` / 采样换算所需的 `EllipsoidModel`：见 §2.3 步骤 6。
 
-**权威窗 `offsetDeg`**：须为 **全 0**（与现 `main.json` 一致）。覆盖前采样读的是当前 `LookAt`（上帧已是「权威意图 ⊕ 本通道 offset」）；若权威窗 offset≠0，发出去的「Host 眼点」已含 offset，各 IG 再 ⊕ 会**叠两次**。此为本地路径已有约束，椭球同样适用。
+**Host 无 offsetDeg（2026-08 拆进程）**：Host 为独立 viewhost 进程，不施加通道偏移，也不存在「权威窗 ⊕ offset 后采样再广播」的双重叠加问题（原约束源于 engine 同进程 Host+IG，已随拆进程移除）。各 IG 的 `offsetDeg` 只在各自 IG 进程施加。
 
 ### 4.2 `HostEyePose`（禁止裸 `dvec3` 双语义）
 
@@ -308,19 +310,18 @@ struct HostEyePose {
 | `holds_alternative<WorldPos>` | 本地模式；`eulerYprDeg` = 世界轴 YPR |
 | `holds_alternative<LlaPos>` | 椭球模式；`eulerYprDeg` = 当地 ENU YPR（§3.2） |
 | 与 JSON / 线格式 | `WorldPos` ↔ Attach+XYZ；`LlaPos` ↔ Detach+LLA；`frame` 可由 variant 索引推导，不必再存易漂移的第二份枚举（若保留 `CoordFrame` 枚举，必须与 variant 同步更新） |
-| API | `compose` / `apply` / 采样 / 组包均 `std::visit` 或按类型重载；**禁止** `.position.x` 无标签读写 |
+| API | `compose` / `apply` / 组包均 `std::visit` 或按类型重载；**禁止** `.position.x` 无标签读写 |
 
-采样、入队、防回声重建 LookAt、组包全程走类型分支；线格式 `EyePose` 仍带显式 AttachState（§5），解包时构造对应 `WorldPos` 或 `LlaPos`。
+入队、组包全程走类型分支；线格式 `EyePose` 仍带显式 AttachState（§5），解包时构造对应 `WorldPos` 或 `LlaPos`。
 
-### 4.3 帧路径（不变相位，换语义）
+### 4.3 帧路径（IG 侧；Host 采样/扇出已随拆进程移除）
 
 ```text
 update:
   handleEvents
-  captureAuthorityEye(lookAt)   // 宿主喂入 LookAt；有 EllipsoidModel → LLA+当地YPR，写入 frame=LLA
   SynchronSystem::update()      // 决策；宿主取 takePendingCameraPose → setCameraPose / setCameraPoseLla
 postFrame:
-  按本帧采样（或 _lastSent）的位置类型组包扇出（§5）
+  无扇出（Host 眼点由 viewhost 独立扇出，见 viewhost设计.md §4）
 ```
 
 无新包 / Freeze / ReuseLast / 断线保末帧：逻辑不变，缓存带位置类型的 `HostEyePose`。
@@ -330,9 +331,9 @@ postFrame:
 | 术语 | 含义 |
 | --- | --- |
 | **stale** | 本帧**没有**新的 Host 眼点包 → 按 `hostEyeStalePolicy`（`ReuseLast` / `Freeze`）决定是否仍用缓存写相机；细节沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.4 |
-| **防回声** | 权威窗回灌后相机**未再动** → 采样阶段不把当前 LookAt 当新 intent 发出（详见下节 §4.4） |
+| **防回声** | **已随拆进程移除**（2026-08）：engine 不再采样出站，原「权威窗回灌后相机未再动则不广播」只存在于同进程 Host+IG，viewhost 无回灌相机、无该问题 |
 
-二者正交：stale 管「没新包怎么办」；防回声管「有相机时别把回灌结果再广播出去」。
+二者正交：stale 管「没新包怎么办」；防回声已无宿主侧（§4.4 随拆进程移除）。
 
 #### 场景重建与模式换轨时的缓存
 
@@ -340,18 +341,16 @@ postFrame:
 
 | 缓存 | 动作 |
 | --- | --- |
-| `_lastApplied` / `_lastSent` / `_frameSample` / `_cachedHostEye` / pending | **全部清空** |
+| `_lastApplied` / `_cachedHostEye` / pending（`_lastSent` / `_frameSample` 随 `HostPosePublisher` 删除） | **全部清空** |
 | 触发点 | `initGraphics` 成功重建场景后（**不必**整网 `SynchronSystem::shutdown`）；或显式 `SynchronSystem::resetEyeCaches()`（名称实现定）与图形重建同调用链调用 |
 
 当前仅 `shutdown()` 会清缓存不够：热重载 / 测试里只重建图形时必须走上述触发点，否则旧类型缓存残留。
 
-模式切换后第一帧：应重新采样权威眼点（或等用户/注入产生新 pose）再扇出；**禁止**在位置类型已变时重发旧类型的 `_lastSent`。若 `postFrame` 发现 `_lastSent` 类型与当前场景不符 → 丢弃 `_lastSent`，本帧可无眼点或仅发 IGCtrl。
+模式切换后第一帧：Host（viewhost）按当前累积眼点直接扇出（键盘累积无位置类型切换问题）；engine IG 侧经 `resetEyeCaches()` 清缓存，按新场景模式接收 / 拒收眼点（§4.5）。
 
-### 4.4 防回声（比较 LookAt，不反解 YPR）
+### 4.4 防回声（比较 LookAt，不反解 YPR）——已随拆进程移除
 
-**目的**：权威窗在 `apply` 写回 `Host⊕offset` 后，若用户未再拖动 Trackball，本帧采样不得把「回灌结果」当成新意图发出（否则会回环旧包）。
-
-**选定判据（写死）**：比较 **当前 `LookAt` 与由 `_lastApplied` 重建的期望 `LookAt`**，在 **World 笛卡尔**下比向量——本地模式为本地 XYZ，椭球模式为 **ECEF**。
+> **（2026-08 拆进程）**：防回声依赖「Host 采样 mainCamera」，仅同进程 Host+IG（engine 权威窗）存在；engine 不再承担 Host 后整节删除。viewhost 眼点来自键盘累积、无回灌相机，无防回声需求。下列判据保留作历史参考，不再实现。
 
 ```text
 若有 _lastApplied:
@@ -369,23 +368,13 @@ postFrame:
 | `forward` | `normalize(center - eye)` | 方向，如 `1 - dot < 1e-8` 或角 ~`1e-4` rad |
 | `up` | LookAt 的 `up`（可先与 forward 正交化再比） | 同上 |
 
-**不采用**「采样 LLA+YPR，再减 `offsetDeg` 回推 Host 意图再比较」：
-
-- 防回声问的是「相机相对上次回灌有没有动」，应直接比 **apply 的输出**（LookAt），不必回到 Host 意图空间。
-- 减 offset 在 `pitch/roll` 偏移非 0 时不是精确逆（见 §3.4）；即使第一版强制 offset 仅 yaw，反解 YPR 仍受欧拉奇异影响。
-- 比 LookAt 向量：**不反解 YPR**，无奇异；与「是否仍等于上次回灌」语义一致。
-
-**与本地现状**：当前实现是 `lookAtToHostEye` 后比 `position`/`eulerYprDeg` 与 `_lastApplied`（仍经一次欧拉）。椭球路径按上表走 LookAt 向量；本地可保留旧比较，或一并改成同一 LookAt 比较（推荐，实现更对称，非本迭代硬性）。
-
-出站采样（`_frameSample` 内容）仍要解成带 `frame` 的 `HostEyePose` 以便组包；**仅防回声门闩**不依赖 YPR 相等。
-
 ### 4.5 Host / IG 模式一致性与拒收可观测性
 
 同一会话内应同为本地或同为椭球。  
 判定「报文模式」：解包得到的 Attach→`WorldPos`，Detach→`LlaPos`（§5）。  
 若与本机场景（有无 `EllipsoidModel`）不一致：**丢弃该眼点**；**不**做静默单位换算；**不得**静默到无人知晓。
 
-Host **组包**取自待发送的 `HostEyePose` 位置类型（来自权威采样或重发缓存），**不**由 IG 猜测，也**不**在 Host 上单独再读一份与采样脱节的配置开关。
+Host（viewhost）**组包**取自待发送的 `HostEyePose` 位置类型（键盘累积眼点，见 [viewhost设计.md](./viewhost设计.md) §4.2），**不**由 IG 猜测。
 
 #### 拒收时的可观测性（第一版必做）
 
@@ -514,18 +503,18 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 
 | 用例方向 | 期望 |
 | --- | --- |
-| LLA 本机往返 | **单机、无网络**：`setCameraPoseLla(lla,ypr)` → 从 LookAt 按 §3.5 采样 → `(lla',ypr')` 在容差内回到输入（中低纬） |
-| LLA Host→IG 跟拍 | **跨进程真报文**：Host 发布 LLA 眼点 → IG `LookAt.eye`（ECEF）与 Host 同椭球换算一致（权威窗 `offsetDeg=0`；邻通道另测 ⊕ yaw） |
+| LLA 本机往返 | **已移除**（2026-08 拆进程：依赖 LookAt 采样，随 `HostPosePublisher` 删除；改由 `setCameraPoseLla` 写入 + LookAt 字段断言覆盖） |
+| LLA Host→IG 跟拍 | **跨进程真报文**：viewhost 发布 LLA 眼点 → IG `LookAt.eye`（ECEF）与 Host 同椭球换算一致（Host 无 `offsetDeg`；邻通道另测 ⊕ yaw） |
 | `offsetDeg` | 仅 `yaw` 有定义；Host 眼点可含 pitch/roll，左/右仅 yaw 偏移时仍满足 `R_ig=R_host·Rz(δ)`（各通道 up 轴平行）；`offsetDeg.pitch/roll≠0` → **不测试** |
 | 线契约 | Detach+LLA 与 Attach+XYZ 打包/解包；`AttachState`→位置类型正确；**Detach 时 ParentID=0、EntityID=0**；Attach 时 EntityID=0、ParentID=1；切换 Attach↔Detach 组合合法 |
 | 组包依据 | Host 按 `HostEyePose` 位置类型选择 Attach/Detach；线上无私有 frame 字段 |
 | 模式隔离 | 本地回归全绿；错模式眼点不污染相机；首拒收 `[ERROR]`；`eyePoseRejectedByFrameMismatch` 递增；SOF/ready 仍正常 |
 | 模式装配 | 按 §2：无椭球才看 `coordFrame` 注入；模型自带则保留；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
 | 范围校验 | Lat/Lon/Pitch 越界不抛穿；丢弃眼点并计数；lon 归一化到 (-180,180] |
-| 权威 offset | 权威窗 `offsetDeg` 全 0；非 0 不作为第一版支持场景 |
+| 权威 offset | **已移除**（2026-08 拆进程：Host 为 viewhost、无 `offsetDeg`；原「权威窗全 0」约束不再适用） |
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
 | 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
-| 防回声 / stale | 概念见 §4.3；椭球防回声：LookAt ECEF 的 eye/forward/up 与 `_lastApplied` 重建一致则不采样；不测「减 offset 回推」路径；stale 沿用既有 ReuseLast/Freeze 用例 |
+| 防回声 / stale | 防回声**已移除**（2026-08 拆进程，§4.4）；stale 沿用既有 ReuseLast/Freeze 用例 |
 | 场景换轨 | 同进程重载 / 换配置导致 Local↔Ellipsoid：SynchronSystem 位姿缓存清空；不得用旧类型 `_lastSent` 重发 |
 | `_lastSent` 换轨 | 场景已椭球、缓存仍为 WorldLocal（或反向）时：丢弃旧 `_lastSent`，不触发对端「自己人」frame 拒收 |
 | 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
@@ -552,11 +541,11 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 
 1. 按 §2 完成 `coordFrame` 解析、`loadScene` 后注入/保留 `EllipsoidModel`、默认 LLA 初始相机（均在相机创建前）
 2. `setCameraPoseLla` + LLA 本机往返（LookAt↔LLA/YPR 互逆；单测，无网络；方向用 3×3）
-3. **本地路径先迁移** `HostEyePose` → `variant<WorldPos,LlaPos>`（本阶段只产生 / 消费 `WorldPos`）；`compose` / `apply` / `capture` / 防回声 / `_lastSent` / `_lastApplied` 全部分支可读类型；**跑通全部现有本地回归**后再合并
+3. **本地路径先迁移** `HostEyePose` → `variant<WorldPos,LlaPos>`（本阶段只产生 / 消费 `WorldPos`）；`compose` / `apply` / `_lastApplied` 全部分支可读类型（`capture` / 防回声 / `_lastSent` 已随拆进程移除）；**跑通全部现有本地回归**后再合并
 4. `CigiWire`：内部 `EyePose` 带位置类型（由 **AttachState** 映射，线上不加私有 frame）；本地仍 Attach+XYZ
 5. 椭球分支：`LlaPos` + `setCameraPoseLla`；Detach+double LLA；EntityID/ParentID 按 §5；模式不符拒收 + §4.5 可观测性
 6. 场景重建 / 模式换轨：清空同步位姿缓存；`_lastSent` 类型与场景不符则丢弃（§4.3）
-7. BDD：LLA 本机往返、LLA Host→IG 跟拍、`offsetDeg`、模式装配与初始相机、半径、防回声、换轨缓存、本地回归；本地防回声可改为 LookAt 比较
+7. BDD：LLA Host→IG 跟拍、`offsetDeg`、模式装配与初始相机、半径、换轨缓存、本地回归（防回声已随拆进程移除）
 8. （可选）瓦片联调；HELLO 传半径等增强
 
 与 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.8 / §9 P1「椭球 / ECEF 相机驱动」对齐；落地后更新该节状态为已实现，并收回「未实现前勿假设 XYZ 眼点在椭球下正确」的警告。

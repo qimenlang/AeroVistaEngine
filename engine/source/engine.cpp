@@ -1,7 +1,6 @@
 ﻿#include "engine.h"
 
 #include "InitialCameraConfig.h"
-#include "function/handler/CommandTriggerHandler.h"
 #include "function/handler/FrameStatsHandler.h"
 
 #include <vsgXchange/all.h>
@@ -17,7 +16,6 @@
 
 using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
-using aerovista::sync::HostSync;
 using aerovista::sync::SynchronSystem;
 using aerovista::sync::SyncRoleConfig;
 
@@ -495,11 +493,6 @@ SynchronSystem& Engine::synchronSystem()
     return *_synchronSystem;
 }
 
-HostSync& Engine::hostSync()
-{
-    return *_hostSync;
-}
-
 vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
 {
     return _window;
@@ -834,19 +827,7 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& sy
 {
     // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，beginWithIgCtrlUdp 填 TimeStamp，§7.1）——
     // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
-
-    // Host：Engine 直接持有 HostSync（直发，不经 SynchronSystem 门面）。
-    _hostSync.reset();
-    if (syncRole.enableHost)
-    {
-        _hostSync = std::make_unique<HostSync>();
-        if (!_hostSync->initialize(syncRole.hostConfig))
-        {
-            std::cerr << "Engine: HostSync initialize failed\n";
-            return false;
-        }
-        _hostSync->run();
-    }
+    // Host 角色已拆出（2026-08）：engine 仅 IG，Host 由独立 viewhost 进程承担。
 
     // IG：SynchronSystem（IG 决策器）；enableIg=false 时 initialize 仅清空旧 IG。
     if (!_synchronSystem->initialize(syncRole, syncSystem))
@@ -884,7 +865,6 @@ void Engine::resetGraphicsResources()
     // lla §4.3：图形重建时清空眼点缓存（不拆除同步）。
     if (_synchronSystem)
         _synchronSystem->resetEyeCaches();
-    _hostPublisher.reset();
 
     _entityMap.clear();
     _currentExtent = extent;
@@ -1047,14 +1027,6 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
         frameStatsHandler->enabled = &_reportFrameStats;
         _viewer->addEventHandler(frameStatsHandler);
 
-        // 实机命令触发：仅 Host 引擎（有 HostSync）挂 F3 热键。
-        if (_hostSync)
-        {
-            auto commandHandler = CommandTriggerHandler::create();
-            commandHandler->host = _hostSync.get();
-            _viewer->addEventHandler(commandHandler);
-        }
-
         auto windowView = vsg::View::create(camera);
         windowView->addChild(vsg::createHeadlight());
         windowView->addChild(_scene);
@@ -1183,18 +1155,7 @@ bool Engine::update()
 
     _viewer->handleEvents();
 
-    // Host→IG：先采样权威眼（覆盖前）；IG 决策器收包/决策，应用本帧位姿。
-    if (_hostSync)
-    {
-        if (auto camera = mainCamera())
-        {
-            if (auto lookAt = camera->viewMatrix.cast<vsg::LookAt>())
-            {
-                _hostPublisher.captureAuthorityEye(
-                    *lookAt, ellipsoidModel().get(), _synchronSystem->lastAppliedHostEye());
-            }
-        }
-    }
+    // IG 决策器收包/决策，应用本帧位姿（Host 眼点由独立 viewhost 进程扇出，2026-08 拆 Host）。
     if (_synchronSystem)
     {
         _synchronSystem->update();
@@ -1248,12 +1209,8 @@ void Engine::render()
 
 void Engine::postFrame()
 {
-    // 子系统：update+render 后读最终状态 / 扇出。
-    // 模拟时间由 HostSync 自计时（_startTime = steady_clock::now() 于 initialize，§7.1）：
-    // outMsgWithIgCtrlUdp() 自动填 IGCtrl.TimeStamp = simTimeMs×100（10µs 步进）。渲染卡顿时时间戳
-    // 跟上真实流逝，IG 外推不因 host 帧节奏波动而放大误差（时钟同步方案.md §5 方案 B）。
-    if (_hostSync)
-        _hostPublisher.postHostFrame(*_hostSync, ellipsoidModel().get());
+    // 子系统：update+render 后读最终状态。engine 不再承担 Host（2026-08 拆进程），
+    // 无扇出——数据面帧节拍 / 眼点由独立 viewhost 进程经 HostDriver::update 发送。
 }
 
 void Engine::stepSync()

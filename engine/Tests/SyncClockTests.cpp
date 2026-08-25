@@ -6,16 +6,25 @@
 
 #include "Common.h"
 #include "engine.h"
+#include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
 
 #include <cstdint>
 #include <thread>
 
+using aerovista::sync::HostSync;
 using aerovista::sync::IgSync;
 namespace
 {
     // 时钟同步方案.md §3/§4 注入结构体：IgSync::HostTimeStamp 提供真实实现。
     using HostTimeStamp = IgSync::HostTimeStamp;
+
+    /// 业务侧扇出一帧 IGCtrl（outMsgWithIgCtrlUdp 自动前置 IGCtrl + 自计时时间戳）。
+    void hostSendFrame(HostSync& host)
+    {
+        auto& omsg = host.outMsgWithIgCtrlUdp();
+        host.flushUdp();
+    }
 } // namespace
 
 SCENARIO("linked IG reports simulation time as Host base plus local elapsed",
@@ -288,27 +297,28 @@ TEST_CASE("unit conversion from raw tick to us and ms is exact", "[unit][sync][c
 SCENARIO("IG derives simulation time from live Host time stamps plus local elapsed",
          "[acceptance][bdd][sync][clock][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only, linked over real sockets")
+    GIVEN("an independent HostSync and IG-only Engine B, linked over real sockets")
     {
         constexpr int kBase = 26000;
-        Engine engineA;
+        HostSync hostA;
         Engine engineB;
-        engineA.extent = engineB.extent = {640, 480};
-        engineA.showWindow = engineB.showWindow = false;
+        engineB.extent = {640, 480};
+        engineB.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.hostSync().readyIgCount() == 2);
-        // Host 不加载 graphics，用 tickOnFrame 驱动完整帧循环，postFrame 等超时后发送。
-        REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
+        REQUIRE(hostA.readyIgCount() == 1);
 
-        WHEN("both engines tick and Host fans out real IGCtrl time stamps")
+        WHEN("Host fans out real IGCtrl time stamps and IG ticks")
         {
             constexpr int kTicks = 10;
             for (int i = 0; i < kTicks; ++i)
             {
-                REQUIRE(engineA.tickOnFrame());
+                hostSendFrame(hostA);
                 engineB.tickSync();
+                // 模拟帧节奏，保证 Host 自计时时间戳随真实时间推进（10 帧 ≥ 100ms）。
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
 
             THEN("IG simulation time is anchored on the Host time stamp and advances with local elapsed")
@@ -318,7 +328,8 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
                 REQUIRE(ig.lastIgCtrlFrameCntr() > 0);
 
                 // 关键断言：基准即 Host 时间戳（非本地时钟从 0 起）。
-                // Host 每帧 simTimeMs 递增（Engine::postFrame += 1000/60），10 帧后应约 166ms。
+                // HostSync 自计时（_startTime 于 initialize 记录，steady_clock 连续推进），
+                // 10 帧 × ~16.67ms ≈ 166ms（含握手耗时）。
                 const std::uint64_t hostBaseUs = ig.lastHostSimTimeUs();
                 REQUIRE(hostBaseUs > 0);
 
@@ -340,29 +351,30 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 SCENARIO("two IG channels derive nearly identical simulation time from the shared Host",
          "[acceptance][bdd][sync][clock][e2e][consistency]")
 {
-    GIVEN("Engine A as Host+IG and two IG-only engines B and C, linked over real sockets")
+    GIVEN("an independent HostSync and two IG-only engines B and C, linked over real sockets")
     {
         constexpr int kBase = 27000;
-        Engine engineA;
+        HostSync hostA;
         Engine engineB;
         Engine engineC;
-        engineA.extent = engineB.extent = engineC.extent = {640, 480};
-        engineA.showWindow = engineB.showWindow = engineC.showWindow = false;
+        engineB.extent = engineC.extent = {640, 480};
+        engineB.showWindow = engineC.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(engineC.initSync(makeTestIgOnlyRole(kBase + 5, kBase)));
-        REQUIRE(engineA.hostSync().readyIgCount() == 3);
-        REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
+        REQUIRE(hostA.readyIgCount() == 2);
 
-        WHEN("all engines tick and Host fans out real time stamps to both IGs")
+        WHEN("Host fans out real time stamps to both IGs")
         {
             constexpr int kTicks = 10;
             for (int i = 0; i < kTicks; ++i)
             {
-                REQUIRE(engineA.tickOnFrame());
+                hostSendFrame(hostA);
                 engineB.tickSync();
                 engineC.tickSync();
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
 
             THEN("both IGs anchor on the same Host time stamp and stay within a small difference")
@@ -410,28 +422,28 @@ TEST_CASE("simTimeUs uses the monotonic clock internally and is not affected by 
 SCENARIO("IG freezes when the Host stops sending time stamps over the real link",
          "[acceptance][bdd][sync][clock][e2e][freeze]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets with a short freeze timeout")
+    GIVEN("an independent HostSync and IG-only Engine B linked with a short freeze timeout")
     {
         constexpr int kBase = 28000;
-        Engine engineA;
+        HostSync hostA;
         Engine engineB;
-        engineA.extent = engineB.extent = {640, 480};
-        engineA.showWindow = engineB.showWindow = false;
+        engineB.extent = {640, 480};
+        engineB.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.hostSync().readyIgCount() == 2);
-        REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
+        REQUIRE(hostA.readyIgCount() == 1);
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
         engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
 
-        WHEN("Host ticks a few frames then stops, while the IG keeps ticking")
+        WHEN("Host sends a few frames then stops, while the IG keeps ticking")
         {
             constexpr int kHostTicks = 5;
             for (int i = 0; i < kHostTicks; ++i)
             {
-                REQUIRE(engineA.tickOnFrame());
+                hostSendFrame(hostA);
                 engineB.tickSync();
             }
             REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
@@ -462,26 +474,27 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps",
          "[acceptance][bdd][sync][clock][e2e][real-time]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("an independent HostSync and IG-only Engine B linked over real sockets")
     {
         constexpr int kBase = 29000;
-        Engine engineA;
+        HostSync hostA;
         Engine engineB;
-        engineA.extent = engineB.extent = {640, 480};
-        engineA.showWindow = engineB.showWindow = false;
+        engineB.extent = {640, 480};
+        engineB.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.hostSync().readyIgCount() == 2);
-        REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
+        REQUIRE(hostA.readyIgCount() == 1);
 
         WHEN("the Host pauses between frames and then sends the next time stamp")
         {
-            // 预跑 2 帧，让 t0 有基准（保证 A 第 3 帧 simTime=0 起）。
+            // 预跑 2 帧，让 t0 有基准（保证时间戳从 Host 自计时起）。
             for (int i = 0; i < 2; ++i)
             {
-                REQUIRE(engineA.tickOnFrame());
+                hostSendFrame(hostA);
                 engineB.tickSync();
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
             REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() >= 2);
             const std::uint64_t t0 = engineB.synchronSystem().igSync().lastHostSimTimeUs();
@@ -489,7 +502,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
             // 暂停 100ms 再发一帧。
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            REQUIRE(engineA.tickOnFrame());
+            hostSendFrame(hostA);
             engineB.tickSync();
             const std::uint64_t t1 = engineB.synchronSystem().igSync().lastHostSimTimeUs();
 
@@ -499,7 +512,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
                 const std::uint64_t advanceUs = t1 - t0;
 
                 // 引擎 B 的 advance 应 ≈ 暂停 100ms（+一帧误差，含网络接收延迟差）。
-                // 若引擎 A 固定步进，advance 只有 16.67ms，远小于暂停 → 测试能红。
+                // HostSync 自计时（steady_clock 连续推进）：advance 应 ≥ 80ms。
                 REQUIRE(advanceUs >= 80000);  // ≥ 80ms（100ms 暂停的 80%）
                 REQUIRE(advanceUs <= 200000); // ≤ 200ms（含网络/调度等波动上限）
             }
@@ -510,18 +523,18 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
          "[acceptance][bdd][sync][clock][e2e][freeze][host-offline]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets with a short freeze timeout")
+    GIVEN("an independent HostSync and IG-only Engine B linked with a short freeze timeout")
     {
         constexpr int kBase = 30000;
-        Engine engineA;
+        HostSync hostA;
         Engine engineB;
-        engineA.extent = engineB.extent = {640, 480};
-        engineA.showWindow = engineB.showWindow = false;
+        engineB.extent = {640, 480};
+        engineB.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestHostIgRole(kBase + 1, kBase)));
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineA.hostSync().readyIgCount() == 2);
-        REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
+        REQUIRE(hostA.readyIgCount() == 1);
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
         engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
@@ -531,14 +544,14 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
             // 正常 tick，B 收到时间戳且未触发冻结。
             for (int i = 0; i < 5; ++i)
             {
-                REQUIRE(engineA.tickOnFrame());
+                hostSendFrame(hostA);
                 engineB.tickSync();
             }
             REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
             REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
 
-            // A 退出（等价于 Host 关闭 TCP/UDP），B 持续 tick，超过冻结阈值。
-            engineA.synchronSystem().shutdown();
+            // hostA 关闭（等价于 Host 进程退出，关闭 TCP/UDP），B 持续 tick，超过冻结阈值。
+            hostA.shutdown();
 
             for (int i = 0; i < 20; ++i)
             {

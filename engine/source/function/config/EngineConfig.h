@@ -6,11 +6,10 @@
 #include <vector>
 
 // 具体 using 声明（非 using namespace，符合 cpp-vsg-style.mdc）。
-using aerovista::sync::HostConfig;
+// hostConfig 已于 2026-08 拆 Host 进程时移出 engine schema（Host 配置归 sync 库 loadHostConfig）。
 using aerovista::sync::HostEyeStalePolicy;
 using aerovista::sync::IgConfig;
 using aerovista::sync::OffsetDeg;
-using aerovista::sync::parseHostConfig;
 using aerovista::sync::parseIgConfig;
 using aerovista::sync::SyncRoleConfig;
 using aerovista::sync::SyncSystemConfig;
@@ -77,21 +76,18 @@ struct EngineChannelConfig
     // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg。
     SyncSystemConfig syncSystem{};
 
-    HostConfig hostConfig{};
     IgConfig igConfig{};
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
     CoordFrameIntent coordFrame = CoordFrameIntent::LOCAL;
 
     /// 对应 JSON 对象键出现时置位（父键 enable）。
-    bool hasHostConfig = false;
     bool hasIgConfig = false;
 
     std::vector<EntityConfig> entities;
     bool hasCamera = false;
     CameraConfig camera{};
 
-    bool enableHost() const { return hasHostConfig; }
     bool enableIg() const { return hasIgConfig; }
 
     SyncRoleConfig toSyncRole() const;

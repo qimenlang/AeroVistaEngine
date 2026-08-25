@@ -3,6 +3,7 @@
 
 #include "InitialCameraConfig.h"
 #include "engine.h"
+#include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/SyncConfig.h>
 
 #include <cmath>
@@ -14,6 +15,7 @@
 #include "Common.h"
 
 using aerovista::sync::HostEyeStalePolicy;
+using aerovista::sync::HostSync;
 using aerovista::sync::loadHostConfig;
 using aerovista::sync::loadIgConfig;
 using aerovista::sync::OffsetDeg;
@@ -29,8 +31,9 @@ using aerovista::sync::OffsetDeg;
 namespace
 {
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
+    // 拆 Host 进程后 engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"hostConfig":{"udpPortSend":8001,"udpPortRecv":8000,"tcpPort":8100},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
         R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":false},"igConfig":{"udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
@@ -40,12 +43,6 @@ namespace
     }
 
     // Role-relevant field compares.
-    bool hostConfigEquals(const HostConfig& a, const HostConfig& b)
-    {
-        return a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv &&
-               a.tcpPort == b.tcpPort;
-    }
-
     bool igConfigEquals(const IgConfig& a, const IgConfig& b)
     {
         return a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv &&
@@ -63,7 +60,6 @@ namespace
         REQUIRE(actual.syncSystem.channelId == expected.syncSystem.channelId);
         REQUIRE(offsetEquals(actual.syncSystem.offsetDeg, expected.syncSystem.offsetDeg));
         REQUIRE(igConfigEquals(actual.igConfig, expected.igConfig));
-        REQUIRE(hostConfigEquals(actual.hostConfig, expected.hostConfig));
         REQUIRE(actual.model == expected.model);
         REQUIRE(actual.window.x == expected.window.x);
         REQUIRE(actual.window.y == expected.window.y);
@@ -82,11 +78,6 @@ namespace
                    R"("igConfig": { "udpPortSend": 8000, "udpPortRecv": )") +
                std::to_string(udpRecv) +
                R"(, "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 })";
-    }
-
-    std::string jsonHostConfig()
-    {
-        return R"("hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 })";
     }
 } // namespace
 
@@ -617,7 +608,7 @@ SCENARIO("default Engine config matches the default channel file", "[acceptance]
 
 SCENARIO("default initialization does not start the sync subsystem", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine using the default config (no hostConfig / igConfig)")
+    GIVEN("an Engine using the default config (no igConfig)")
     {
         Engine engine;
         engine.showWindow = false;
@@ -626,9 +617,8 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
         {
             REQUIRE(engine.init());
 
-            THEN("neither Host nor IG is started")
+            THEN("no IG is started")
             {
-                REQUIRE_FALSE(engine.hasHost());
                 REQUIRE_FALSE(engine.synchronSystem().hasIg());
             }
         }
@@ -661,33 +651,9 @@ SCENARIO("loading a channel file replaces Engine config with that file", "[accep
 // 验收：init 后同步角色与配置一致（父键 enable，非 channelId）
 // =============================================================================
 
-SCENARIO("main channel file starts Host and IG using configured addresses", "[acceptance][bdd][config]")
+SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd][config]")
 {
-    GIVEN("an Engine loaded from a Host+IG+Endpoint config")
-    {
-        Engine engine;
-        const TempConfigFile file(kMainJson);
-        REQUIRE(engine.loadConfig(file.path()));
-        engine.showWindow = false;
-
-        WHEN("the Engine initializes")
-        {
-            REQUIRE(engine.init());
-
-            THEN("IG and Host run with addresses from the loaded config")
-            {
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(engine.hasHost());
-                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
-                REQUIRE(hostConfigEquals(engine.hostSync().addressConfig(), engine.config.hostConfig));
-            }
-        }
-    }
-}
-
-SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config]")
-{
-    GIVEN("an Engine loaded from a config with igConfig (no hostConfig)")
+    GIVEN("an Engine loaded from a config with igConfig")
     {
         Engine engine;
         const TempConfigFile file(kLeftJson);
@@ -698,10 +664,31 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
         {
             REQUIRE(engine.init());
 
-            THEN("IG is started and Host is not")
+            THEN("IG runs with addresses from the loaded config")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE_FALSE(engine.hasHost());
+                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
+            }
+        }
+    }
+}
+
+SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config]")
+{
+    GIVEN("an Engine loaded from a config with igConfig")
+    {
+        Engine engine;
+        const TempConfigFile file(kLeftJson);
+        REQUIRE(engine.loadConfig(file.path()));
+        engine.showWindow = false;
+
+        WHEN("the Engine initializes")
+        {
+            REQUIRE(engine.init());
+
+            THEN("IG is started (engine has no Host role after 2026-08 split)")
+            {
+                REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
             }
         }
@@ -732,32 +719,12 @@ SCENARIO("channel offset and stale policy are applied to SynchronSystem after in
     }
 }
 
-SCENARIO("host-only config starts Host and does not start IG", "[acceptance][bdd][config]")
+// hostConfig 已移出 engine schema（2026-08 拆 Host 进程）；Host 进程配置由 sync 库 loadHostConfig 消费，
+// 见下方「loadHostConfig」单元用例。此处不再有 engine-as-Host 的启停场景。
+
+SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance][bdd][config]")
 {
-    GIVEN("a config that only contains hostConfig (plus model/window)")
-    {
-        const TempConfigFile file(std::string("{") + jsonHostConfig() + ", " + kMinimalModel + ", " +
-                                  kMinimalWindow + "}");
-        Engine engine;
-        REQUIRE(engine.loadConfig(file.path()));
-        engine.showWindow = false;
-
-        WHEN("the Engine initializes")
-        {
-            REQUIRE(engine.init());
-
-            THEN("only Host is started")
-            {
-                REQUIRE(engine.hasHost());
-                REQUIRE_FALSE(engine.synchronSystem().hasIg());
-            }
-        }
-    }
-}
-
-SCENARIO("channelId does not start Host when hostConfig is absent", "[acceptance][bdd][config]")
-{
-    GIVEN("a config with channelId 0 but no hostConfig or igConfig")
+    GIVEN("a config with channelId 0 but no igConfig")
     {
         const TempConfigFile file(std::string(R"({ "syncSystem": { "channelId": 0 }, )") + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
@@ -772,7 +739,6 @@ SCENARIO("channelId does not start Host when hostConfig is absent", "[acceptance
 
             THEN("sync stays off despite channelId 0")
             {
-                REQUIRE_FALSE(engine.hasHost());
                 REQUIRE_FALSE(engine.synchronSystem().hasIg());
             }
         }
@@ -847,21 +813,25 @@ SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[
     }
 }
 
-SCENARIO("main channel requireConnectedIg true succeeds when Host is local", "[acceptance][bdd][config]")
+SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "[acceptance][bdd][config]")
 {
-    GIVEN("a config with Host+IG and requireConnectedIg true")
+    GIVEN("an IG config that requires a successful connect, and an independent HostSync on those ports")
     {
+        // kMainJson 端口（ig target tcp=8100 / udpRecv=8000；host 本地 tcp=8100 / udpRecv=8000 / udpSend=8001）。
+        HostSync host;
+        REQUIRE(host.initialize(HostConfig{8001, 8000, 8100}));
+        host.run();
+
         Engine engine;
         const TempConfigFile file(kMainJson);
         REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
 
-        WHEN("the Engine initializes")
+        WHEN("the Engine initializes with the Host running")
         {
             THEN("init succeeds and IG is linked")
             {
                 REQUIRE(engine.init());
-                REQUIRE(engine.hasHost());
                 REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE(engine.synchronSystem().igLinked());
             }
@@ -918,7 +888,6 @@ TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg",
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.hasIgConfig);
-    REQUIRE_FALSE(cfg.hasHostConfig);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig", "[unit][config][parse]")
@@ -950,10 +919,12 @@ TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial hostConfig object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level key", "[unit][config][parse]")
 {
+    // hostConfig 已移出 engine schema（2026-08 拆 Host 进程）：engine 配置含 hostConfig 即未知键拒绝；
+    // Host 进程配置由 sync 库 loadHostConfig 消费（见下方 loadHostConfig 用例）。
     const TempConfigFile file(
-        std::string(R"({ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000 }, )") +
+        std::string(R"({ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 }, )") +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -1021,15 +992,16 @@ TEST_CASE("loadEngineChannelConfig accepts default config with only model and wi
     REQUIRE(cfg.window.height == 1080);
 }
 
-TEST_CASE("loadEngineChannelConfig accepts Host+IG sample config", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem", "[unit][config][parse]")
 {
     const TempConfigFile file(kMainJson);
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.hostConfig.udpPortSend == 8001);
+    REQUIRE(cfg.hasIgConfig);
     REQUIRE(cfg.igConfig.udpPortSend == 8000);
     REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
+    REQUIRE(cfg.syncSystem.channelId == 0);
 }
 
 TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][config][parse]")
@@ -1038,7 +1010,6 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.hostConfig.udpPortSend == 0);
     REQUIRE(cfg.igConfig.udpPortSend == 8000);
     REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
 }
@@ -1162,7 +1133,7 @@ SCENARIO("on-screen window position and size match the channel config", "[accept
     GIVEN("an Engine loaded from a channel config with window shown")
     {
         Engine engine;
-        const TempConfigFile file(kMainJson);
+        const TempConfigFile file(kLeftJson);
         REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = true;
 

@@ -3,20 +3,15 @@
 #include <vsg/all.h>
 
 #include "function/config/EngineConfig.h"
-#include "function/host/HostPosePublisher.h"
 #include "vsg/core/ref_ptr.h"
 #include <aerovista/sync/CigiWire.h>
-#include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/SyncConfig.h>
 #include <aerovista/sync/SynchronSystem.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 class Engine
 {
@@ -78,13 +73,6 @@ public:
     void run();
 
     aerovista::sync::SynchronSystem& synchronSystem();
-    /// Host 侧同步端点（当配置为 Host 时持有；否则为空）。Host 采样/扇出由 Engine 直接驱动。
-    aerovista::sync::HostSync& hostSync();
-    bool hasHost() const { return static_cast<bool>(_hostSync); }
-    /// 测试 / 观测：Host 本会话最近扇出的权威眼点（防回声 BDD 用）。
-    std::optional<aerovista::sync::HostEyePose> lastSentHostEye() const { return _hostPublisher.lastSent(); }
-    /// 测试 / 注入：为模式切换的类型丢弃 ATTD 种子（lla §4.3 / §7）。
-    void seedLastSentHostEye(const aerovista::sync::HostEyePose& pose) { _hostPublisher.seedLastSent(pose); }
     bool hasGraphics() const { return static_cast<bool>(_viewer); }
 
     /// 屏上 vsg 窗口（showWindow=false / offscreen 时为空）。
@@ -166,10 +154,6 @@ private:
     double _aabbRadius = 0.0;
 
     std::unique_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
-    /// Host 侧传输端点（当配置为 Host 时持有）。Host 采样/扇出不经过 SynchronSystem。
-    std::unique_ptr<aerovista::sync::HostSync> _hostSync;
-    /// Host 采样/扇出逻辑 + 状态（本帧采样 / 最近发送），内聚在 HostPosePublisher。
-    HostPosePublisher _hostPublisher;
     /// 注入 sync 库的椭球大地测量学适配器（用 vsg::EllipsoidModel 实现 EllipsoidTransform）。
     /// 生命周期覆盖 sync 会话；场景重建 / 本地模式时重建或置空。
     std::unique_ptr<aerovista::sync::EllipsoidTransform> _ellipsoidTransform;

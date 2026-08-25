@@ -25,7 +25,7 @@ vsgEngine (exe)
             └─ 外部依赖：cigicl-static、ws2_32（vsg 仅作构建期依赖，见 §3.0）
 ```
 
-- 库同时含传输层与 IG 决策层；Host 采样/扇出由宿主（Engine）直接持有 `HostSync` 完成，不经 `SynchronSystem`。
+- 库同时含传输层与 IG 决策层；Host 采样/扇出由 Host 宿主进程（viewhost）直接持有 `HostSync` 完成，不经 `SynchronSystem`（engine 已不承担 Host，2026-08 拆进程）。
 - 库公开接口零 vsg（内部复用 vsg header-only 数学，构建期依赖）；不依赖 `Engine`。vsg 依赖策略见 §3.0。
 - **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto`/`sync_json` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。
 
@@ -75,15 +75,14 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 //   preFrame() 收包 → update() 决策 → takePendingCameraPose() → 按 frame 自己写相机（每帧一次）
 //   WorldLocal → setCameraPose；LLA → setCameraPoseLla
 //
-// Host 采样/扇出不经过 SynchronSystem：宿主（Engine）自行持有 HostSync + HostPosePublisher，
-//   每帧 HostPosePublisher::captureAuthorityEye(lookAt) 采样（LookAt→位姿+防回声）
-//   + HostPosePublisher::postHostFrame(simTimeMs) 扇出。
+// Host 采样/扇出不经过 SynchronSystem：Host 宿主进程（viewhost）自行持有 HostSync，
+//   每帧 HostDriver::update 扇出（键盘累积眼点，无采样/防回声）。
 ```
 
 - SynchronSystem 对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，场景模式经 `setEllipsoidTransform()`（空=本地）注入。
 - SynchronSystem 对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（含 frame），宿主自行应用。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
-- **Host 侧**：宿主 `Engine` 直接持有 `HostSync`，采样（LookAt→位姿 + 防回声）与扇出（IGCtrl）经 `HostPosePublisher` 完成；`stepSync()`（决策 + 应用，无采样）供测试/`tickSync` 使用。
+- **Host 侧**：Host 宿主进程（viewhost）直接持有 `HostSync`，扇出（IGCtrl + 眼点）经 `HostDriver::update` 完成；`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
 
 ### 3.2 配置结构归属
 
@@ -93,13 +92,13 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 ### 3.3 命令面桥
 
-命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧 `CommandTriggerHandler`（实机入口）经 `hostSync().outMsgWithIgCtrlTcp() << CigiSymbolTextDefV4` → `flushTcp()` 发文本指令；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎 → sync 库**方向的调用，不构成库的反向依赖。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
+命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `hostSync().outMsgWithIgCtrlTcp() << CigiSymbolTextDefV4` → `flushTcp()` 发文本指令；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内的 `CommandTriggerHandler`（F9/F10 实机命令触发）随拆 Host **不再挂载**（保留代码、标注废弃；命令面发送归 Host 进程，viewhost 命令 UI 属后期）。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
 
 ## 4. 配置设计
 
 ### 4.0 配置结构
 
-配置文件有两块（viewhost 只带 `hostConfig`，engine 带 `igConfig`，同进程 Host+IG 带两块）：
+配置文件有两块（viewhost 只带 `hostConfig`，engine 只带 `igConfig`；**同进程 Host+IG 双块形态已随拆进程否决**，2026-08）：
 
 ```jsonc
 // viewhost（Host-only）
@@ -124,7 +123,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 - IG 侧一个配置块自洽（本地 + 远端），viewhost 侧一个配置块自洽，两端配置简单。
 - 远端字段加 `target` 前缀，避免与本地同名端口字段冲突。
 
-**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。
+**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
 **C++ 类型**：`IgConfig`（5 字段）/ `HostConfig`（3 字段）；`SyncRoleConfig` = `{enableHost, enableIg, hostConfig, igConfig}`。
 
@@ -187,8 +186,8 @@ SynchronSystem::create()->initialize(role);
     "requireConnectedIg": true
   },
   "igConfig": { ... },
-  "hostConfig": { ... },
   "model": ..., "window": ...     // engine 渲染属性，不进 syncSystem
+  // "hostConfig" 仅存在于 Host 进程配置（viewhost.json），engine 配置不含（2026-08 拆进程）
 }
 ```
 
@@ -199,7 +198,7 @@ SynchronSystem::create()->initialize(role);
 
 **消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
 
-> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`hostConfig`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`）。
+> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。
 
 ## 5. 否决与决策记录
 

@@ -9,9 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
-#include <variant>
 #include <vector>
 
 using aerovista::sync::sync_json::JsonArray;
@@ -267,19 +265,14 @@ namespace
 
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
-        rejectUnknownKeys(root, {"syncSystem", "igConfig", "hostConfig", "model", "window",
+        // hostConfig 已移出 engine schema（2026-08 拆 Host 进程）——engine 配置含 hostConfig 属未知键拒绝。
+        rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
                                  "coordFrame", "entities", "entity", "camera"});
 
         EngineChannelConfig cfg;
 
         if (const JsonValue* v = find(root, "syncSystem"))
             cfg.syncSystem = parseSyncSystemConfig(requireObjectValue(*v, "syncSystem"));
-
-        if (const JsonValue* v = find(root, "hostConfig"))
-        {
-            cfg.hasHostConfig = true;
-            cfg.hostConfig = parseHostConfig(requireObjectValue(*v, "hostConfig"));
-        }
 
         if (const JsonValue* v = find(root, "igConfig"))
         {
@@ -320,9 +313,7 @@ namespace
 SyncRoleConfig EngineChannelConfig::toSyncRole() const
 {
     SyncRoleConfig role;
-    role.enableHost = enableHost();
     role.enableIg = enableIg();
-    role.hostConfig = hostConfig;
     role.igConfig = igConfig;
     return role;
 }
