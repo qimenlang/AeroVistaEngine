@@ -67,7 +67,6 @@ SynchronSystem 是**IG 位姿决策器**，与宿主相机通过**数据流**交
 ```cpp
 // SynchronSystem（sync 库，IG 决策器）：
 void setEllipsoidTransform(const EllipsoidTransform* transform);    // 场景模式注入：非空=椭球，空=本地（唯一入口）
-void setChannelId(int channelId);                                   // 错误日志
 
 void update();                                                       // 收包 + 决策，产出本帧位姿
 std::optional<HostEyePose> takePendingCameraPose();                 // 取走本帧应写相机的位姿
@@ -171,7 +170,7 @@ SynchronSystem::create()->initialize(role);
 
 **验收测试**：
 - `HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
-- `HostIGTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `SynchronSystem`），IG 侧装配参数程序化注入（`setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`），双通道 CIGI 收发。
+- `HostIGTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `SynchronSystem`），IG 侧装配参数程序化注入（`setOffsetDeg`/`setHostEyeStalePolicy`），双通道 CIGI 收发。
 - `EngineConfigTests.cpp` 的 `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝）。
 
 ### 4.2 `syncSystem` 配置组（SynchronSystem 装配属性）
@@ -198,7 +197,7 @@ SynchronSystem::create()->initialize(role);
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entities`/`camera`/`coordFrame` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`/`setChannelId`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
+**消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`hostConfig`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`）。
 

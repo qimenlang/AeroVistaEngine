@@ -1,4 +1,4 @@
-# viewhost 设计（MFC Host 宿主程序）
+﻿# viewhost 设计（MFC Host 宿主程序）
 
 > **已按新接口同步（2026-08-24；2026-08-25 IGCtrl 自动填充）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `outMsgWithIgCtrlUdp() + cigi_wire::appendEye + flushUdp()`（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）——`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl（帧号/自计时时间戳/`TimeStampValid=true`）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
 
@@ -48,7 +48,7 @@ cigi_wire::appendEye(omsg, eye);         // 可选：追加 ownship 眼点
 _host.flushUdp();                        // PackageMsg + 扇出
 ```
 
-- `outMsgWithIgCtrlUdp()` 自动前置 IGCtrl 并填充帧号/时间戳（`HostSync` 自计时，2026-08-25）；帧号经 `HostSync::nextFrameCntr()` 分配（数据面）。
+- `outMsgWithIgCtrlUdp()` 自动前置 IGCtrl 并填充帧号/时间戳（`HostSync` 自计时，2026-08-25）；帧号由 `outMsgWithIgCtrlUdp()` 内部数据面计数器自动分配。
 - `cigi_wire::appendEye`（`CigiWire.h`）负责 ownship 眼点的 CCL 组装（WorldLocal→Attach+XYZ / LLA→Detach+LLA，LLA 越界丢弃内置）。原 `appendHostFrame`（IGCtrl+眼点整体组装）已删——IGCtrl 归属 sync。
 - 数据面与命令面统一走 CCL 会话；`HostSync::update`/`EyePose` 已删除。
 
