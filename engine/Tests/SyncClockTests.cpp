@@ -307,7 +307,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
         hostA.run();
-        REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
         WHEN("Host fans out real IGCtrl time stamps and IG ticks")
@@ -362,8 +362,8 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
         hostA.run();
-        REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineC.initSync(makeTestIgOnlyRole(kBase + 5, kBase)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
+        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase)));
         REQUIRE(hostA.readyIgCount() == 2);
 
         WHEN("Host fans out real time stamps to both IGs")
@@ -432,7 +432,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
         hostA.run();
-        REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
@@ -484,7 +484,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
         hostA.run();
-        REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
         WHEN("the Host pauses between frames and then sends the next time stamp")
@@ -533,7 +533,7 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
         hostA.run();
-        REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。

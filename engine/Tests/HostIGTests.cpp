@@ -65,7 +65,7 @@ namespace
     }
 
     // 独立 Host 端点（engine 拆 Host 后测试用）：持 HostSync，RAII 生命周期。
-    // 端口语义 = makeTestHostConfig（Common.h），与 makeTestIgOnlyRole 的 target 对齐。
+    // 端口语义 = makeTestHostConfig（Common.h），与 makeTestIgConfig 的 target 对齐。
     struct TestHost
     {
         HostSync sync;
@@ -724,7 +724,7 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
         Engine engine;
         engine.extent = {1920, 1080};
         engine.showWindow = false;
-        REQUIRE(engine.initSync(makeTestIgOnlyRole(kBase + 1, kBase)));
+        REQUIRE(engine.initSync(makeTestIgConfig(kBase + 1, kBase)));
         REQUIRE(host.sync.readyIgCount() == 1);
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
@@ -770,9 +770,9 @@ SCENARIO("three IG Engines exchange CIGI frame control across one independent Ho
         engineA.extent = engineB.extent = engineC.extent = {1920, 1080};
         engineA.showWindow = engineB.showWindow = engineC.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestIgOnlyRole(kBase + 1, kBase)));
-        REQUIRE(engineB.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
-        REQUIRE(engineC.initSync(makeTestIgOnlyRole(kBase + 5, kBase)));
+        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
+        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase)));
         REQUIRE(host.sync.readyIgCount() == 3);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
@@ -975,13 +975,9 @@ namespace
         return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
     }
 
-    SyncRoleConfig makeIgOnlyRole(int igUdpRecv, int base = 18000)
+    IgConfig makeIgOnlyRole(int igUdpRecv, int base = 18000)
     {
-        SyncRoleConfig role{};
-        role.enableHost = false;
-        role.enableIg = true;
-        role.igConfig = makeIgLocalEye(igUdpRecv, base);
-        return role;
+        return makeIgLocalEye(igUdpRecv, base);
     }
 
     // 业务侧扇出一帧 IGCtrl + 眼点（outMsgWithIgCtrlUdp 自动前置 IGCtrl，appendEye 追加 ownship）。
@@ -1094,12 +1090,9 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         REQUIRE(engine.init(modelPath));
 
-        SyncRoleConfig role{};
-        role.enableHost = false;
-        role.enableIg = true;
-        role.igConfig = makeIgLocalEye(18001, 18000);
+        const IgConfig igCfg = makeIgLocalEye(18001, 18000);
         // Host 未启动 → Connect 失败，但仍完成本地 Init。
-        REQUIRE(engine.synchronSystem().initialize(role, SyncSystemConfig{/*requireConnectedIg=*/false}));
+        REQUIRE(engine.synchronSystem().initialize(igCfg, SyncSystemConfig{/*requireConnectedIg=*/false}));
         REQUIRE_FALSE(engine.synchronSystem().igLinked());
 
         const HostEyePose localPose{{1.0, 2.0, 3.0}, {10.0, 0.0, 0.0}};
@@ -1609,10 +1602,10 @@ namespace
             REQUIRE(c.loadConfig(igCFile.path()));
             REQUIRE(a.init());
             // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
-            REQUIRE(b.initSync(b.config.toSyncRole(), b.config.syncSystem.requireConnectedIg));
+            REQUIRE(b.initSync(b.config.toIgConfig(), b.config.syncSystem.requireConnectedIg));
             REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
             b.synchronSystem().setOffsetDeg(b.config.syncSystem.offsetDeg);
-            REQUIRE(c.initSync(c.config.toSyncRole(), c.config.syncSystem.requireConnectedIg));
+            REQUIRE(c.initSync(c.config.toIgConfig(), c.config.syncSystem.requireConnectedIg));
             REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
             c.synchronSystem().setOffsetDeg(c.config.syncSystem.offsetDeg);
 
@@ -2181,7 +2174,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
         // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
-        REQUIRE(engineB.initSync(engineB.config.toSyncRole(), engineB.config.syncSystem.requireConnectedIg));
+        REQUIRE(engineB.initSync(engineB.config.toIgConfig(), engineB.config.syncSystem.requireConnectedIg));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
         engineB.synchronSystem().setOffsetDeg(engineB.config.syncSystem.offsetDeg);
 
@@ -2545,7 +2538,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
     {
         constexpr int kBase = 21000;
 
-        // viewhost 配置：与 makeTestIgOnlyRole 的 target（tcp=base+100, udpRecv=base）对齐。
+        // viewhost 配置：与 makeTestIgConfig 的 target（tcp=base+100, udpRecv=base）对齐。
         const TempConfigFile viewhostFile(
             std::string(R"({ "hostConfig": { "udpPortSend": )") +
             std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
@@ -2564,7 +2557,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         Engine engineIg;
         engineIg.extent = {640, 480};
         engineIg.showWindow = false;
-        REQUIRE(engineIg.initSync(makeTestIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineIg.initSync(makeTestIgConfig(kBase + 3, kBase)));
 
         WHEN("both link over TCP and UDP handshake")
         {
@@ -2640,15 +2633,12 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
         hostSync->run();
 
         auto igSync = SynchronSystem::create();
-        SyncRoleConfig igRole;
-        igRole.enableIg = true;
-        igRole.igConfig = ig;
         // 装配参数程序化注入（外部 engine 不经 syncSystem 配置文件时的路径）。
         SyncSystemConfig igSystem;
         igSystem.channelId = 2;
         igSystem.offsetDeg = OffsetDeg{5.0, 0.0, 0.0};
         igSystem.hostEyeStalePolicy = HostEyeStalePolicy::REUSE_LAST;
-        REQUIRE(igSync->initialize(igRole, igSystem));
+        REQUIRE(igSync->initialize(ig, igSystem));
 
         WHEN("IG connects to host and both link")
         {

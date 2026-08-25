@@ -9,7 +9,6 @@
 
 using aerovista::sync::HostConfig;
 using aerovista::sync::IgConfig;
-using aerovista::sync::SyncRoleConfig;
 
 class TempConfigFile
 {
@@ -49,13 +48,4 @@ inline HostConfig makeTestHostConfig(int base)
 inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
 {
     return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
-}
-
-inline SyncRoleConfig makeTestIgOnlyRole(int igUdpRecv, int base)
-{
-    SyncRoleConfig role{};
-    role.enableHost = false;
-    role.enableIg = true;
-    role.igConfig = makeTestIgConfig(igUdpRecv, base);
-    return role;
 }

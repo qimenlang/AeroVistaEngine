@@ -156,9 +156,9 @@ alt += dUp
 - **扇出驱动**：`HostDriver::update`（内部 `outMsgWithIgCtrlUdp() << IGCtrl << 眼点 → flushUdp()`）是 UDP 非阻塞扇出（FreeRun，不等 SOF），不会长时间占用调用线程。**初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**，对齐示例的「主循环 + sleep」模式，实现最简。
 - 若未来需要更高节拍稳定性，再迁移到专用工作线程 + `PostMessage` 回传状态（本版不做）。
 
-**simTimeMs 推进与帧增量（写死）**：
+**本地时钟与帧增量（写死）**：
 
-- `_simTimeMs` = 自 `HostSync::run()` 起 `std::chrono::steady_clock` 的流逝毫秒（对齐 [`minimal_viewhost.cpp`](../../thirdparty/sync/examples/minimal_viewhost.cpp) 的 `elapsedMs`；单调连续，不随 UI 卡顿回退）。
+- `_simTimeMs` = UI 定时器本地 `std::chrono::steady_clock` 流逝毫秒（单调连续，不随 UI 卡顿回退），**仅用于按键步进 dt 归一化**；模拟时间戳不由它产生——由 `outMsgWithIgCtrlUdp()` 的 HostSync 自计时填充（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）。
 - `_moveStep` / `_turnStepDeg` **不按「假设 60fps」固定值**，而是按**实际 dt** 归一化：`dt = 本帧 _simTimeMs − 上帧 _simTimeMs`（秒）；`_moveStep = speed(m/s) · dt`，`_turnStepDeg = rate(°/s) · dt`。避免 `SetTimer` 周期不精确导致速度随负载漂移。
 - `speed` / `rate` 为程序内可调常量（初版默认如 `speed = 30 m/s`、`rate = 60 °/s`）。
 
@@ -203,7 +203,8 @@ void ViewHostDlg::onTick()
     }
 
     // 2. 扇出（_controlling 为 false 时 _eye 不变，仍持续扇出当前眼点）
-    _hostDriver.update(_simTimeMs, &_eye);
+    //    update 只收眼点；IGCtrl 帧号/时间戳由 outMsgWithIgCtrlUdp() 自计时自动填充。
+    _hostDriver.update(&_eye);
 }
 ```
 

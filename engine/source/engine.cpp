@@ -16,44 +16,11 @@
 
 using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
+using aerovista::sync::IgConfig;
 using aerovista::sync::SynchronSystem;
-using aerovista::sync::SyncRoleConfig;
 
 namespace
 {
-
-    /// 用 vsg::EllipsoidModel 实现 sync 库的 EllipsoidTransform 注入接口。
-    /// 引擎侧适配器：把 sync 库需要的大地测量学操作桥接到 vsg 实现。
-    class VsgEllipsoidTransform final : public aerovista::sync::EllipsoidTransform
-    {
-    public:
-        explicit VsgEllipsoidTransform(vsg::ref_ptr<vsg::EllipsoidModel> model) :
-            _model(std::move(model)) {}
-
-        aerovista::sync::DVec3 ecefToLla(const aerovista::sync::DVec3& ecef) const override
-        {
-            const vsg::dvec3 lla = _model->convertECEFToLatLongAltitude(vsg::dvec3(ecef.x, ecef.y, ecef.z));
-            return {lla.x, lla.y, lla.z};
-        }
-
-        aerovista::sync::DVec3 llaToEcef(const aerovista::sync::DVec3& lla) const override
-        {
-            const vsg::dvec3 ecef = _model->convertLatLongAltitudeToECEF(vsg::dvec3(lla.x, lla.y, lla.z));
-            return {ecef.x, ecef.y, ecef.z};
-        }
-
-        void localToWorldBasis(const aerovista::sync::DVec3& lla, aerovista::sync::DVec3& east,
-                               aerovista::sync::DVec3& north, aerovista::sync::DVec3& up) const override
-        {
-            const vsg::dmat4 l2w = _model->computeLocalToWorldTransform(vsg::dvec3(lla.x, lla.y, lla.z));
-            east = {l2w(0, 0), l2w(0, 1), l2w(0, 2)};
-            north = {l2w(1, 0), l2w(1, 1), l2w(1, 2)};
-            up = {l2w(2, 0), l2w(2, 1), l2w(2, 2)};
-        }
-
-    private:
-        vsg::ref_ptr<vsg::EllipsoidModel> _model;
-    };
 
     struct FrameStatsHud
     {
@@ -658,12 +625,9 @@ bool Engine::ensureEllipsoidModelForFrame()
         std::cerr << "[INFO] EllipsoidModel radii equator=" << ellipsoidModel->radiusEquator()
                   << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
     }
-    if (ellipsoidModel)
-        _ellipsoidTransform = std::make_unique<VsgEllipsoidTransform>(ellipsoidModel);
-    else
-        _ellipsoidTransform.reset();
+    // 场景模式注入：仅传「是否椭球」判据（sync 决策器 frame 校验用），不传对象。
     if (_synchronSystem)
-        _synchronSystem->setEllipsoidTransform(_ellipsoidTransform.get());
+        _synchronSystem->setEllipsoidMode(ellipsoidModel != nullptr);
     return true;
 }
 
@@ -799,7 +763,7 @@ bool Engine::init()
 {
     applyConfigToEngine();
     // 父键 enable；装配配置（channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg）来自 syncSystem 组。
-    if (!initSync(config.toSyncRole(), config.syncSystem))
+    if (!initSync(config.toIgConfig(), config.syncSystem))
         return false;
 
     if (!config.entities.empty())
@@ -812,33 +776,33 @@ bool Engine::init()
 
 bool Engine::init(const vsg::Path& modelPath)
 {
-    return init(modelPath, SyncRoleConfig{});
+    return init(modelPath, std::nullopt);
 }
 
-bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireConnectedIg)
+bool Engine::initSync(const std::optional<IgConfig>& igConfig, bool requireConnectedIg)
 {
     // 程序化路径（测试）：仅指定 requireConnectedIg，其余装配配置用默认值。
     SyncSystemConfig syncSystem;
     syncSystem.requireConnectedIg = requireConnectedIg;
-    return initSync(syncRole, syncSystem);
+    return initSync(igConfig, syncSystem);
 }
 
-bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& syncSystem)
+bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemConfig& syncSystem)
 {
     // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，beginWithIgCtrlUdp 填 TimeStamp，§7.1）——
     // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
     // Host 角色已拆出（2026-08）：engine 仅 IG，Host 由独立 viewhost 进程承担。
 
-    // IG：SynchronSystem（IG 决策器）；enableIg=false 时 initialize 仅清空旧 IG。
-    if (!_synchronSystem->initialize(syncRole, syncSystem))
+    // IG：SynchronSystem（IG 决策器）；igConfig 为空时 initialize 仅清空旧 IG。
+    if (!_synchronSystem->initialize(igConfig, syncSystem))
         return false;
 
     return true;
 }
 
-bool Engine::init(const vsg::Path& modelPath, const SyncRoleConfig& syncRole)
+bool Engine::init(const vsg::Path& modelPath, const std::optional<IgConfig>& igConfig)
 {
-    if (!initSync(syncRole))
+    if (!initSync(igConfig))
         return false;
     return initGraphics(modelPath);
 }

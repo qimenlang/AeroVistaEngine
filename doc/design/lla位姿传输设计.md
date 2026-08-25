@@ -28,7 +28,7 @@
 | --- | --- |
 | 权威眼点 | 椭球模式下 Host→IG 传 **LLA + YPR（当地）** |
 | 写相机 | IG：`LLA→ECEF`，在 ENU 叠 `offsetDeg`，再写 `LookAt` |
-| 采样出站 | Host：`LookAt→LLA + 当地 YPR`，避免把 ECEF 大数当本地 XYZ 发出 |
+| 采样出站 | **已随拆进程移除**（2026-08）：Host 为 viewhost、键盘累积直接产出 LLA + 当地 YPR（不经 LookAt 采样，见 [viewhost设计.md](./viewhost设计.md) §4.2） |
 | 本地模式 | 现有 XYZ + 世界轴 YPR 路径行为不变 |
 
 **不做**（见 §8）：仅为演示把普通模型钉到某 LLA、本迭代强制依赖瓦片。实体 / 相机配置结构见 [位姿配置设计.md](./位姿配置设计.md)。
@@ -515,8 +515,8 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
 | 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
 | 防回声 / stale | 防回声**已移除**（2026-08 拆进程，§4.4）；stale 沿用既有 ReuseLast/Freeze 用例 |
-| 场景换轨 | 同进程重载 / 换配置导致 Local↔Ellipsoid：SynchronSystem 位姿缓存清空；不得用旧类型 `_lastSent` 重发 |
-| `_lastSent` 换轨 | 场景已椭球、缓存仍为 WorldLocal（或反向）时：丢弃旧 `_lastSent`，不触发对端「自己人」frame 拒收 |
+| 场景换轨 | 同进程重载 / 换配置导致 Local↔Ellipsoid：SynchronSystem 位姿缓存清空（`resetEyeCaches`；`_lastSent` 已随拆进程删除） |
+| `_lastSent` 换轨 | **已移除**（2026-08 拆进程：`_lastSent` 随 `HostPosePublisher` 删除，无 Host 重发路径） |
 | 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
 
 ---
@@ -544,7 +544,7 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 3. **本地路径先迁移** `HostEyePose` → `variant<WorldPos,LlaPos>`（本阶段只产生 / 消费 `WorldPos`）；`compose` / `apply` / `_lastApplied` 全部分支可读类型（`capture` / 防回声 / `_lastSent` 已随拆进程移除）；**跑通全部现有本地回归**后再合并
 4. `CigiWire`：内部 `EyePose` 带位置类型（由 **AttachState** 映射，线上不加私有 frame）；本地仍 Attach+XYZ
 5. 椭球分支：`LlaPos` + `setCameraPoseLla`；Detach+double LLA；EntityID/ParentID 按 §5；模式不符拒收 + §4.5 可观测性
-6. 场景重建 / 模式换轨：清空同步位姿缓存；`_lastSent` 类型与场景不符则丢弃（§4.3）
+6. 场景重建 / 模式换轨：清空同步位姿缓存（§4.3；`_lastSent` 已随拆进程删除，无重发路径）
 7. BDD：LLA Host→IG 跟拍、`offsetDeg`、模式装配与初始相机、半径、换轨缓存、本地回归（防回声已随拆进程移除）
 8. （可选）瓦片联调；HELLO 传半径等增强
 

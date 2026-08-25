@@ -39,7 +39,7 @@ vsgEngine (exe)
 
 - 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - IG 决策层（`SynchronSystem`）公开接口零 vsg（自有 POD + 注入接口）、不依赖 Engine，收包后做 frame 校验 / offset 合成 / stale policy / 断线兜底，产出位姿由宿主取走（§3.1）。
-- 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`SyncRoleConfig`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。`SyncPaceConfig` 已于 2026-08 删除（无消费方）。
+- 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。`SyncPaceConfig` 已于 2026-08 删除（无消费方）；`SyncRoleConfig`（Host+IG 双角色打包）已于 2026-08 拆 Host 进程后删除（无消费方，见 §4.2）。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
 ## 3. 关键设计决策
@@ -55,10 +55,10 @@ vsg 的分层复用：
 
 1. **公开边界零 vsg**：`HostEyePose`/`OffsetDeg` 用自有 POD `DVec3`（`SyncMath.h`），不暴露 `vsg::dvec3`；`SynchronSystem` 不再继承 `vsg::Object`（工厂 `SynchronSystem::create()` 返回 `std::unique_ptr`）。消费方（含完全无 vsg 的 viewhost）编译期零 vsg 头。
 2. **内部复用 vsg header-only 数学**：`SynchronSystem.cpp` 内 `#include <vsg/maths/...>` 使用 `dvec3`/`dquat`/`dmat4`/`normalize`/`dot`/`length`/`radians`，这些 `constexpr`/模板内联进 `aerovistaSync` 库，不产生 `vsg::` 外部链接符号，viewhost 链接期零 vsg 库。CMake 中 `vsg::vsg` 为 `PRIVATE` 构建依赖，不传递给消费方。
-3. **大地测量学注入接口**：LLA↔ECEF、ENU 方向换算通过 `EllipsoidTransform` 注入接口（`SyncMath.h`）由宿主实现——engine 用 `vsg::EllipsoidModel` 实现（`VsgEllipsoidTransform` 适配器），viewhost 纯 Host 无需注入。彻底去掉了 `vsg::EllipsoidModel`/`vsg::LookAt` 这类非 header-only 依赖。
+3. **椭球模式判据（2026-08 收敛）**：`SynchronSystem` 的椭球模式仅作为 frame 校验判据，由宿主经 `setEllipsoidMode(bool)` 注入（engine 取场景 `EllipsoidModel` 有无）。原「大地测量学注入接口」（`EllipsoidTransform`，`SyncMath.h`，engine 用 `VsgEllipsoidTransform` 适配器实现）已**不再注入对象**——接口保留作预留（椭球几何下沉决策器时启用），见 §5 否决记录。`vsg::EllipsoidModel`/`vsg::LookAt` 非 header-only 依赖仍不进公开边界。
 
 **隔离要求**：vsg 依赖不得扩散出 `SynchronSystem.cpp`；新代码禁止在传输层或公开头引入 `<vsg/...>`。
-**已落地**：早期「门面层依赖 vsg」方案已演进为零 vsg 公开接口 + 内部 header-only 数学 + 椭球注入接口（本 §3.0 为现状）。
+**已落地**：早期「门面层依赖 vsg」方案已演进为零 vsg 公开接口 + 内部 header-only 数学 + 椭球模式 bool 判据（本 §3.0 为现状）。
 
 ### 3.1 相机交互：纯数据流
 
@@ -66,7 +66,7 @@ SynchronSystem 是**IG 位姿决策器**，与宿主相机通过**数据流**交
 
 ```cpp
 // SynchronSystem（sync 库，IG 决策器）：
-void setEllipsoidTransform(const EllipsoidTransform* transform);    // 场景模式注入：非空=椭球，空=本地（唯一入口）
+void setEllipsoidMode(bool ellipsoid);    // 场景模式注入：true=椭球，false=本地（唯一入口）
 
 void update();                                                       // 收包 + 决策，产出本帧位姿
 std::optional<HostEyePose> takePendingCameraPose();                 // 取走本帧应写相机的位姿
@@ -79,14 +79,14 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 //   每帧 HostDriver::update 扇出（键盘累积眼点，无采样/防回声）。
 ```
 
-- SynchronSystem 对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，场景模式经 `setEllipsoidTransform()`（空=本地）注入。
+- SynchronSystem 对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，场景模式经 `setEllipsoidMode(bool)`（false=本地）注入。
 - SynchronSystem 对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（含 frame），宿主自行应用。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
 - **Host 侧**：Host 宿主进程（viewhost）直接持有 `HostSync`，扇出（IGCtrl + 眼点）经 `HostDriver::update` 完成；`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
 
 ### 3.2 配置结构归属
 
-- `OffsetDeg`、`HostEyeStalePolicy`、`SyncRoleConfig`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
+- `OffsetDeg`、`HostEyeStalePolicy`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
 - **`IgConfig` 合并本地收发端口 + 远端 Host 目标**（`udpPortSend`/`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
 
@@ -125,7 +125,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 **校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
-**C++ 类型**：`IgConfig`（5 字段）/ `HostConfig`（3 字段）；`SyncRoleConfig` = `{enableHost, enableIg, hostConfig, igConfig}`。
+**C++ 类型**：`IgConfig`（5 字段）/ `HostConfig`（3 字段）。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
@@ -136,7 +136,7 @@ viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引�
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析只含 `hostConfig` 块的文件。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件。
-- viewhost（纯 Host）用法：直接持 `HostSync` 传输层（不经 IG 决策器 `SynchronSystem`），`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `update(simTimeMs, eye*)` 扇出：
+- viewhost（纯 Host）用法：直接持 `HostSync` 传输层（不经 IG 决策器 `SynchronSystem`），`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
 
 ```cpp
 HostConfig host;
@@ -144,7 +144,9 @@ loadHostConfig("viewhost.json", host, &error);
 HostSync hostSync;
 hostSync.initialize(host);
 hostSync.run();
-// 每帧：hostSync.update(simTimeMs, &eye);
+// 每帧：auto& omsg = hostSync.outMsgWithIgCtrlUdp();
+//       cigi_wire::appendEye(omsg, eye);
+//       hostSync.flushUdp();
 ```
 
 - 独立 IG 用法（外部 engine 挂载，可自由选择配置来源）：
@@ -152,8 +154,7 @@ hostSync.run();
 ```cpp
 IgConfig ig;
 loadIgConfig("ig.json", ig, &error);
-SyncRoleConfig role; role.enableIg = true; role.igConfig = ig;
-SynchronSystem::create()->initialize(role);
+SynchronSystem::create()->initialize(ig);
 ```
 
 **配置形态**（schema 与 engine 侧块一致，包裹方案）：
@@ -196,7 +197,7 @@ SynchronSystem::create()->initialize(role);
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entities`/`camera`/`coordFrame` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`SynchronSystem::initialize(role, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg`）；engine 从 `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
+**消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)` 一次性吸收完整装配配置（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg`，`igConfig` 非空才启 IG）；engine 从 `config.toIgConfig()` + `config.syncSystem` 传入。运行时调整（联调标定）仍可用 `setOffsetDeg`/`setHostEyeStalePolicy`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/ReuseLast/false）。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`hostEyeStalePolicy`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`coordFrame`/`entities`/`camera`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。
 
@@ -205,3 +206,5 @@ SynchronSystem::create()->initialize(role);
 - **`SyncCameraTarget` 接口已否决**：`Engine` 继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。改用纯数据流（§3.1）。未来若有人考虑回调式接口，先读此否决。
 - **`Network`（Boeing MPV，GPL）不使用**：UDP 收发统一走自有的 `UdpSocket`（GPL 依赖清除）。
 - **命令面桥不做接口解耦**：引擎 → sync 库方向的直调不构成反向依赖（§3.3）。
+- **`SyncRoleConfig` 已删除（2026-08）**：拆 Host 进程后 `enableHost`/`hostConfig` 无消费方（`SynchronSystem` 只看 IG 半边，HostSync 独立 `initialize(HostConfig)`）；删结构体，`SynchronSystem::initialize` 改收 `std::optional<IgConfig>`（空 = 不启 IG，engine `toIgConfig()` 直接产出）。
+- **椭球注入对象已否决（2026-08）**：`SynchronSystem::setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除——决策器只把椭球模式当 frame 校验判据，不需要几何对象，改 `setEllipsoidMode(bool)`（宿主传场景 `EllipsoidModel` 有无）。`EllipsoidTransform` 接口保留于 `SyncMath.h` 作**预留**（椭球 offset 的 ENU 叠加等椭球几何下沉决策器时启用），避免未来重建公开边界。

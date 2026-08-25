@@ -49,12 +49,12 @@ public:
     /// 从当前 `config` 初始化（同步 + 图形）。
     bool init();
     bool init(const vsg::Path& modelPath);
-    bool init(const vsg::Path& modelPath, const aerovista::sync::SyncRoleConfig& syncRole);
+    bool init(const vsg::Path& modelPath, const std::optional<aerovista::sync::IgConfig>& igConfig);
 
-    /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。
-    bool initSync(const aerovista::sync::SyncRoleConfig& syncRole, bool requireConnectedIg = true);
+    /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。`igConfig` 空 = 不启 IG。
+    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig, bool requireConnectedIg = true);
     /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg）。
-    bool initSync(const aerovista::sync::SyncRoleConfig& syncRole,
+    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig,
                   const aerovista::sync::SyncSystemConfig& syncSystem);
     /// 加载/注入 EllipsoidModel 以做同步模式检查（不创建 Vulkan Device）。
     bool initSceneMode(const vsg::Path& modelPath);
@@ -154,9 +154,6 @@ private:
     double _aabbRadius = 0.0;
 
     std::unique_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
-    /// 注入 sync 库的椭球大地测量学适配器（用 vsg::EllipsoidModel 实现 EllipsoidTransform）。
-    /// 生命周期覆盖 sync 会话；场景重建 / 本地模式时重建或置空。
-    std::unique_ptr<aerovista::sync::EllipsoidTransform> _ellipsoidTransform;
     /// 实体表：id → Entity（命令面 LOAD/PLACE 与配置实体共用）。
     std::unordered_map<int, Entity> _entityMap;
 };

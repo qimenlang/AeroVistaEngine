@@ -2,6 +2,7 @@
 
 #include <aerovista/sync/SyncConfig.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,7 +12,6 @@ using aerovista::sync::HostEyeStalePolicy;
 using aerovista::sync::IgConfig;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::parseIgConfig;
-using aerovista::sync::SyncRoleConfig;
 using aerovista::sync::SyncSystemConfig;
 
 struct WindowConfig
@@ -90,7 +90,8 @@ struct EngineChannelConfig
 
     bool enableIg() const { return hasIgConfig; }
 
-    SyncRoleConfig toSyncRole() const;
+    /// IG 传输配置：无 `igConfig`（未启同步）返回空。
+    std::optional<IgConfig> toIgConfig() const;
 };
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error = nullptr);

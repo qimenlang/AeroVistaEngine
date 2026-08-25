@@ -50,8 +50,8 @@ namespace
         a.showWindow = b.showWindow = false;
         REQUIRE(hostA.initialize(makeTestHostConfig(base)));
         hostA.run();
-        REQUIRE(a.initSync(makeTestIgOnlyRole(base + 1, base)));
-        REQUIRE(b.initSync(makeTestIgOnlyRole(base + 3, base)));
+        REQUIRE(a.initSync(makeTestIgConfig(base + 1, base)));
+        REQUIRE(b.initSync(makeTestIgConfig(base + 3, base)));
         REQUIRE(hostA.readyIgCount() == 2);
         REQUIRE(a.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }
@@ -63,9 +63,9 @@ namespace
         a.showWindow = b.showWindow = c.showWindow = false;
         REQUIRE(hostA.initialize(makeTestHostConfig(base)));
         hostA.run();
-        REQUIRE(a.initSync(makeTestIgOnlyRole(base + 1, base)));
-        REQUIRE(b.initSync(makeTestIgOnlyRole(base + 3, base)));
-        REQUIRE(c.initSync(makeTestIgOnlyRole(base + 5, base)));
+        REQUIRE(a.initSync(makeTestIgConfig(base + 1, base)));
+        REQUIRE(b.initSync(makeTestIgConfig(base + 3, base)));
+        REQUIRE(c.initSync(makeTestIgConfig(base + 5, base)));
         REQUIRE(hostA.readyIgCount() == 3);
         REQUIRE(a.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }

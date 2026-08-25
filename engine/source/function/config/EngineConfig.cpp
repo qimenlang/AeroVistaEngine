@@ -310,12 +310,11 @@ namespace
     }
 } // namespace
 
-SyncRoleConfig EngineChannelConfig::toSyncRole() const
+std::optional<IgConfig> EngineChannelConfig::toIgConfig() const
 {
-    SyncRoleConfig role;
-    role.enableIg = enableIg();
-    role.igConfig = igConfig;
-    return role;
+    if (!hasIgConfig)
+        return std::nullopt;
+    return igConfig;
 }
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error)
