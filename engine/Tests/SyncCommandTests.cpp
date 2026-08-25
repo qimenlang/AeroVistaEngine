@@ -23,11 +23,13 @@
 #include "CigiCollDetSegRespV4.h"
 #include "CigiCollDetVolDefV4.h"
 #include "CigiCollDetVolRespV4.h"
+#include "CigiEntityCtrlV4.h"
 #include "CigiEntityPositionCtrlV4.h"
 #include "CigiHostSession.h"
 #include "CigiIGCtrlV4.h"
 #include "CigiIGMsgV4.h"
 #include "CigiSymbolTextDefV4.h"
+#include "CigiViewCtrlV4.h"
 
 #include <chrono>
 #include <cstring>
@@ -762,10 +764,8 @@ SCENARIO("IG sends a UDP message and Host processor receives it",
 }
 
 // =============================================================================
-// 6. 碰撞检测体积对（ATDD 红测）：Host 发 CollDetVolDefV4 → IG 回 CollDetVolRespV4
-//    设计规则：processor 定义于 EventProcess（§8.1），由 IgSync/HostSync 内置注册并缓存，
-//    经 takeReceivedCollDetVolDef()/takeReceivedCollDetVolResp() 取缓存——当前接口不存在，
-//    测试编译失败（真红）；实现后转绿。
+// 6. 碰撞检测体积对（ATDD 红测已转绿）：Host 发 CollDetVolDefV4 → IG 回 CollDetVolRespV4
+//    经通用捕获 takeReceived<CigiCollDetVolDefV4>() / takeReceived<CigiCollDetVolRespV4>() 取缓存。
 // =============================================================================
 
 SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
@@ -797,9 +797,9 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 engineB.tickSync();
-                igDef = engineB.synchronSystem().igSync().takeReceivedCollDetVolDef();
+                igDef = engineB.synchronSystem().igSync().takeReceived<CigiCollDetVolDefV4>();
             }
-            REQUIRE(igDef.has_value()); // 红：takeReceivedCollDetVolDef 尚未实现（编译红）
+            REQUIRE(igDef.has_value());
             REQUIRE(igDef->GetEntityID() == 7);
             REQUIRE(igDef->GetVolID() == 3);
             REQUIRE(igDef->GetVolEn());
@@ -820,12 +820,12 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 hostA.drainIncoming();
-                hostResp = hostA.takeReceivedCollDetVolResp();
+                hostResp = hostA.takeReceived<CigiCollDetVolRespV4>();
             }
 
             THEN("Host received the CollDetVolResp via built-in processor cache")
             {
-                REQUIRE(hostResp.has_value()); // 红：takeReceivedCollDetVolResp 尚未实现（编译红）
+                REQUIRE(hostResp.has_value());
                 REQUIRE(hostResp->GetEntityID() == 7);
                 REQUIRE(hostResp->GetCollType() == CigiBaseCollDetVolResp::Entity);
             }
@@ -1248,6 +1248,157 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
                 REQUIRE(hostMsgProc->count() == 3);
                 // IG 出站去重后只有 1 个 SOF：三条报文在一条消息内，分帧器切出一条消息 → Host 收 1 个 SOF。
                 REQUIRE(hostA.sofReceivedCount() == 1);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 10. 全 9 类报文支持：通用捕获（PacketCaptureProc + takeReceived<PacketT>）
+//     按发送源（IgSync/HostSync）与链路（UDP 持续 / TCP 一次性）注册（cigi梳理.md 链路矩阵）。
+//     各取一个代表性报文验证：TCP 一次性（EntityCtrl）、UDP 持续（ViewCtrl）、IG→Host 响应（IGMsg）。
+// =============================================================================
+
+SCENARIO("IG captures a one-shot Host→IG EntityCtrl over TCP via takeReceived",
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33000);
+
+        WHEN("Host sends CigiEntityCtrlV4 over TCP (one-shot)")
+        {
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityCtrlV4 ent;
+                ent.SetEntityID(7);
+                ent.SetEntityType(2);
+                tcp << ent;
+                hostA.flushTcp();
+            }
+            engineB.tickSync();
+            engineA.tickSync();
+
+            THEN("IG captures the EntityCtrl via the built-in processor")
+            {
+                auto captured = engineB.synchronSystem().igSync().takeReceived<CigiEntityCtrlV4>();
+                REQUIRE(captured.has_value());
+                REQUIRE(captured->GetEntityID() == 7);
+                REQUIRE(captured->GetEntityType() == 2);
+            }
+        }
+    }
+}
+
+SCENARIO("IG captures a per-frame Host→IG ViewCtrl over UDP via takeReceived",
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33100);
+
+        WHEN("Host sends CigiViewCtrlV4 over UDP (per-frame)")
+        {
+            auto& udp = hostA.outMsgWithIgCtrlUdp();
+            CigiViewCtrlV4 view;
+            view.SetViewID(1);
+            view.SetYaw(30.0f);
+            view.SetPitch(10.0f);
+            udp << view;
+            hostA.flushUdp();
+            engineB.tickSync();
+            engineA.tickSync();
+
+            THEN("IG captures the ViewCtrl via the built-in processor")
+            {
+                auto captured = engineB.synchronSystem().igSync().takeReceived<CigiViewCtrlV4>();
+                REQUIRE(captured.has_value());
+                REQUIRE(captured->GetViewID() == 1);
+                REQUIRE(captured->GetYaw() == Catch::Approx(30.0f));
+            }
+        }
+    }
+}
+
+SCENARIO("Host captures an IG→Host CigiIGMsgV4 over TCP via takeReceived",
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33200);
+
+        WHEN("IG sends CigiIGMsgV4 over TCP (one-shot, IG→Host)")
+        {
+            {
+                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                CigiIGMsgV4 status;
+                status.SetMsgID(0x3001);
+                status.SetMsg("all-packets ok");
+                tcp << status;
+                engineB.synchronSystem().igSync().flushTcp();
+            }
+
+            std::optional<CigiIGMsgV4> captured;
+            for (int i = 0; i < 20 && !captured; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                hostA.drainIncoming();
+                captured = hostA.takeReceived<CigiIGMsgV4>();
+            }
+
+            THEN("Host captures the IGMsg via the built-in processor")
+            {
+                REQUIRE(captured.has_value());
+                REQUIRE(captured->GetMsgID() == 0x3001);
+            }
+        }
+    }
+}
+
+// takeReceived 取走即清：报文被取走后、无新报文传入时，再次取走返回空。
+SCENARIO("takeReceived returns empty after the captured packet is taken and no new one arrives",
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33300);
+
+        WHEN("Host sends one CigiViewCtrlV4 over UDP and IG takes it once")
+        {
+            {
+                auto& udp = hostA.outMsgWithIgCtrlUdp();
+                CigiViewCtrlV4 view;
+                view.SetViewID(1);
+                udp << view;
+                hostA.flushUdp();
+            }
+            engineB.tickSync();
+            engineA.tickSync();
+
+            auto first = engineB.synchronSystem().igSync().takeReceived<CigiViewCtrlV4>();
+            REQUIRE(first.has_value());
+            REQUIRE(first->GetViewID() == 1);
+
+            // 不再有新报文传入：连续多次取走都必须为空（取走即清）。
+            const auto second = engineB.synchronSystem().igSync().takeReceived<CigiViewCtrlV4>();
+            const auto third = engineB.synchronSystem().igSync().takeReceived<CigiViewCtrlV4>();
+
+            THEN("subsequent takes are empty until the next packet arrives")
+            {
+                REQUIRE_FALSE(second.has_value());
+                REQUIRE_FALSE(third.has_value());
             }
         }
     }
