@@ -832,9 +832,8 @@ bool Engine::initSync(const SyncRoleConfig& syncRole, bool requireConnectedIg)
 
 bool Engine::initSync(const SyncRoleConfig& syncRole, const SyncSystemConfig& syncSystem)
 {
-    // 模拟时间轴起点（时钟同步方案.md §5 方案 B）：从 init 时刻起连续推进。
-    _simStartTime = std::chrono::steady_clock::now();
-    _simStartMs = 0.0;
+    // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，beginWithIgCtrlUdp 填 TimeStamp，§7.1）——
+    // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
 
     // Host：Engine 直接持有 HostSync（直发，不经 SynchronSystem 门面）。
     _hostSync.reset();
@@ -1250,15 +1249,11 @@ void Engine::render()
 void Engine::postFrame()
 {
     // 子系统：update+render 后读最终状态 / 扇出。
-    // 模拟时间基于 steady_clock 连续推进（时钟同步方案.md §5 方案 B）：
-    // 渲染卡顿时时间戳跟上真实流逝，IG 外推不因 host 帧节奏波动而放大误差。
+    // 模拟时间由 HostSync 自计时（_startTime = steady_clock::now() 于 initialize，§7.1）：
+    // outMsgWithIgCtrlUdp() 自动填 IGCtrl.TimeStamp = simTimeMs×100（10µs 步进）。渲染卡顿时时间戳
+    // 跟上真实流逝，IG 外推不因 host 帧节奏波动而放大误差（时钟同步方案.md §5 方案 B）。
     if (_hostSync)
-    {
-        const auto now = std::chrono::steady_clock::now();
-        const double elapsedMs =
-            std::chrono::duration<double, std::milli>(now - _simStartTime).count();
-        _hostPublisher.postHostFrame(*_hostSync, _simStartMs + elapsedMs, ellipsoidModel().get());
-    }
+        _hostPublisher.postHostFrame(*_hostSync, ellipsoidModel().get());
 }
 
 void Engine::stepSync()

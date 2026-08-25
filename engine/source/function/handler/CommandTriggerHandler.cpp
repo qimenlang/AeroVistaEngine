@@ -16,7 +16,7 @@ void CommandTriggerHandler::apply(vsg::KeyPressEvent& keyPress)
     if (keyPress.keyBase == vsg::KEY_F9)
     {
         // 新契约命令面：通用文本指令（SymbolTextDefV4，fire-and-forget），IG 按首 token 分发。
-        auto& tcp = host->tcpOutgoing();
+        auto& tcp = host->outMsgWithIgCtrlTcp();
         CigiSymbolTextDefV4 load("load teapot");
         tcp << load;
         host->flushTcp();
@@ -26,7 +26,7 @@ void CommandTriggerHandler::apply(vsg::KeyPressEvent& keyPress)
 
     if (keyPress.keyBase == vsg::KEY_F10)
     {
-        auto& tcp = host->tcpOutgoing();
+        auto& tcp = host->outMsgWithIgCtrlTcp();
         CigiSymbolTextDefV4 move("move 7 0.0 0.1 0.0 0.0 0.0 0.0"); // id=7 +Y 0.1m
         tcp << move;
         host->flushTcp();

@@ -1,6 +1,6 @@
 # viewhost 设计（MFC Host 宿主程序）
 
-> **已按新接口同步（2026-08-24）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `udpOutgoing() + cigi_wire::appendHostFrame + flushUdp()`（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
+> **已按新接口同步（2026-08-24；2026-08-25 IGCtrl 自动填充）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `outMsgWithIgCtrlUdp() + cigi_wire::appendEye + flushUdp()`（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）——`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl（帧号/自计时时间戳/`TimeStampValid=true`）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
 
 面向「用 MFC 对话框程序作为独立 Host 进程，经 `aerovistaSync` 的 `HostSync` 向多个携带 IG 的 Engine 扇出同一 Host 眼点，模拟多通道同步」的设计。
 
@@ -42,14 +42,14 @@
 `HostSync` 是**零 vsg 依赖**的纯 C++ 类型（Winsock + 标准库），MFC 程序链接无阻碍。数据面发送接口（新契约，[状态同步设计初版.md](./状态同步设计初版.md) §7.1）：
 
 ```cpp
-// HostDriver::update —— 业务侧组装数据面帧节拍（IGCtrl + 眼点）后统一 flushUdp
-auto& omsg = _host.udpOutgoing();                                  // 只 BeginMsg
-cigi_wire::appendHostFrame(omsg, _host.nextFrameCntr(), simTimeMs, eye); // IGCtrl + 眼点
-_host.flushUdp();                                                   // PackageMsg + 扇出
+// HostDriver::update —— 业务侧组装数据面帧节拍（IGCtrl 自动 + 眼点）后统一 flushUdp
+auto& omsg = _host.outMsgWithIgCtrlUdp();        // 自动前置 IGCtrl（帧号=数据面、TimeStamp=自计时、TimeStampValid=true）
+cigi_wire::appendEye(omsg, eye);         // 可选：追加 ownship 眼点
+_host.flushUdp();                        // PackageMsg + 扇出
 ```
 
-- `udpOutgoing()` 只 `BeginMsg`，不再自动前置 IGCtrl；帧号经 `HostSync::nextFrameCntr()` 分配。
-- `cigi_wire::appendHostFrame`（`CigiWire.h`）负责 IGCtrl + ownship 眼点的 CCL 组装（WorldLocal→Attach+XYZ / LLA→Detach+LLA，LLA 越界丢弃内置）。
+- `outMsgWithIgCtrlUdp()` 自动前置 IGCtrl 并填充帧号/时间戳（`HostSync` 自计时，2026-08-25）；帧号经 `HostSync::nextFrameCntr()` 分配（数据面）。
+- `cigi_wire::appendEye`（`CigiWire.h`）负责 ownship 眼点的 CCL 组装（WorldLocal→Attach+XYZ / LLA→Detach+LLA，LLA 越界丢弃内置）。原 `appendHostFrame`（IGCtrl+眼点整体组装）已删——IGCtrl 归属 sync。
 - 数据面与命令面统一走 CCL 会话；`HostSync::update`/`EyePose` 已删除。
 
 依赖传递（[sync模块化设计.md](./sync模块化设计.md) §3.0）：
@@ -110,7 +110,7 @@ thirdparty/sync/examples/viewhost/
 1. loadHostConfig(viewhost.json, host, &error)      // sync 库内解析，只含 hostConfig 块
 2. HostSync::initialize(host)                        // bind UDP + TCP listen，起 accept/UDP 线程
 3. HostSync::run()                                   // 置 RUNNING（一次，非每帧）
-4. 定时器按目标 fps 调 HostDriver::update(simTimeMs, &eye)  // 每帧 udpOutgoing<<IGCtrl<<眼点→flushUdp
+4. 定时器按目标 fps 调 HostDriver::update(&eye)  // 每帧 outMsgWithIgCtrlUdp<<眼点→flushUdp
 5. HostSync::shutdown()                              // 退出时收尾
 ```
 
@@ -153,7 +153,7 @@ alt += dUp
 ### 4.3 帧节拍与线程模型
 
 - **HostSync 内部已有线程**：`_acceptThread`（TCP accept）、`_udpThread`（UDP 收 SOF / 握手）、`_clientThreads`（每 client 一个）。viewhost **不额外造网络线程**。
-- **扇出驱动**：`HostDriver::update`（内部 `udpOutgoing() << IGCtrl << 眼点 → flushUdp()`）是 UDP 非阻塞扇出（FreeRun，不等 SOF），不会长时间占用调用线程。**初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**，对齐示例的「主循环 + sleep」模式，实现最简。
+- **扇出驱动**：`HostDriver::update`（内部 `outMsgWithIgCtrlUdp() << IGCtrl << 眼点 → flushUdp()`）是 UDP 非阻塞扇出（FreeRun，不等 SOF），不会长时间占用调用线程。**初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**，对齐示例的「主循环 + sleep」模式，实现最简。
 - 若未来需要更高节拍稳定性，再迁移到专用工作线程 + `PostMessage` 回传状态（本版不做）。
 
 **simTimeMs 推进与帧增量（写死）**：
@@ -287,7 +287,7 @@ void ViewHostDlg::onTick()
 ## 8. 否决与决策记录
 
 - **多通道在 IG 侧（澄清）**：viewhost 不感知通道数与 `offsetDeg`，只持一个 `HostSync` 扇出同一眼点。
-- **扇出驱动走 UI 定时器（初版写死）**：`HostDriver::update`（`udpOutgoing+appendHostFrame+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
+- **扇出驱动走 UI 定时器（初版写死）**：`HostDriver::update`（`outMsgWithIgCtrlUdp+appendEye+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
 - **触发方式选 toggle 按钮（否决左键开始 / 右键结束）**：右键在 Windows 惯例为上下文菜单语义，且按钮控件对右键不产生点击通知，需在对话框层额外处理 `WM_RBUTTON*`；左/右键还缺状态可见性。改为单一 toggle 按钮（文字+颜色反映状态）承载「开始控制 ↔ 停止控制」。
 - **键盘读取用 `GetAsyncKeyState` 轮询（否决 `OnKeyDown`）**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框，且按下有重复延迟；物理键状态轮询与焦点无关、连续输入跟手，但需 toggle 开关避免与文字输入冲突（§4.5）。
 - **默认 LLA 眼点（非 ECEF）**：viewhost 发 `frame=LLA` 的 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。
@@ -304,6 +304,6 @@ void ViewHostDlg::onTick()
 | `thirdparty/sync/examples/viewhost/` 工程 + 对话框控制台 | 已实现 |
 | `HostDriver`（HostSync 封装）+ `applyManualStep`（步进换算，纯 C++） | 已实现 |
 | 复用 `loadHostConfig` / `HostSync` 全链路（无 sync 库改动） | 已实现 |
-| **新接口适配（2026-08-24，矛盾 A）** | `HostDriver::update` 用 `udpOutgoing+appendHostFrame+flushUdp`；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
+| **新接口适配（2026-08-24 矛盾 A；2026-08-25 IGCtrl 自动填充）** | `HostDriver::update` 用 `outMsgWithIgCtrlUdp+appendEye+flushUdp`（`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl，帧号/自计时时间戳）；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
 | `engine/Tests/ViewHostMathTests.cpp`：步进换算 `[unit]` 测试 | 已添加 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |

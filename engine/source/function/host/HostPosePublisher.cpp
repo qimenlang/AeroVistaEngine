@@ -172,7 +172,7 @@ void HostPosePublisher::captureAuthorityEye(const vsg::LookAt& lookAt,
     _frameSample = sample;
 }
 
-void HostPosePublisher::postHostFrame(HostSync& host, double simTimeMs, const vsg::EllipsoidModel* ellipsoid)
+void HostPosePublisher::postHostFrame(HostSync& host, const vsg::EllipsoidModel* ellipsoid)
 {
     const HostEyePose* sendEye = nullptr;
     HostEyePose eyeStorage{};
@@ -218,9 +218,9 @@ void HostPosePublisher::postHostFrame(HostSync& host, double simTimeMs, const vs
         _lastSent = *sendEye;
     }
 
-    // 矛盾 A：业务侧组装数据面帧节拍（IGCtrl + 眼点）后统一 flushUdp。
-    auto& omsg = host.udpOutgoing();
-    cigi_wire::appendHostFrame(omsg, host.nextFrameCntr(), simTimeMs, wirePtr);
+    // IGCtrl 由 outMsgWithIgCtrlUdp() 自动前置（帧号/自计时时间戳，§7.1）；此处只追加眼点。
+    auto& omsg = host.outMsgWithIgCtrlUdp();
+    cigi_wire::appendEye(omsg, wirePtr);
     host.flushUdp();
 }
 

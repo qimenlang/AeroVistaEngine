@@ -22,8 +22,8 @@ public:
                              const std::optional<aerovista::sync::HostEyePose>& lastApplied);
 
     /// 把本帧采样（或上次发送兜底）打包成 IGCtrl 扇出到 HostSync。
-    void postHostFrame(aerovista::sync::HostSync& host, double simTimeMs,
-                       const vsg::EllipsoidModel* ellipsoid);
+    /// IGCtrl（帧号/时间戳）由 HostSync::outMsgWithIgCtrlUdp() 自动填充（§7.1 自计时），本方法只追加眼点。
+    void postHostFrame(aerovista::sync::HostSync& host, const vsg::EllipsoidModel* ellipsoid);
 
     /// 图形重建 / 模式切换后清空缓存（lla §4.3）。
     void reset();

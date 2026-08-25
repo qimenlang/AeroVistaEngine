@@ -57,11 +57,10 @@ namespace
         return actual >= minOk && actual <= exp;
     }
 
-    /// 矛盾 A：Host 数据面帧由业务侧组装（IGCtrl + 可选眼点）后 flushUdp；无 HostSync::update。
-    void hostSendFrame(HostSync& host, double simTimeMs)
+    /// IGCtrl 由 outMsgWithIgCtrlUdp() 自动前置（帧号/自计时时间戳）；hostSendFrame 只发无眼点帧。
+    void hostSendFrame(HostSync& host, double /*simTimeMs*/)
     {
-        auto& omsg = host.udpOutgoing();
-        cigi_wire::appendHostFrame(omsg, host.nextFrameCntr(), simTimeMs, nullptr);
+        auto& omsg = host.outMsgWithIgCtrlUdp();
         host.flushUdp();
     }
 

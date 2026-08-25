@@ -160,10 +160,6 @@ private:
     bool _hasRenderedFrame = false;
     bool _reportFrameStats = false;
     double _lastFrameSeconds = 0.0;
-    /// 模拟时间轴（时钟同步方案.md §5 方案 B）：基于 steady_clock 连续推进，
-    /// 语义 = _simStartMs + (steady_clock::now() - _simStartTime)。不随渲染卡顿滞后。
-    std::chrono::steady_clock::time_point _simStartTime{};
-    double _simStartMs = 0.0;
 
     // 初始相机与投影调整用的 AABB 边界（位姿配置设计.md §4）
     vsg::dvec3 _aabbCentre{0.0, 0.0, 0.0};
