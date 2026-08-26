@@ -1,0 +1,25 @@
+﻿---
+description: 按改动类型决定构建/测试验证级别，避免纯文档/注释改动触发全量构建
+globs: "**/*"
+alwaysApply: true
+---
+
+# Build & test discipline（验证级别）
+
+按改动类型决定验证强度，避免无谓的全量构建 + 跑测试（本工程全量约 2 分钟+）。权威：`anti-hallucination.mdc`（交付物需编译/测试验证）；复杂度门禁另见 `engine-complexity-gates.mdc`。
+
+## 改动类型 → 验证级别
+
+| 改动 | 验证 |
+| ---- | ---- |
+| 纯文档 / `.md` / README / 设计文档 | 不跑构建测试 |
+| `.h` / `.cpp` 内**纯注释**（不影响 token 结构） | 不跑全量；可跳过 |
+| `.h` / `.cpp` 含 include / 签名 / 结构改动 | **至少增量编译**（改动 TU 及依赖方） |
+| `engine/source/**` 逻辑改动 | 全量构建 + 测试 + tidy/lizard（见 engine-complexity-gates） |
+| 新增 / 删除源文件 | 全量构建（CMake 需重配） |
+
+## 硬性要求
+
+- **跳过的是「全量」构建测试，不是「不验证」**：凡涉及编译单元的改动，增量编译是底线——纯注释也可能手滑删括号破坏编译。
+- 纯注释 / 文档改动可免编译验证，但交差前 `git diff` 自检仅含预期改动（对照 `anti-hallucination.mdc`：不得声称「编译通过」而未验证；若实际跳过了编译，明说跳过）。
+- 逻辑改动未跑全量测试即交差 = 违规（`anti-hallucination.mdc` 的 hard ban）。

@@ -136,7 +136,7 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 ## 本项目实现状态（2026-08 全 9 类支持）
 
-**收包侧已全支持**：按上表「链路」列，Host→IG 报文在 `IgSync` 的对应 session 注册通用捕获 processor，IG→Host 报文在 `HostSync` 的对应 session 注册；业务/测试经 `igSync().takeReceived<PacketT>()` / `hostSync().takeReceived<PacketT>()` 按类型取走（值拷贝，取走即清）。具体报文列表见 [状态同步设计初版.md](../design/状态同步设计初版.md) §8.1 注册总纲与 `EventProcess.h` 的 `PacketCaptureProc`。
+**收包侧已全支持（纯订阅，2026-08）**：按上表「链路」列，Host→IG 报文在 `IgSync` 的对应 session 注册通用捕获 processor，IG→Host 报文在 `HostSync` 的对应 session 注册；业务/测试经 `igSync().subscribe<PacketT>(cb)` / `hostSync().subscribe<PacketT>(cb)` 订阅投递（捕获时同步回调，值拷贝）。原拉取接口（`takeReceived`）已删。具体报文列表见 [状态同步设计初版.md](../design/状态同步设计初版.md) §8.1 注册总纲与 `EventProcess.h` 的 `PacketCaptureProc`。
 
 | 方向端点 | UDP session（持续/每帧） | TCP session（一次性/配置/请求/响应） |
 | --- | --- | --- |
