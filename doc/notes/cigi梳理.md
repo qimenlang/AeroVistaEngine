@@ -153,4 +153,16 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 | `CigiCollDetVolDefV4` / `CigiCollDetVolRespV4` | TCP | 一次性 / 一次性响应 | 碰撞检测体积定义（Host→IG）与响应（IG→Host），基础设施 processor 已支持 |
 | `CigiSOFV4` | UDP | 每帧 | IG 数据面每帧回显帧号（IG TCP 上报消息头也是 SOF，Host 双 session 注册） |
 
+## 眼点 vs 实体位姿：为何用 EntityPositionCtrl 而非 ViewCtrl（决策，2026-08）
+
+**背景**：眼点位姿与命令实体位姿同用 `CigiEntityPositionCtrlV4`（ownship `EntityID==0` = 本机眼点，`EntityID≠0` = 命令实体），靠 `EntityID` 区分（§4.1 约定）。是否应让眼点改走 `CigiViewDefV4`/`CigiViewCtrlV4`？
+
+**结论（写死）**：不换。眼点继续用 `EntityPositionCtrlV4` ownship。理由：
+
+1. **`ViewCtrl` 的 XOff/YOff/ZOff 是「相对绑定实体原点的偏移」（米），不是绝对坐标**（`CigiBaseViewCtrl.h`：`The Offset from the specified entity's origin along the entity's X axis`）。传 LLA/绝对 XYZ 进去会被对端当米级偏移解释，语义错误。
+2. **`ViewCtrl` 无 Detach+LLA（绝对经纬高）模式**：`lla位姿传输设计.md` 的核心「Host 发 LLA 眼点、IG LLA→ECEF」无法用 `ViewCtrl` 表达；`EntityPositionCtrl` 的 Detach+Lat/Lon/Alt 是 CIGI 下绝对 LLA 的唯一正统。
+3. **字段为 `float`（32 位）偏移**：即使塞度数，也既无语义又无精度（LLA 需要 `double`）。
+4. **ownship 区分是 CIGI 产线标准约定**：`EntityID==0` 专指 ownship（本机眼点），`EyeCaptureProc`（ownship 相机）+ `_entityPoseProc`（命令实体）双 processor 各司其职，是既有 §4.1 约定而非临时 hack。
+5. `ViewCtrl` 的正确定位是「相对某实体的视点」（如坐乘视点）——**并行扩展位**，不与绝对 LLA/XYZ 眼点冲突，未来需要时另加，不替换现状。
+
 > 来源：`thirdparty/cigi`（Boeing CIGI SDK，V4 报文处理表 `CigiOutgoingMsg.cpp` 的 `SetOutgoingHostV4Tbls` / `SetOutgoingIGV4Tbls`；入站表 `CigiIncomingMsg.cpp` 的 `SetIncomingHostV4Tbls` / `SetIncomingIGV4Tbls`）。

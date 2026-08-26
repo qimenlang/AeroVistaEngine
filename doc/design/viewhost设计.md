@@ -241,7 +241,20 @@ void ViewHostDlg::onTick()
 
 > C/E 上下方向（E=上 / C=下）与 pitch 正负以实现时对齐 §4.2 的 ENU 约定为准，常量可调。
 
-### 4.5 UI 状态显示
+### 4.5 实体摆放（Host 控制 IG 实体位姿）
+
+在对话框增加「实体摆放」区：`Entity ID` + `lat/lon/alt`（LLA）+ `yaw pitch roll` 编辑框 + 「摆放」按钮。点击后：
+
+1. 读输入（yaw/pitch/roll 空格分隔解析，缺省 0）；
+2. `HostDriver::sendEntityPose(id, lat, lon, alt, yaw, pitch, roll)`——经 `outMsgWithIgCtrlTcp()`（自动前置 IGCtrl，命令面帧号/`TimeStampValid=false`）组装 `CigiEntityPositionCtrlV4`（**Detach+LLA，`EntityID≠0`**）→ `flushTcp()` 一次性精准下发；
+3. 状态栏显示最近摆放值。
+
+IG 侧消费：engine `initSync` 订阅 `subscribe<CigiEntityPositionCtrlV4>`，过滤 ownship（`EntityID==0`）后按 Detach→`updateEntityPose(id, lla, ypr, ELLIPSOID)` 更新实体位姿（状态同步设计初版.md §12）。
+
+- 命令面走 **TCP**（一次性、可靠送达，§8.5 链路选择），与数据面眼点（UDP 持续）解耦。
+- 与「眼点为何不用 ViewCtrl」同源：绝对 LLA 位姿只能用 `EntityPositionCtrlV4` Detach 表达（[cigi梳理.md](../notes/cigi梳理.md) 决策节）。
+
+### 4.6 UI 状态显示
 
 定时器刷新时从 `HostSync` 读取（线程安全，内部 atomic/mutex）：
 
@@ -251,6 +264,7 @@ void ViewHostDlg::onTick()
 | IGCtrl 发送轮次 | `igCtrlSentCount()` |
 | SOF 接收数 | `sofReceivedCount()` |
 | 当前眼点（lat/lon/alt, yaw/pitch/roll） | 键盘累积 `_eye` |
+| 最近摆放实体 | `OnPlaceEntity` 写入的静态文本 |
 
 ## 5. 配置设计
 
@@ -297,7 +311,7 @@ void ViewHostDlg::onTick()
 - **测试范围分层（写死）**：UI / `HostDriver` 薄封装不测（`HostSync` 已由 `HostIGTests` 覆盖）；步进换算是新增纯数值逻辑，挂 `engine/Tests` 的 `[unit]` 测试，与示例共用同一份源码（§6）。
 - **圆周轨迹已移除（决策）**：viewhost 只保留键盘手动操控眼点，不做自动圆周轨迹；`Trajectory` / `TrajectoryConfig` 已删除。眼点由初始值起步，经 `applyManualStep` 累积。
 - **空格热键切换控制（§4.4）**：toggle 按钮**不带助记键**（字母助记键与 WASD/CE 操控键冲突，按 S 会误触发切换）；键盘切换改由 `PreTranslateMessage` 拦截空格实现，避免「按 S 切换控制」的坑。
-- **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程，viewhost 的命令 UI 留后期。
+- **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程；**实体摆放命令 UI 已落地（2026-08，§4.5）**，其余命令 UI 留后期。
 
 ## 9. 与实现关系
 
@@ -308,4 +322,5 @@ void ViewHostDlg::onTick()
 | 复用 `loadHostConfig` / `HostSync` 全链路（无 sync 库改动） | 已实现 |
 | **新接口适配（2026-08-24 矛盾 A；2026-08-25 IGCtrl 自动填充）** | `HostDriver::update` 用 `outMsgWithIgCtrlUdp+appendEye+flushUdp`（`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl，帧号/自计时时间戳）；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
 | `engine/Tests/ViewHostMathTests.cpp`：步进换算 `[unit]` 测试 | 已添加 |
+| **实体摆放命令（2026-08）** | `HostDriver::sendEntityPose`（`outMsgWithIgCtrlTcp` + `CigiEntityPositionCtrlV4` Detach+LLA → `flushTcp`）+ 对话框「实体摆放」区（id/lat/lon/alt/ypr 输入 + 按钮 + 状态显示，§4.5）；IG 侧 engine `updateEntityPose` 订阅消费；MSVC 构建通过 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |

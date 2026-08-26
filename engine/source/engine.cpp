@@ -5,6 +5,9 @@
 
 #include <vsgXchange/all.h>
 
+#include "CigiBaseEntityPositionCtrl.h"
+#include "CigiEntityPositionCtrlV4.h"
+
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -797,6 +800,27 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
     if (!_synchronSystem->initialize(igConfig, syncSystem))
         return false;
 
+    // 命令实体位姿：订阅 Host 下发（EntityPositionCtrlV4，EntityID≠0）实时摆放。
+    // ownship 眼点（EntityID==0）被 EyeCaptureProc 占用，这里必须过滤（§4.1）。
+    // 回调主线程解包时同步调用，只做轻量入队/置位（§8.1）。
+    if (_synchronSystem->hasIg())
+    {
+        _synchronSystem->igSync().subscribe<CigiEntityPositionCtrlV4>(
+            [this](const CigiEntityPositionCtrlV4& pose) {
+                if (pose.GetEntityID() == 0)
+                    return;
+                if (pose.GetAttachState() == CigiBaseEntityPositionCtrl::Detach)
+                    updateEntityPose(pose.GetEntityID(), aerovista::sync::DVec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
+                                     aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()},
+                                     CoordFrameIntent::ELLIPSOID);
+                else
+                    updateEntityPose(pose.GetEntityID(),
+                                     aerovista::sync::DVec3{pose.GetXoff(), pose.GetYoff(), pose.GetZoff()},
+                                     aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()},
+                                     CoordFrameIntent::LOCAL);
+            });
+    }
+
     return true;
 }
 
@@ -1286,6 +1310,31 @@ bool Engine::captureToFile(const vsg::Path& outputPngPath)
         std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
         return false;
     }
+}
+
+void Engine::updateEntityPose(int id, const aerovista::sync::DVec3& positionOrLla,
+                              const aerovista::sync::DVec3& eulerYprDeg, CoordFrameIntent frame)
+{
+    auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
+        return;
+    Entity& entity = it->second;
+
+    // 更新语义位姿缓存（供 sampleEntityPoseById 等读取），并按 frame 写 transform 矩阵。
+    if (frame == CoordFrameIntent::ELLIPSOID)
+    {
+        entity.hasEllipsoidPose = true;
+        entity.ellipsoidLla = {positionOrLla.x, positionOrLla.y, positionOrLla.z};
+        entity.ellipsoidYpr = {eulerYprDeg.x, eulerYprDeg.y, eulerYprDeg.z};
+    }
+    else
+    {
+        entity.hasLocalPose = true;
+        entity.localPosition = {positionOrLla.x, positionOrLla.y, positionOrLla.z};
+        entity.localYpr = {eulerYprDeg.x, eulerYprDeg.y, eulerYprDeg.z};
+    }
+    ensureEntityTransform(entity);
+    recomputeEntityTransform(entity);
 }
 
 void Engine::run()

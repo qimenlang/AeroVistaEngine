@@ -1268,7 +1268,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 // =============================================================================
 
 SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
-         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+         "[acceptance][bdd][sync][cmd][e2e][all-packets][debug]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
@@ -1296,7 +1296,6 @@ SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
                 hostA.flushTcp();
             }
             engineB.tickSync();
-            engineA.tickSync();
 
             THEN("IG sink receives the EntityCtrl synchronously")
             {
@@ -1432,6 +1431,80 @@ SCENARIO("HostSync subscribe delivers an IG→Host packet to the sink",
             {
                 REQUIRE(sinkCount == 1);
                 REQUIRE(sinkMsgId == 0x4001);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 11. 命令实体位姿：Host 下发 EntityPositionCtrlV4（EntityID≠0）→ IG engine
+//     订阅 → updateEntityPose 更新 entityMap 位姿 + transform 矩阵。
+//     ownship 眼点（EntityID==0）被 UDP 侧 EyeCaptureProc 占用；命令实体摆放走 TCP（§4.1 / cigi梳理.md 链路矩阵）。
+// =============================================================================
+
+SCENARIO("Host places an entity pose over TCP and IG engine updates the entity transform",
+         "[acceptance][bdd][sync][cmd][e2e][entity-pose]")
+{
+    GIVEN("independent Host and an IG engine with a configured entity")
+    {
+        constexpr int kBase = 33600;
+
+        // 带实体配置的 IG（本地坐标系，id=7）。
+        const TempConfigFile igFile(
+            std::string(R"({ "coordFrame": "Local", )") +
+            R"("entities": [ { "id": 7, "model": "models/teapot.vsgt", )"
+            R"("pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } } ], )" +
+            R"("igConfig": { "udpPortSend": )" + std::to_string(kBase) +
+            R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
+            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( }, )" +
+            R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 } })");
+
+        HostSync hostA;
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
+
+        Engine engineIg;
+        engineIg.extent = {640, 480};
+        engineIg.showWindow = false;
+        REQUIRE(engineIg.loadConfig(igFile.path()));
+        REQUIRE(engineIg.init());
+        REQUIRE(hostA.readyIgCount() == 1);
+
+        WHEN("Host sends EntityPositionCtrlV4 for entity 7 over TCP (one-shot placement)")
+        {
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityPositionCtrlV4 pose;
+                pose.SetEntityID(7);
+                pose.SetAttachState(CigiBaseEntityPositionCtrl::Attach);
+                pose.SetXoff(10.0);
+                pose.SetYoff(20.0);
+                pose.SetZoff(5.0);
+                pose.SetYaw(30.0f);
+                pose.SetPitch(0.0f);
+                pose.SetRoll(0.0f);
+                tcp << pose;
+                hostA.flushTcp();
+            }
+            engineIg.tickSync();
+
+            THEN("engine entity 7 pose and transform are updated")
+            {
+                vsg::dvec3 pos, ypr;
+                REQUIRE(engineIg.sampleEntityPoseById(7, pos, ypr));
+                REQUIRE(pos.x == Catch::Approx(10.0));
+                REQUIRE(pos.y == Catch::Approx(20.0));
+                REQUIRE(pos.z == Catch::Approx(5.0));
+                REQUIRE(ypr.x == Catch::Approx(30.0));
+
+                auto mt = engineIg.entityTransform(7);
+                REQUIRE(mt);
+                // 本地：translate(position) * R(ypr)，验证平移分量。
+                const auto m = mt->matrix;
+                REQUIRE(m(3, 0) == Catch::Approx(10.0));
+                REQUIRE(m(3, 1) == Catch::Approx(20.0));
+                REQUIRE(m(3, 2) == Catch::Approx(5.0));
             }
         }
     }

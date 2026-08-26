@@ -22,6 +22,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/Tests/vsgEngineTests.exe",
             "args": [
+                "[all-packets]",
                 "-s",
                 "-d yes"
             ],

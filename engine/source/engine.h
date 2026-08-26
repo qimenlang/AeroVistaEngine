@@ -97,6 +97,11 @@ public:
     /// 应用 SynchronSystem 产出的相机位姿（按 frame 分派 setCameraPose / setCameraPoseLla）。
     void applySyncCameraPose(const aerovista::sync::HostEyePose& pose);
 
+    /// 更新指定实体的位姿（命令面 Host→IG 摆放）。`frame` 为 ELLIPSOID 时按 LLA 写，否则本地 XYZ。
+    /// 回调主线程解包时调用，直接写 entityMap（主线程安全，§6）。
+    void updateEntityPose(int id, const aerovista::sync::DVec3& positionOrLla, const aerovista::sync::DVec3& eulerYprDeg,
+                          CoordFrameIntent frame);
+
 private:
     void applyConfigToEngine();
     bool initGraphicsFromEntities();
