@@ -2,6 +2,7 @@
 
 #include "InitialCameraConfig.h"
 #include "function/handler/FrameStatsHandler.h"
+#include "function/handler/PacketProbeHandler.h"
 
 #include <vsgXchange/all.h>
 
@@ -805,8 +806,10 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
     // 回调主线程解包时同步调用，只做轻量入队/置位（§8.1）。
     if (_synchronSystem->hasIg())
     {
-        _synchronSystem->igSync().subscribe<CigiEntityPositionCtrlV4>(
+        auto& ig = _synchronSystem->igSync();
+        ig.subscribe<CigiEntityPositionCtrlV4>(
             [this](const CigiEntityPositionCtrlV4& pose) {
+                _lastReceivedPacketName = "CigiEntityPositionCtrlV4";
                 if (pose.GetEntityID() == 0)
                     return;
                 if (pose.GetAttachState() == CigiBaseEntityPositionCtrl::Detach)
@@ -819,6 +822,47 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
                                      aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()},
                                      CoordFrameIntent::LOCAL);
             });
+
+        // 报文自检订阅（viewhost testtcp/testudp 按钮）：收到即记录类名供 HUD 显示。
+        // 覆盖 IgSync 已注册的全部 Host→IG 报文（cigi梳理.md 链路矩阵），数据面 + 命令面。
+        ig.subscribe<CigiConfClampEntityCtrlV4>([this](const CigiConfClampEntityCtrlV4&) { _lastReceivedPacketName = "CigiConfClampEntityCtrlV4"; });
+        ig.subscribe<CigiVelocityCtrlV4>([this](const CigiVelocityCtrlV4&) { _lastReceivedPacketName = "CigiVelocityCtrlV4"; });
+        ig.subscribe<CigiAccelerationCtrlV4>([this](const CigiAccelerationCtrlV4&) { _lastReceivedPacketName = "CigiAccelerationCtrlV4"; });
+        ig.subscribe<CigiViewCtrlV4>([this](const CigiViewCtrlV4&) { _lastReceivedPacketName = "CigiViewCtrlV4"; });
+
+        ig.subscribe<CigiEntityCtrlV4>([this](const CigiEntityCtrlV4&) { _lastReceivedPacketName = "CigiEntityCtrlV4"; });
+        ig.subscribe<CigiArtPartCtrlV4>([this](const CigiArtPartCtrlV4&) { _lastReceivedPacketName = "CigiArtPartCtrlV4"; });
+        ig.subscribe<CigiShortArtPartCtrlV4>([this](const CigiShortArtPartCtrlV4&) { _lastReceivedPacketName = "CigiShortArtPartCtrlV4"; });
+        ig.subscribe<CigiCompCtrlV4>([this](const CigiCompCtrlV4&) { _lastReceivedPacketName = "CigiCompCtrlV4"; });
+        ig.subscribe<CigiShortCompCtrlV4>([this](const CigiShortCompCtrlV4&) { _lastReceivedPacketName = "CigiShortCompCtrlV4"; });
+        ig.subscribe<CigiAnimationCtrlV4>([this](const CigiAnimationCtrlV4&) { _lastReceivedPacketName = "CigiAnimationCtrlV4"; });
+        ig.subscribe<CigiViewDefV4>([this](const CigiViewDefV4&) { _lastReceivedPacketName = "CigiViewDefV4"; });
+        ig.subscribe<CigiSensorCtrlV4>([this](const CigiSensorCtrlV4&) { _lastReceivedPacketName = "CigiSensorCtrlV4"; });
+        ig.subscribe<CigiMotionTrackCtrlV4>([this](const CigiMotionTrackCtrlV4&) { _lastReceivedPacketName = "CigiMotionTrackCtrlV4"; });
+        ig.subscribe<CigiAtmosCtrlV4>([this](const CigiAtmosCtrlV4&) { _lastReceivedPacketName = "CigiAtmosCtrlV4"; });
+        ig.subscribe<CigiCelestialCtrlV4>([this](const CigiCelestialCtrlV4&) { _lastReceivedPacketName = "CigiCelestialCtrlV4"; });
+        ig.subscribe<CigiEnvRgnCtrlV4>([this](const CigiEnvRgnCtrlV4&) { _lastReceivedPacketName = "CigiEnvRgnCtrlV4"; });
+        ig.subscribe<CigiWeatherCtrlV4>([this](const CigiWeatherCtrlV4&) { _lastReceivedPacketName = "CigiWeatherCtrlV4"; });
+        ig.subscribe<CigiMaritimeSurfaceCtrlV4>([this](const CigiMaritimeSurfaceCtrlV4&) { _lastReceivedPacketName = "CigiMaritimeSurfaceCtrlV4"; });
+        ig.subscribe<CigiTerrestrialSurfaceCtrlV4>([this](const CigiTerrestrialSurfaceCtrlV4&) { _lastReceivedPacketName = "CigiTerrestrialSurfaceCtrlV4"; });
+        ig.subscribe<CigiWaveCtrlV4>([this](const CigiWaveCtrlV4&) { _lastReceivedPacketName = "CigiWaveCtrlV4"; });
+        ig.subscribe<CigiEarthModelDefV4>([this](const CigiEarthModelDefV4&) { _lastReceivedPacketName = "CigiEarthModelDefV4"; });
+        ig.subscribe<CigiCollDetSegDefV4>([this](const CigiCollDetSegDefV4&) { _lastReceivedPacketName = "CigiCollDetSegDefV4"; });
+        ig.subscribe<CigiCollDetVolDefV4>([this](const CigiCollDetVolDefV4&) { _lastReceivedPacketName = "CigiCollDetVolDefV4"; });
+        ig.subscribe<CigiHatHotReqV4>([this](const CigiHatHotReqV4&) { _lastReceivedPacketName = "CigiHatHotReqV4"; });
+        ig.subscribe<CigiLosSegReqV4>([this](const CigiLosSegReqV4&) { _lastReceivedPacketName = "CigiLosSegReqV4"; });
+        ig.subscribe<CigiLosVectReqV4>([this](const CigiLosVectReqV4&) { _lastReceivedPacketName = "CigiLosVectReqV4"; });
+        ig.subscribe<CigiPositionReqV4>([this](const CigiPositionReqV4&) { _lastReceivedPacketName = "CigiPositionReqV4"; });
+        ig.subscribe<CigiEnvCondReqV4>([this](const CigiEnvCondReqV4&) { _lastReceivedPacketName = "CigiEnvCondReqV4"; });
+        ig.subscribe<CigiSymbolCtrlV4>([this](const CigiSymbolCtrlV4&) { _lastReceivedPacketName = "CigiSymbolCtrlV4"; });
+        ig.subscribe<CigiShortSymbolCtrlV4>([this](const CigiShortSymbolCtrlV4&) { _lastReceivedPacketName = "CigiShortSymbolCtrlV4"; });
+        ig.subscribe<CigiSymbolSurfaceDefV4>([this](const CigiSymbolSurfaceDefV4&) { _lastReceivedPacketName = "CigiSymbolSurfaceDefV4"; });
+        ig.subscribe<CigiSymbolTextDefV4>([this](const CigiSymbolTextDefV4&) { _lastReceivedPacketName = "CigiSymbolTextDefV4"; });
+        ig.subscribe<CigiSymbolCircleDefV4>([this](const CigiSymbolCircleDefV4&) { _lastReceivedPacketName = "CigiSymbolCircleDefV4"; });
+        ig.subscribe<CigiSymbolPolygonDefV4>([this](const CigiSymbolPolygonDefV4&) { _lastReceivedPacketName = "CigiSymbolPolygonDefV4"; });
+        ig.subscribe<CigiSymbolTexturedCircleDefV4>([this](const CigiSymbolTexturedCircleDefV4&) { _lastReceivedPacketName = "CigiSymbolTexturedCircleDefV4"; });
+        ig.subscribe<CigiSymbolTexturedPolygonDefV4>([this](const CigiSymbolTexturedPolygonDefV4&) { _lastReceivedPacketName = "CigiSymbolTexturedPolygonDefV4"; });
+        ig.subscribe<CigiSymbolCloneV4>([this](const CigiSymbolCloneV4&) { _lastReceivedPacketName = "CigiSymbolCloneV4"; });
     }
 
     return true;
@@ -1015,6 +1059,12 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
         frameStatsHandler->enabled = &_reportFrameStats;
         _viewer->addEventHandler(frameStatsHandler);
 
+        // 报文自检发送（IG 侧）：F9 随机 TCP 上行 / F10 发 SOF（UDP 上行），与 viewhost testtcp/testudp 对称。
+        auto probeHandler = PacketProbeHandler::create();
+        probeHandler->ig = (_synchronSystem && _synchronSystem->hasIg()) ? &_synchronSystem->igSync() : nullptr;
+        probeHandler->lastSentName = &_lastSentPacketName;
+        _viewer->addEventHandler(probeHandler);
+
         auto windowView = vsg::View::create(camera);
         windowView->addChild(vsg::createHeadlight());
         windowView->addChild(_scene);
@@ -1167,6 +1217,10 @@ bool Engine::update()
             oss << "IGCtrl: ---\n";
         oss << "FPS: " << instantFps << "\n"
             << "frame: " << frameMs << " ms";
+        if (!_lastReceivedPacketName.empty())
+            oss << "\nrecv: " << _lastReceivedPacketName;
+        if (!_lastSentPacketName.empty())
+            oss << "\nsend: " << _lastSentPacketName;
 
         _frameStatsLabel->value() = oss.str();
         _frameStatsText->setup(0, _options);

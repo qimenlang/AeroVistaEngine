@@ -149,6 +149,11 @@ private:
     vsg::ref_ptr<vsg::stringValue> _frameStatsLabel;
     vsg::ref_ptr<vsg::Switch> _frameStatsSwitch;
 
+    /// 最近收到的 Host→IG 测试报文类名（viewhost testtcp/testudp 报文自检，HUD 显示）。
+    std::string _lastReceivedPacketName;
+    /// 最近发送的 IG→Host 测试报文类名（F9/F10 报文自检，HUD「send」行显示）。
+    std::string _lastSentPacketName;
+
     VkExtent2D _currentExtent{};
     bool _hasRenderedFrame = false;
     bool _reportFrameStats = false;

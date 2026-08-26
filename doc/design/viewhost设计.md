@@ -265,6 +265,29 @@ IG 侧消费：engine `initSync` 订阅 `subscribe<CigiEntityPositionCtrlV4>`，
 | SOF 接收数 | `sofReceivedCount()` |
 | 当前眼点（lat/lon/alt, yaw/pitch/roll） | 键盘累积 `_eye` |
 | 最近摆放实体 | `OnPlaceEntity` 写入的静态文本 |
+| 最近测试报文 | `OnTestTcp` / `OnTestUdp` 写入的静态文本（§4.7） |
+| 最近接收报文 | `pollIncoming` 解包后订阅回调写入的静态文本（§4.7，上行自检） |
+
+### 4.7 报文自检（testtcp / testudp / F9 / F10）
+
+**下行自检（Host→IG，viewhost 触发）**：在对话框增加「报文自检」区：`testtcp` / `testudp` 两个按钮 + 最近测试报文静态文本。点击后：
+
+1. `HostDriver::sendRandomTcpPacket()` / `sendRandomUdpPacket()`——随机构造一个对应链路的测试报文（默认字段，仅 `EntityPositionCtrlV4` 补 `EntityID=7`）经 `outMsgWithIgCtrlTcp/Udp` → `flushTcp/flushUdp` 发送，返回报文类名；
+2. 状态栏显示「最近测试: TCP/UDP <类名>」。
+
+IG 侧对照：engine `initSync` 对 IgSync 已注册的**全部 Host→IG 报文**逐一 `subscribe`，收到即记录类名到 HUD「recv: <类名>」行（F2 开关帧统计）。两端类名一致 = 该报文「发送→链路→解包→投递」全链路支持（`cigi梳理.md` 链路矩阵）。
+
+- 测试报文覆盖：TCP 命令面 34 种（一次性/配置/请求/符号类）+ UDP 数据面 4 种（持续/每帧控制类）；IGCtrl 与 ownship 眼点由常态化发送覆盖，不在此列。
+
+**上行自检（IG→Host，engine 触发）**：engine 侧 `PacketProbeHandler`（原废弃 `CommandTriggerHandler` 改造）挂接窗口事件：
+
+- **F9**：随机发一条 TCP 上行报文（IG→Host 16 类响应/通知，经 `outMsgWithSofTcp` → `flushTcp`）；
+- **F10**：显式发 `CigiSOFV4`（`outMsgWithSofUdp` → `flushUdp`；IG→Host UDP 仅 SOF 一种，cigi梳理.md 链路矩阵）。
+
+viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`）在 UI 定时器每帧调用，`OnInitDialog` 中对 16 类 TCP 上行报文逐一 `subscribe`（`HostDriver::subscribe<T>` 转发 `HostSync::subscribe`），收到即刷新「最近接收」静态文本；F10 的 SOF 用已有「SOF 接收」计数确认（每帧自动回 SOF 亦计入）。engine HUD 追加「send: <类名>」行显示 F9/F10 发送结果。
+
+- 上行覆盖：TCP 16 类（IGMsg/EventNotification/AnimationStop/HatHotResp/X/LosResp/X/SensorResp/X/PositionResp/WeatherCondResp/AerosolResp/Maritime/TerrestrialSurfaceResp/CollDetSeg/VolResp）+ UDP 1 类（SOF）。
+- 纯调试工具，不改变协议语义；随机选择（`std::mt19937`），多次按键遍历覆盖。
 
 ## 5. 配置设计
 
@@ -312,6 +335,8 @@ IG 侧消费：engine `initSync` 订阅 `subscribe<CigiEntityPositionCtrlV4>`，
 - **圆周轨迹已移除（决策）**：viewhost 只保留键盘手动操控眼点，不做自动圆周轨迹；`Trajectory` / `TrajectoryConfig` 已删除。眼点由初始值起步，经 `applyManualStep` 累积。
 - **空格热键切换控制（§4.4）**：toggle 按钮**不带助记键**（字母助记键与 WASD/CE 操控键冲突，按 S 会误触发切换）；键盘切换改由 `PreTranslateMessage` 拦截空格实现，避免「按 S 切换控制」的坑。
 - **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程；**实体摆放命令 UI 已落地（2026-08，§4.5）**，其余命令 UI 留后期。
+- **报文自检按钮（2026-08，§4.7）**：`testtcp` / `testudp` 随机发对应链路测试报文（TCP 34 种 + UDP 4 种），engine 侧全量订阅并 HUD 显示类名，用于验证各报文「发送→链路→解包→投递」全链路支持；纯调试工具，不改变协议语义。
+- **上行报文自检（2026-08，§4.7）**：engine `PacketProbeHandler`（原废弃 `CommandTriggerHandler` 改造重命名）F9 随机 TCP 上行（16 类）/ F10 发 SOF（UDP 上行仅此一种）；viewhost 侧 `HostDriver::pollIncoming`（转发 `drainIncoming`）+ 16 类 TCP 订阅刷新「最近接收」；HUD 显示「send」。IG→Host UDP 无随机多样性，F10 固定发 SOF 验证链路。
 
 ## 9. 与实现关系
 
@@ -323,4 +348,6 @@ IG 侧消费：engine `initSync` 订阅 `subscribe<CigiEntityPositionCtrlV4>`，
 | **新接口适配（2026-08-24 矛盾 A；2026-08-25 IGCtrl 自动填充）** | `HostDriver::update` 用 `outMsgWithIgCtrlUdp+appendEye+flushUdp`（`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl，帧号/自计时时间戳）；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
 | `engine/Tests/ViewHostMathTests.cpp`：步进换算 `[unit]` 测试 | 已添加 |
 | **实体摆放命令（2026-08）** | `HostDriver::sendEntityPose`（`outMsgWithIgCtrlTcp` + `CigiEntityPositionCtrlV4` Detach+LLA → `flushTcp`）+ 对话框「实体摆放」区（id/lat/lon/alt/ypr 输入 + 按钮 + 状态显示，§4.5）；IG 侧 engine `updateEntityPose` 订阅消费；MSVC 构建通过 |
+| **报文自检（2026-08，§4.7）** | `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket`（随机报文工厂表）+ 对话框「报文自检」区（testtcp/testudp 按钮 + 状态显示）；engine 侧全量 subscribe 探测 + HUD「recv: <类名>」；engine 全量测试通过 + 双构建（clang / MSVC）通过 |
+| **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::subscribe<T>` 模板转发；`OnInitDialog` 订阅 16 类 IG→Host TCP 报文 + UI 定时器每帧 pollIncoming + 「最近接收」显示；engine `PacketProbeHandler`（F9 随机 TCP 16 类 / F10 发 SOF）+ HUD「send」行；双构建（clang / MSVC）通过 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |

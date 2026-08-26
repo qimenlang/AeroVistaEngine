@@ -22,7 +22,7 @@ add_library(vsgEngineLib STATIC
     source/engine.cpp
     source/function/config/EngineConfig.cpp
     source/function/handler/FrameStatsHandler.cpp
-    source/function/handler/CommandTriggerHandler.cpp
+    source/function/handler/PacketProbeHandler.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)
