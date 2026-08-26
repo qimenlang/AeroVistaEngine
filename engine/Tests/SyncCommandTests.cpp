@@ -1403,3 +1403,97 @@ SCENARIO("takeReceived returns empty after the captured packet is taken and no n
         }
     }
 }
+
+// 订阅模式（2026-08）：subscribe<PacketT> 在报文捕获时同步投递回调；与 takeReceived 并存互不消费。
+SCENARIO("subscribe delivers captured packets to the sink and does not consume takeReceived cache",
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33400);
+
+        WHEN("Host sends CigiEntityCtrlV4 over TCP with a subscribed sink")
+        {
+            int sinkCount = 0;
+            CigiEntityCtrlV4 sinkValue;
+            engineB.synchronSystem().igSync().subscribe<CigiEntityCtrlV4>(
+                [&](const CigiEntityCtrlV4& ent) {
+                    ++sinkCount;
+                    sinkValue = ent;
+                });
+
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityCtrlV4 ent;
+                ent.SetEntityID(7);
+                ent.SetEntityType(2);
+                tcp << ent;
+                hostA.flushTcp();
+            }
+            engineB.tickSync();
+            engineA.tickSync();
+
+            THEN("the sink is called synchronously with the captured value")
+            {
+                REQUIRE(sinkCount == 1);
+                REQUIRE(sinkValue.GetEntityID() == 7);
+                REQUIRE(sinkValue.GetEntityType() == 2);
+            }
+
+            AND_THEN("takeReceived cache is not consumed by the subscription")
+            {
+                auto cached = engineB.synchronSystem().igSync().takeReceived<CigiEntityCtrlV4>();
+                REQUIRE(cached.has_value());
+                REQUIRE(cached->GetEntityID() == 7);
+            }
+        }
+    }
+}
+
+// HostSync 侧订阅：IG→Host 报文的到达通知。
+SCENARIO("HostSync subscribe delivers an IG→Host packet to the sink",
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33500);
+
+        WHEN("IG sends CigiIGMsgV4 over TCP with a subscribed Host sink")
+        {
+            int sinkCount = 0;
+            std::uint16_t sinkMsgId = 0;
+            hostA.subscribe<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+                ++sinkCount;
+                sinkMsgId = msg.GetMsgID();
+            });
+
+            {
+                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                CigiIGMsgV4 status;
+                status.SetMsgID(0x4001);
+                status.SetMsg("subscribe ok");
+                tcp << status;
+                engineB.synchronSystem().igSync().flushTcp();
+            }
+
+            // Host push 模式：drainIncoming 内同步投递回调。
+            for (int i = 0; i < 20 && sinkCount == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                hostA.drainIncoming();
+            }
+
+            THEN("the Host sink is called with the IGMsg value")
+            {
+                REQUIRE(sinkCount == 1);
+                REQUIRE(sinkMsgId == 0x4001);
+            }
+        }
+    }
+}
