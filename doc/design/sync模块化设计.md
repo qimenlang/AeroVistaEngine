@@ -92,7 +92,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 ### 3.3 命令面桥
 
-命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `hostSync().outMsgWithIgCtrlTcp() << CigiSymbolTextDefV4` → `flushTcp()` 发文本指令；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内上行报文自检 `PacketProbeHandler`（F9 随机 TCP 上行 / F10 发 SOF，IG→Host，与 viewhost testtcp/testudp 下行对称，2026-08）挂载于窗口事件；原 `CommandTriggerHandler`（F9/F10 实机命令触发）随拆 Host **已删除**（命令面发送归 Host 进程，viewhost 命令 UI 属后期）。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
+命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `hostSync().outMsgWithIgCtrlTcp() << CigiSymbolTextDefV4` → `flushTcp()` 发文本指令；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内上行报文自检 `PacketProbeHandler`（F9 随机 TCP 上行 / F10 发 SOF，IG→Host，与 viewhost testtcp/testudp 下行对称，2026-08）挂载于窗口事件；原 `CommandTriggerHandler`（F9/F10 实机命令触发）随拆 Host **已删除**（命令面发送归 Host 进程，viewhost 实体摆放命令 UI 已落地，其余命令 UI 属后期）。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
 
 ## 4. 配置设计
 
@@ -153,8 +153,9 @@ hostSync.run();
 
 ```cpp
 IgConfig ig;
+SyncSystemConfig syncSystem;
 loadIgConfig("ig.json", ig, &error);
-SynchronSystem::create()->initialize(ig);
+SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 ```
 
 **配置形态**（schema 与 engine 侧块一致，包裹方案）：

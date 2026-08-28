@@ -35,7 +35,7 @@
 - 不实现 IG 侧渲染 / 决策（那是 `Engine` + `SynchronSystem` 的职责）。
 - 不改动 sync 库的协议、线程模型、载荷布局（CIGI V4 + TCP/UDP 双平面不变）。
 - 不做边缘融合、精标定、精时钟（RTT / PTP）。
-- 不做 TCP 命令面（加载 / 切库 / 复位）——那是后续，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §9。
+- 不做 **加载 / 切库 / 复位类** TCP 命令 UI（实体摆放/文本指令命令面已落地，见 §4.5；加载/切库/复位属后续，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §9）。
 
 ### 1.3 与 sync 库的关系
 
@@ -327,7 +327,7 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 - **多通道在 IG 侧（澄清）**：viewhost 不感知通道数与 `offsetDeg`，只持一个 `HostSync` 扇出同一眼点。
 - **扇出驱动走 UI 定时器（初版写死）**：`HostDriver::update`（`outMsgWithIgCtrlUdp+appendEye+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
 - **触发方式选 toggle 按钮（否决左键开始 / 右键结束）**：右键在 Windows 惯例为上下文菜单语义，且按钮控件对右键不产生点击通知，需在对话框层额外处理 `WM_RBUTTON*`；左/右键还缺状态可见性。改为单一 toggle 按钮（文字+颜色反映状态）承载「开始控制 ↔ 停止控制」。
-- **键盘读取用 `GetAsyncKeyState` 轮询（否决 `OnKeyDown`）**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框，且按下有重复延迟；物理键状态轮询与焦点无关、连续输入跟手，但需 toggle 开关避免与文字输入冲突（§4.5）。
+- **键盘读取用 `GetAsyncKeyState` 轮询（否决 `OnKeyDown`）**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框，且按下有重复延迟；物理键状态轮询与焦点无关、连续输入跟手，但需 toggle 开关避免与文字输入冲突（§4.4）。
 - **默认 LLA 眼点（非 ECEF）**：viewhost 发 `frame=LLA` 的 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。
 - **程序放 `thirdparty/sync/examples/`**：viewhost 是 sync 库的 Host 接入示例，与 `minimal_viewhost.cpp` 并列，不进 `tools/`（§3）。
 - **平移参考系 = 机头局部（否决地理固定 N/S/E/W）**：WASD 沿当前 `yaw` 的机头局部水平面移动，配合方向键 yaw/pitch 的姿态控制更符合「驾驶」直觉；上下用绝对垂直 alt（§4.2）。

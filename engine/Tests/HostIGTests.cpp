@@ -965,11 +965,6 @@ namespace
     }
 
     // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
-    HostConfig makeHostLocalEye(int base = 18000)
-    {
-        return HostConfig{base + 1, base, base + 100};
-    }
-
     IgConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
     {
         return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
@@ -1115,7 +1110,7 @@ SCENARIO("unlinked IG does not apply Host eye to the camera",
 
 SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][hostctrl][gate]")
 {
-    GIVEN("an Engine whose SynchronSystem is Host+IG and linked")
+    GIVEN("an IG Engine linked to an independent Host")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -1152,7 +1147,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
 SCENARIO("linked IG with zero offset keeps Host eye unchanged",
          "[acceptance][bdd][sync][hostctrl][offset]")
 {
-    GIVEN("a linked Host+IG Engine with channel offset all zero")
+    GIVEN("an IG Engine linked to an independent Host with channel offset all zero")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -1182,7 +1177,7 @@ SCENARIO("linked IG with zero offset keeps Host eye unchanged",
 SCENARIO("linked IG applies Host eye plus channel offset",
          "[acceptance][bdd][sync][hostctrl][offset]")
 {
-    GIVEN("a linked Host+IG Engine with yaw offset -60 deg")
+    GIVEN("an IG Engine linked to an independent Host with yaw offset -60 deg")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -1217,7 +1212,7 @@ SCENARIO("linked IG applies Host eye plus channel offset",
 SCENARIO("yaw-only offset with Host pitch/roll keeps channel up parallel to Host up",
          "[acceptance][bdd][sync][hostctrl][offset]")
 {
-    GIVEN("a linked Host+IG Engine, Host eye with pitch/roll, channel offset yaw-only")
+    GIVEN("an IG Engine linked to an independent Host; Host eye with pitch/roll, channel offset yaw-only")
     {
         Engine engine;
         engine.extent = {1920, 1080};
@@ -1381,7 +1376,7 @@ SCENARIO("after disconnect, camera keeps the last Host eye pose",
 SCENARIO("Host-local IG channel also applies Host eye to its camera",
          "[acceptance][bdd][sync][hostctrl][authority]")
 {
-    GIVEN("an Engine with Host+IG linked (authority window)")
+    GIVEN("an IG Engine linked to an independent Host (authority window)")
     {
         Engine engineA;
         engineA.extent = {1920, 1080};
@@ -1811,7 +1806,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
          "[acceptance][bdd][sync][lla][offset]")
 {
-    GIVEN("a linked Host+IG Engine on readymap with channel offset all zero")
+    GIVEN("an IG Engine on readymap linked to an independent Host with channel offset all zero")
     {
         constexpr int kBase = 20000;
         Engine engine;
@@ -1847,7 +1842,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
 SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
          "[acceptance][bdd][sync][lla][offset]")
 {
-    GIVEN("a linked Host+IG Engine on readymap with yaw offset -60 deg")
+    GIVEN("an IG Engine on readymap linked to an independent Host with yaw offset -60 deg")
     {
         constexpr int kBase = 20020;
         Engine engine;
@@ -1886,7 +1881,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
 SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R_host*Rz(delta))",
          "[acceptance][bdd][sync][lla][offset]")
 {
-    GIVEN("a linked Host+IG Engine on readymap; Host LLA eye has pitch/roll; channel yaw-only")
+    GIVEN("an IG Engine on readymap linked to an independent Host; Host LLA eye has pitch/roll; channel yaw-only")
     {
         constexpr int kBase = 20040;
         Engine engine;

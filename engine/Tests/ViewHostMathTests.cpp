@@ -5,7 +5,7 @@
 //     绝对垂直；lat clamp / lon normalize / yaw normalize）。
 //
 // API 形状假设（实现方需满足）：
-//   - applyManualStep(HostSync::EyePose&, dFwd, dRight, dUp, dyawDeg, dpitchDeg)。
+//   - applyManualStep(cigi_wire::EyePose&, dFwd, dRight, dUp, dyawDeg, dpitchDeg)。
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

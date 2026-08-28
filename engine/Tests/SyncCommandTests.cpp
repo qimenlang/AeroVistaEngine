@@ -1,6 +1,6 @@
 ﻿// 状态同步设计初版.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
-// 命令面全绿：2 线格式契约（直接测 CCL）+ 6 E2E + 4 分帧单测。
-// §7 双 session 隔离红测（2026-08）：2 负向（flushUdp 误发 TCP 缓冲当前会真发 → 红）+ 2 正向（flushTcp 正常送达 → 绿）。
+// 命令面全绿：线格式契约 + E2E（TCP/UDP 收发对等）+ 分帧单测。
+// §7 双 session 隔离（2026-08）：2 负向（flushUdp 不打包 TCP 缓冲 → 收不到）+ 2 正向（flushTcp 正常送达 → 绿）。
 
 #include <aerovista/sync/CigiIncludes.h>
 
@@ -299,7 +299,7 @@ TEST_CASE("CigiSymbolTextDefV4 packs variable-length Text", "[unit][sync][cmd][w
 SCENARIO("Host places an entity pose over TCP via outMsgWithIgCtrlTcp/flushTcp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -339,7 +339,7 @@ SCENARIO("Host places an entity pose over TCP via outMsgWithIgCtrlTcp/flushTcp",
 SCENARIO("Host sends a text command over TCP via SymbolTextDefV4",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -370,7 +370,7 @@ SCENARIO("Host sends a text command over TCP via SymbolTextDefV4",
 SCENARIO("Host fans out a command to multiple IGs via flushTcp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and two IG-only engines B and C linked over real sockets")
+    GIVEN("independent Host and two IG-only engines B and C linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -414,7 +414,7 @@ SCENARIO("Host fans out a command to multiple IGs via flushTcp",
 SCENARIO("IG dispatches different text commands by first token",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -455,7 +455,7 @@ SCENARIO("IG dispatches different text commands by first token",
 SCENARIO("Host sends multiple packets in one message and IG dispatches each by PacketID",
          "[integration][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -495,7 +495,7 @@ SCENARIO("Host sends multiple packets in one message and IG dispatches each by P
 SCENARIO("Host streams real-time entity pose over UDP via outMsgWithIgCtrlUdp/flushUdp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -615,7 +615,7 @@ TEST_CASE("CigiFrameAssembler keeps a multi-packet message as one frame",
 SCENARIO("IG sends a message to Host and Host processor receives it",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -656,7 +656,7 @@ SCENARIO("IG sends a message to Host and Host processor receives it",
 SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -723,9 +723,9 @@ SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
 }
 
 SCENARIO("IG sends a UDP message and Host processor receives it",
-         "[acceptance][bdd][sync][cmd][e2e][debug]")
+         "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -771,7 +771,7 @@ SCENARIO("IG sends a UDP message and Host processor receives it",
 SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -841,15 +841,15 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
 }
 
 // =============================================================================
-// 7. 双 session 隔离（状态同步设计初版.md §5.1/§7.1/§8.1 验收，ATDD 红测）：
-//    outMsgWithIgCtrlTcp/flushTcp 只操作 _tcpSession、beginWithIgCtrlUdp/flushUdp 只操作 _udpSession——
-//    命令面内容被 flushUdp 误发时对端收不到。当前单 session 下误发会真发（负向红）。
+// 7. 双 session 隔离（状态同步设计初版.md §5.1/§7.1/§8.1 验收）：
+//    outMsgWithIgCtrlTcp/flushTcp 只操作 _tcpSession、outMsgWithIgCtrlUdp/flushUdp 只操作 _udpSession——
+//    命令面内容被 flushUdp 误发时对端收不到。双 session 隔离已实现，负向为回归绿测。
 // =============================================================================
 
 SCENARIO("Host TCP-filled message is not sent via flushUdp",
          "[acceptance][bdd][sync][cmd][e2e][negative]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -889,7 +889,7 @@ SCENARIO("Host TCP-filled message is not sent via flushUdp",
 SCENARIO("Host TCP-filled message is delivered via flushTcp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -929,7 +929,7 @@ SCENARIO("Host TCP-filled message is delivered via flushTcp",
 SCENARIO("IG TCP-filled message is not sent via flushUdp",
          "[acceptance][bdd][sync][cmd][e2e][negative]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -969,7 +969,7 @@ SCENARIO("IG TCP-filled message is not sent via flushUdp",
 SCENARIO("IG TCP-filled message is delivered via flushTcp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -1032,7 +1032,7 @@ namespace
 SCENARIO("Host UDP frames carry valid IGCtrl first packet with timestamp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -1073,7 +1073,7 @@ SCENARIO("Host UDP frames carry valid IGCtrl first packet with timestamp",
 SCENARIO("Host TCP messages carry IGCtrl first packet with invalid timestamp and continuous frame counter",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -1122,7 +1122,7 @@ SCENARIO("Host TCP messages carry IGCtrl first packet with invalid timestamp and
 SCENARIO("Host can fill multiple packets in one message via repeated outMsgWithIgCtrlTcp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -1168,7 +1168,7 @@ SCENARIO("Host can fill multiple packets in one message via repeated outMsgWithI
 SCENARIO("Host UDP message carries exactly one IGCtrl across repeated outMsgWithIgCtrlUdp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -1212,7 +1212,7 @@ SCENARIO("Host UDP message carries exactly one IGCtrl across repeated outMsgWith
 SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSofTcp",
          "[acceptance][bdd][sync][cmd][e2e]")
 {
-    GIVEN("Engine A as Host+IG and Engine B as IG-only linked over real sockets")
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
         Engine engineA;
         Engine engineB;
@@ -1268,7 +1268,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 // =============================================================================
 
 SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
-         "[acceptance][bdd][sync][cmd][e2e][all-packets][debug]")
+         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {

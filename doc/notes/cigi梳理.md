@@ -79,6 +79,8 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 | `CigiCollDetVolDefV4` | Host → IG | TCP | 一次性 | 定义碰撞检测体积（包围盒/球+命中条件） |
 | `CigiCollDetVolRespV4` | IG → Host | TCP | 一次性响应 | 体积碰撞检测结果回报 |
 
+> **Def/Resp 交互语义（2026-08）**：碰撞检测不是「请求一次、应答一次」的 query/response 模式。Host 用 `Def` 报文定义一条（或一个体积）持续有效的检测对象（线段版含 `SegmentEn` 启停开关、起终点、材质掩码 `Mask`；体积版含 `VolEn` 启停开关、尺寸、材质掩码），IG 持续对该对象做检测，一旦命中且材质匹配，就主动用 `Resp` 报文把结果回报给 Host。`Resp` 是事件驱动的：可反复上报（持续命中），也可一直不发（未命中）。若需要「查一次、答一次」的即时查询语义，应使用第 6 节的视线类 `LosSegReq`/`LosResp`。
+
 ## 6. 视线 / 寻的 Request–Response 类
 
 | 报文 | 方向 | 链路 | 频率 | 功能语义 |

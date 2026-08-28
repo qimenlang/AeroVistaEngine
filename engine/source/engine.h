@@ -4,7 +4,6 @@
 
 #include "function/config/EngineConfig.h"
 #include "vsg/core/ref_ptr.h"
-#include <aerovista/sync/CigiWire.h>
 #include <aerovista/sync/SyncConfig.h>
 #include <aerovista/sync/SynchronSystem.h>
 

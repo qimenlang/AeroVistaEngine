@@ -841,7 +841,7 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 }
 
 // -----------------------------------------------------------------------------
-// System: shipped resource configs (scene_local / scene_ecef)
+// System: scene configs via inline snapshot (kSceneLocalJson / kSceneEcefJson)
 // -----------------------------------------------------------------------------
 
 SCENARIO("system loads scene_local config with one local entity and camera",

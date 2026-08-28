@@ -766,7 +766,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 bool Engine::init()
 {
     applyConfigToEngine();
-    // 父键 enable；装配配置（channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg）来自 syncSystem 组。
+    // 父键 enable：无 `igConfig`（未启同步）时 toIgConfig() 返回空 → initialize 仅清空旧 IG。
     if (!initSync(config.toIgConfig(), config.syncSystem))
         return false;
 
@@ -793,7 +793,7 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, bool requireConne
 
 bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemConfig& syncSystem)
 {
-    // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，beginWithIgCtrlUdp 填 TimeStamp，§7.1）——
+    // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，outMsgWithIgCtrlUdp 填 TimeStamp，§7.1）——
     // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
     // Host 角色已拆出（2026-08）：engine 仅 IG，Host 由独立 viewhost 进程承担。
 
@@ -803,7 +803,7 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
 
     // 命令实体位姿：订阅 Host 下发（EntityPositionCtrlV4，EntityID≠0）实时摆放。
     // ownship 眼点（EntityID==0）被 EyeCaptureProc 占用，这里必须过滤（§4.1）。
-    // 回调主线程解包时同步调用，只做轻量入队/置位（§8.1）。
+    // 回调主线程解包时同步调用，直接写 entityMap 并重算 transform（主线程安全，§6）。
     if (_synchronSystem->hasIg())
     {
         auto& ig = _synchronSystem->igSync();

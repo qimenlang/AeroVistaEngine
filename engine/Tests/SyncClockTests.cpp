@@ -288,8 +288,8 @@ TEST_CASE("unit conversion from raw tick to us and ms is exact", "[unit][sync][c
 }
 
 // =============================================================================
-// 系统测试：接入 Engine，A=Host+IG、B=纯 IG，用真实 socket 连接，收发真实 CIGI
-// 时间戳报文，验证 IG 的模拟时间 = Host 基准时间戳 + 本地流逝补偿。
+// 系统测试：接入 Engine（A=IG 带图形、B=纯 IG），独立 HostSync 用真实 socket 连接，
+// 收发真实 CIGI 时间戳报文，验证 IG 的模拟时间 = Host 基准时间戳 + 本地流逝补偿。
 // 接口已实现：IgSync::queueHostTimeStamp / simTimeUsAt / setExtrapolateTimeoutUs / frozen。
 // 标签 [acceptance][bdd][sync][clock][e2e]。
 // =============================================================================
