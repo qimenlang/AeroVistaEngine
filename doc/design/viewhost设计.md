@@ -1,10 +1,10 @@
 ﻿# viewhost 设计（MFC Host 宿主程序）
 
-> **已按新接口同步（2026-08-24；2026-08-25 IGCtrl 自动填充）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `outMsgWithIgCtrlUdp() + cigi_wire::appendEye + flushUdp()`（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）——`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl（帧号/自计时时间戳/`TimeStampValid=true`）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
+> **已按新接口同步（2026-08-24；2026-08-25 IGCtrl 自动填充）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `outMsgWithIgCtrlUdp() + cigi_wire::appendEye + flushUdp()`（[状态同步设计初版.md](./多通道同步/状态同步设计初版.md) §7.1）——`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl（帧号/自计时时间戳/`TimeStampValid=true`）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
 
 面向「用 MFC 对话框程序作为独立 Host 进程，经 `aerovistaSync` 的 `HostSync` 向多个携带 IG 的 Engine 扇出同一 Host 眼点，模拟多通道同步」的设计。
 
-基础协议 / 行为见 [多通道同步模块设计.md](./多通道同步模块设计.md)；库结构与接入见 [sync模块化设计.md](./sync模块化设计.md) 与 [../../thirdparty/sync/README.md](../../thirdparty/sync/README.md)。
+基础协议 / 行为见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md)；库结构与接入见 [sync模块化设计.md](./多通道同步/sync模块化设计.md) 与 [../../thirdparty/sync/README.md](../../thirdparty/sync/README.md)。
 
 > 本文档描述设计决策与现状，不记录变更历史。
 
@@ -28,18 +28,18 @@
 
 1. 提供一个独立的 Windows MFC 宿主程序 `viewhost`，作为多通道同步的 **Host 端数据源**，向携带 IG 的 Engine 进程扇出同一 Host 眼点。
 2. 复用 `aerovistaSync` 的 `HostSync`（不重写网络 / 协议 / 线程模型），只做「宿主壳」：读配置 → 启动 `HostSync` → 按帧驱动业务侧组装扇出 → 显示连接状态。
-3. 落地 [多通道同步模块设计.md](./多通道同步模块设计.md) §1.1 的「HostSync 独立进程」远期项（**已落地 2026-08**：Engine 不再承担 Host，`HostPosePublisher` 删除，HostSync 独立运行于本进程；与 viewhost 配套的 IG 配置为 `viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。
+3. 落地 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §1.1 的「HostSync 独立进程」远期项（**已落地 2026-08**：Engine 不再承担 Host，`HostPosePublisher` 删除，HostSync 独立运行于本进程；与 viewhost 配套的 IG 配置为 `viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。
 
 ### 1.2 非目标
 
 - 不实现 IG 侧渲染 / 决策（那是 `Engine` + `SynchronSystem` 的职责）。
 - 不改动 sync 库的协议、线程模型、载荷布局（CIGI V4 + TCP/UDP 双平面不变）。
 - 不做边缘融合、精标定、精时钟（RTT / PTP）。
-- 不做 **加载 / 切库 / 复位类** TCP 命令 UI（实体摆放/文本指令命令面已落地，见 §4.5；加载/切库/复位属后续，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §9）。
+- 不做 **加载 / 切库 / 复位类** TCP 命令 UI（实体摆放/文本指令命令面已落地，见 §4.5；加载/切库/复位属后续，见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §9）。
 
 ### 1.3 与 sync 库的关系
 
-`HostSync` 是**零 vsg 依赖**的纯 C++ 类型（Winsock + 标准库），MFC 程序链接无阻碍。数据面发送接口（新契约，[状态同步设计初版.md](./状态同步设计初版.md) §7.1）：
+`HostSync` 是**零 vsg 依赖**的纯 C++ 类型（Winsock + 标准库），MFC 程序链接无阻碍。数据面发送接口（新契约，[状态同步设计初版.md](./多通道同步/状态同步设计初版.md) §7.1）：
 
 ```cpp
 // HostDriver::update —— 业务侧组装数据面帧节拍（IGCtrl 自动 + 眼点）后统一 flushUdp
@@ -52,7 +52,7 @@ _host.flushUdp();                        // PackageMsg + 扇出
 - `cigi_wire::appendEye`（`CigiWire.h`）负责 ownship 眼点的 CCL 组装（WorldLocal→Attach+XYZ / LLA→Detach+LLA，LLA 越界丢弃内置）。原 `appendHostFrame`（IGCtrl+眼点整体组装）已删——IGCtrl 归属 sync。
 - 数据面与命令面统一走 CCL 会话；`HostSync::update`/`EyePose` 已删除。
 
-依赖传递（[sync模块化设计.md](./sync模块化设计.md) §3.0）：
+依赖传递（[sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.0）：
 
 - `aerovistaSync` 公开链接 `cigicl-static` + `ws2_32`（`CigiWire` 打包 IGCtrl 用），PRIVATE 链接 `vsg::vsg`。
 - `vsg` 仅用于 `SynchronSystem.cpp` 内 header-only 数学，**不产生 `vsg::` 外部符号**，不传给消费方。
@@ -116,7 +116,7 @@ thirdparty/sync/examples/viewhost/
 
 ### 4.2 眼点表示与平移参考系（默认 LLA）
 
-**默认 LLA（已选定）**：眼点用椭球模式 LLA 表示，`cigi_wire::EyePose.frame = EyeFrame::LLA`，字段语义见 [lla位姿传输设计.md](./lla位姿传输设计.md) §3.1 / §3.2 与 `CigiWire.h`：
+**默认 LLA（已选定）**：眼点用椭球模式 LLA 表示，`cigi_wire::EyePose.frame = EyeFrame::LLA`，字段语义见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §3.1 / §3.2 与 `CigiWire.h`：
 
 | EyePose 字段 | LLA 语义 |
 | --- | --- |
@@ -126,7 +126,7 @@ thirdparty/sync/examples/viewhost/
 | `z` | 海拔 alt（米，相对椭球面） |
 | `yawDeg` / `pitchDeg` / `rollDeg` | 当地 **ENU** YPR（东-北-天；`yaw=0` 朝北，`+yaw` 左转朝西） |
 
-> **术语澄清**：viewhost 作为 Host 端发的是 **LLA**（`frame=LLA`），**不是** ECEF。ECEF（地心米制笛卡尔）是 IG 侧椭球场景的渲染工作坐标（[lla位姿传输设计.md](./lla位姿传输设计.md) §2）；`cigi_wire::EyePose` 只有 `frame` 枚举（WORLD_LOCAL / LLA），无「直接发 ECEF」选项。默认 LLA 即配合 engine 椭球场景（`scene_ecef_*.json`，`coordFrame: "Ellipsoid"`）。
+> **术语澄清**：viewhost 作为 Host 端发的是 **LLA**（`frame=LLA`），**不是** ECEF。ECEF（地心米制笛卡尔）是 IG 侧椭球场景的渲染工作坐标（[lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2）；`cigi_wire::EyePose` 只有 `frame` 枚举（WORLD_LOCAL / LLA），无「直接发 ECEF」选项。默认 LLA 即配合 engine 椭球场景（`scene_ecef_*.json`，`coordFrame: "Ellipsoid"`）。
 
 **平移参考系（机头局部 + 绝对垂直）**：
 
@@ -147,7 +147,7 @@ alt += dUp
 ```
 
 - `dFwd` / `dRight` / `dUp` 为每帧位移（米），由按键映射产生（§4.5）。
-- 经度越界按 [lla位姿传输设计.md](./lla位姿传输设计.md) §5 normalize 到 `(-180, 180]`；**纬度 clamp 到 `[-89.9, 89.9]`**（避免 lat 越界触发 CCL bound check 拒包，同时避免 `cos(lat)→0` 使经度增量除零）；pitch 越界同样 clamp 到 `[-89.9, 89.9]`；**yaw 累加后 normalize 到 `(-180, 180]`**（避免方向键持续偏航导致 yaw 无限增长、`float` 精度劣化——`CigiWire.cpp` 的 `llaEyeInRange` 不校验 yaw，见 §4.5）。
+- 经度越界按 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §5 normalize 到 `(-180, 180]`；**纬度 clamp 到 `[-89.9, 89.9]`**（避免 lat 越界触发 CCL bound check 拒包，同时避免 `cos(lat)→0` 使经度增量除零）；pitch 越界同样 clamp 到 `[-89.9, 89.9]`；**yaw 累加后 normalize 到 `(-180, 180]`**（避免方向键持续偏航导致 yaw 无限增长、`float` 精度劣化——`CigiWire.cpp` 的 `llaEyeInRange` 不校验 yaw，见 §4.5）。
 - **极区数值说明**：clamp 后 `cos(lat)` 最小约 `cos(89.9°) ≈ 0.00175`，经度增量会放大约 570 倍，但**不会除零**；经度增量后仍 normalize，数值安全，仅「单位米对应的经度分辨率」随纬度升高而降低——属局部平面近似的固有精度损失，非错误。
 
 ### 4.3 帧节拍与线程模型
@@ -158,7 +158,7 @@ alt += dUp
 
 **本地时钟与帧增量（写死）**：
 
-- `_simTimeMs` = UI 定时器本地 `std::chrono::steady_clock` 流逝毫秒（单调连续，不随 UI 卡顿回退），**仅用于按键步进 dt 归一化**；模拟时间戳不由它产生——由 `outMsgWithIgCtrlUdp()` 的 HostSync 自计时填充（[状态同步设计初版.md](./状态同步设计初版.md) §7.1）。
+- `_simTimeMs` = UI 定时器本地 `std::chrono::steady_clock` 流逝毫秒（单调连续，不随 UI 卡顿回退），**仅用于按键步进 dt 归一化**；模拟时间戳不由它产生——由 `outMsgWithIgCtrlUdp()` 的 HostSync 自计时填充（[状态同步设计初版.md](./多通道同步/状态同步设计初版.md) §7.1）。
 - `_moveStep` / `_turnStepDeg` **不按「假设 60fps」固定值**，而是按**实际 dt** 归一化：`dt = 本帧 _simTimeMs − 上帧 _simTimeMs`（秒）；`_moveStep = speed(m/s) · dt`，`_turnStepDeg = rate(°/s) · dt`。避免 `SetTimer` 周期不精确导致速度随负载漂移。
 - `speed` / `rate` 为程序内可调常量（初版默认如 `speed = 30 m/s`、`rate = 60 °/s`）。
 
@@ -316,11 +316,11 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 
 ## 7. 与现有文档关系
 
-本文档落地后，已按 `doc-sync-on-refactor` 完成跨文档同步：
+本文档落地后，已按 `doc-sync` 完成跨文档同步：
 
-1. [多通道同步模块设计.md](./多通道同步模块设计.md) §1.1：补「独立 Host 进程示例已落地」（指向本文档）。
-2. [sync模块化设计.md](./sync模块化设计.md) §1.3 非目标：改为「不做 Host 独立进程的协议 / 上行改造（viewhost 示例已落地）」。
-3. [多通道同步模块设计.md](./多通道同步模块设计.md) §10 状态表 / §9 P2 / §0 表格 / §5 权威源：标注「Host 本地输入已有 viewhost 示例」，「指定输入 IG 上报」仍属后期。
+1. [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §1.1：补「独立 Host 进程示例已落地」（指向本文档）。
+2. [sync模块化设计.md](./多通道同步/sync模块化设计.md) §1.3 非目标：改为「不做 Host 独立进程的协议 / 上行改造（viewhost 示例已落地）」。
+3. [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §10 状态表 / §9 P2 / §0 表格 / §5 权威源：标注「Host 本地输入已有 viewhost 示例」，「指定输入 IG 上报」仍属后期。
 
 ## 8. 否决与决策记录
 
@@ -334,7 +334,7 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 - **测试范围分层（写死）**：UI / `HostDriver` 薄封装不测（`HostSync` 已由 `HostIGTests` 覆盖）；步进换算是新增纯数值逻辑，挂 `engine/Tests` 的 `[unit]` 测试，与示例共用同一份源码（§6）。
 - **圆周轨迹已移除（决策）**：viewhost 只保留键盘手动操控眼点，不做自动圆周轨迹；`Trajectory` / `TrajectoryConfig` 已删除。眼点由初始值起步，经 `applyManualStep` 累积。
 - **空格热键切换控制（§4.4）**：toggle 按钮**不带助记键**（字母助记键与 WASD/CE 操控键冲突，按 S 会误触发切换）；键盘切换改由 `PreTranslateMessage` 拦截空格实现，避免「按 S 切换控制」的坑。
-- **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程；**实体摆放命令 UI 已落地（2026-08，§4.5）**，其余命令 UI 留后期。
+- **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程；**实体摆放命令 UI 已落地（2026-08，§4.5）**，其余命令 UI 留后期。
 - **报文自检按钮（2026-08，§4.7）**：`testtcp` / `testudp` 随机发对应链路测试报文（TCP 34 种 + UDP 4 种），engine 侧全量订阅并 HUD 显示类名，用于验证各报文「发送→链路→解包→投递」全链路支持；纯调试工具，不改变协议语义。
 - **上行报文自检（2026-08，§4.7）**：engine `PacketProbeHandler`（原废弃 `CommandTriggerHandler` 改造重命名）F9 随机 TCP 上行（16 类）/ F10 发 SOF（UDP 上行仅此一种）；viewhost 侧 `HostDriver::pollIncoming`（转发 `drainIncoming`）+ 16 类 TCP 订阅刷新「最近接收」；HUD 显示「send」。IG→Host UDP 无随机多样性，F10 固定发 SOF 验证链路。
 

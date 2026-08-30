@@ -1,6 +1,6 @@
 ﻿# Socket 基础：TCP / UDP 与端口
 
-多通道同步相关的通用网络知识。本项目具体选型见 [多通道同步模块设计.md](../design/多通道同步模块设计.md)。
+多通道同步相关的通用网络知识。本项目具体选型见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md)。
 
 ---
 
@@ -42,7 +42,7 @@ TCP 与 UDP **端口号可以相同**（如 `8000/tcp` 与 `8000/udp`）：内�
 为何倾向走 **TCP（或 UDP+ACK）**：这类指令「执行与否」必须有答案；失败要能重试。常配 **ACK/NACK**（成功/失败回执）和序号，避免重复执行（幂等）。  
 与 **UDP 同步面**（每帧 IGCtrl/SOF）分开：帧同步可丢，加载/切库/复位不能 silently 丢。
 
-**命令面载荷与链路选择**：所有 CIGI 报文在 TCP/UDP 都支持发送，按语义选链路——**持续周期性下发（实时控制位姿）走 UDP（无回执，丢包自愈）；一次性精准送达（摆放位姿、指令）走 TCP（传输层可靠，无业务回执）**。命令帧在 TCP 上承载多种报文：`CigiEntityPositionCtrlV4`（摆放位姿，`0x01` 定长 48B）、`CigiSymbolTextDefV4`（文本指令，`Text` 空格分隔、`std::string` 变长）。**均 fire-and-forget、无应用层 ACK/NACK**。TCP 字节流需按 CIGI 包头 `PacketID + PacketSize` 长度分帧。详见 [状态同步设计初版.md](../design/状态同步设计初版.md) §4。
+**命令面载荷与链路选择**：所有 CIGI 报文在 TCP/UDP 都支持发送，按语义选链路——**持续周期性下发（实时控制位姿）走 UDP（无回执，丢包自愈）；一次性精准送达（摆放位姿、指令）走 TCP（传输层可靠，无业务回执）**。命令帧在 TCP 上承载多种报文：`CigiEntityPositionCtrlV4`（摆放位姿，`0x01` 定长 48B）、`CigiSymbolTextDefV4`（文本指令，`Text` 空格分隔、`std::string` 变长）。**均 fire-and-forget、无应用层 ACK/NACK**。TCP 字节流需按 CIGI 包头 `PacketID + PacketSize` 长度分帧。详见 [状态同步设计初版.md](../design/多通道同步/状态同步设计初版.md) §4。
 
 ---
 
@@ -69,7 +69,7 @@ TCP 服务端：`listen` **一个**端口，`accept` 出 **N 条连接**；不�
 
 - 服务器对外监听 → bind `0.0.0.0`；只准本机连 → bind `127.0.0.1`。
 - 客户端**连接目标**不能用 `0.0.0.0`：本机服务用 `127.0.0.1`，跨机器用对端局域网 IP。
-- 本项目：Host/IG 本地 UDP 接收、Host TCP 监听**固定 `0.0.0.0`（INADDR_ANY）**；`bindAddr` 配置已移除（从未被消费）。IG 跨机器连 Host 靠 `igConfig.targetAddr` 填 Host 局域网 IP，见 [sync模块化设计.md](../design/sync模块化设计.md) §4.0。
+- 本项目：Host/IG 本地 UDP 接收、Host TCP 监听**固定 `0.0.0.0`（INADDR_ANY）**；`bindAddr` 配置已移除（从未被消费）。IG 跨机器连 Host 靠 `igConfig.targetAddr` 填 Host 局域网 IP，见 [sync模块化设计.md](../design/多通道同步/sync模块化设计.md) §4.0。
 
 ---
 
@@ -147,4 +147,4 @@ recv(sock, buf, len)
 | **Peer 表** | Host 侧维护的「当前有哪些 IG、怎么联系、是否就绪」的名单 |
 
 Host 要向多 IG **单播扇出**时，必须知道每个 IG 的 `IP` + `udpRecvPort`，以及 TCP/UDP 是否都握手完成；这些信息就记在 peer 表里。  
-本项目实现：`HostSync` 内 `IgPeer{clientId, ip, udpRecvPort, tcp, tcpReady, udpReady}`；两端 ready 才计入 `readyIgCount` 并参与 IGCtrl 扇出。详见 [多通道同步模块设计.md](../design/多通道同步模块设计.md) §2.3。
+本项目实现：`HostSync` 内 `IgPeer{clientId, ip, udpRecvPort, tcp, tcpReady, udpReady}`；两端 ready 才计入 `readyIgCount` 并参与 IGCtrl 扇出。详见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §2.3。

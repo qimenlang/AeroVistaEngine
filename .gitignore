@@ -44,6 +44,7 @@ build/
 Build/
 build-*/
 out/
+.vs/
 
 # CMake generated files
 CMakeFiles/
@@ -62,6 +63,9 @@ AgentTalk.txt
 
 # vcpkg
 vcpkg_installed/
+
+# private
+private/
 
 # debug information files
 *.dwo

@@ -1,7 +1,7 @@
 ﻿# LLA 位姿传输设计
 
 在已落地的本地笛卡尔 Host→IG 相机同步之上，增加 **LLA + 当地姿态** 作为椭球模式下的权威眼点语义。  
-帧时序、连接态、无新包 / 断线沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5（防回声已随拆进程移除）；坐标系背景见 [坐标系统总结.md](../notes/坐标系统总结.md)。  
+帧时序、连接态、无新包 / 断线沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5（防回声已随拆进程移除）；坐标系背景见 [坐标系统总结.md](../../notes/坐标系统总结.md)。  
 本文取代「仅做场景 JSON 装配、暂不动同步」的前置草案方向（见 [坐标系统模块设计.md](./坐标系统模块设计.md)），把范围收束到 **能传、能采、能写** 的 LLA 同步闭环。
 
 ---
@@ -28,7 +28,7 @@
 | --- | --- |
 | 权威眼点 | 椭球模式下 Host→IG 传 **LLA + YPR（当地）** |
 | 写相机 | IG：`LLA→ECEF`，在 ENU 叠 `offsetDeg`，再写 `LookAt` |
-| 采样出站 | **已随拆进程移除**（2026-08）：Host 为 viewhost、键盘累积直接产出 LLA + 当地 YPR（不经 LookAt 采样，见 [viewhost设计.md](./viewhost设计.md) §4.2） |
+| 采样出站 | **已随拆进程移除**（2026-08）：Host 为 viewhost、键盘累积直接产出 LLA + 当地 YPR（不经 LookAt 采样，见 [viewhost设计.md](../viewhost设计.md) §4.2） |
 | 本地模式 | 现有 XYZ + 世界轴 YPR 路径行为不变 |
 
 **不做**（见 §8）：仅为演示把普通模型钉到某 LLA、本迭代强制依赖瓦片。实体 / 相机配置结构见 [位姿配置设计.md](./位姿配置设计.md)。
@@ -257,7 +257,7 @@ forward_ig = R_host · (Rz(δ) · ForwardBase)                     // 绕 Host �
 
 ### 3.5 采样（LookAt → LLA + YPR）——已随拆进程移除
 
-> **（2026-08 拆进程）**：Host 采样原由 engine 的 `HostPosePublisher`（`lookAtToLlaEye` / `lookAtToWorldLocalEye`）承担；engine 不再承担 Host 后该路径删除。Host 眼点由 viewhost 键盘累积直接产生 LLA + 当地 YPR（`applyManualStep`，见 [viewhost设计.md](./viewhost设计.md) §4.2），**不经 LookAt 采样**。下列换算仅作历史参考 / 线格式测试锚定。
+> **（2026-08 拆进程）**：Host 采样原由 engine 的 `HostPosePublisher`（`lookAtToLlaEye` / `lookAtToWorldLocalEye`）承担；engine 不再承担 Host 后该路径删除。Host 眼点由 viewhost 键盘累积直接产生 LLA + 当地 YPR（`applyManualStep`，见 [viewhost设计.md](../viewhost设计.md) §4.2），**不经 LookAt 采样**。下列换算仅作历史参考 / 线格式测试锚定。
 
 ```text
 lla     = convertECEFToLatLongAltitude(eye)
@@ -376,7 +376,7 @@ postFrame:
 判定「报文模式」：解包得到的 Attach→`WorldPos`，Detach→`LlaPos`（§5）。  
 若与本机场景（有无 `EllipsoidModel`）不一致：**丢弃该眼点**；**不**做静默单位换算；**不得**静默到无人知晓。
 
-Host（viewhost）**组包**取自待发送的 `HostEyePose` 位置类型（键盘累积眼点，见 [viewhost设计.md](./viewhost设计.md) §4.2），**不**由 IG 猜测。
+Host（viewhost）**组包**取自待发送的 `HostEyePose` 位置类型（键盘累积眼点，见 [viewhost设计.md](../viewhost设计.md) §4.2），**不**由 IG 猜测。
 
 #### 拒收时的可观测性（第一版必做）
 
