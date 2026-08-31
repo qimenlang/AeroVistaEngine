@@ -61,6 +61,10 @@ AgentTalk.txt
 *.bak
 *.swp
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # vcpkg
 vcpkg_installed/
 
@@ -73,8 +77,11 @@ private/
 # test output & cache
 Testing/
 .cache/
-.claude/
 test_out.txt
+
+# Claude Code: keep local-only config ignored, track portable skills
+.claude/*
+!.claude/skills/
 
 # golden-test runtime artifacts (RenderingTests writes actual/diff images into source tree)
 engine/resources/renderingTests/*_actual.png
