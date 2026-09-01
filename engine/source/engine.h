@@ -101,6 +101,10 @@ public:
     void updateEntityPose(int id, const aerovista::sync::DVec3& positionOrLla, const aerovista::sync::DVec3& eulerYprDeg,
                           CoordFrameIntent frame);
 
+    /// 订阅回调：EntityPositionCtrlV4 到达时分流（§4.1）——EntityID==0 ownship 眼点翻译为
+    /// HostEyePose 入队 SynchronSystem 决策器；EntityID≠0 命令实体走 updateEntityPose 摆放。
+    void onEntityPositionCtrl(const CigiEntityPositionCtrlV4& pose);
+
 private:
     void applyConfigToEngine();
     bool initGraphicsFromEntities();

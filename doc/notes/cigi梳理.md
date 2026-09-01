@@ -138,7 +138,7 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 ## 本项目实现状态（2026-08 全 9 类支持）
 
-**收包侧已全支持（纯订阅，2026-08）**：按上表「链路」列，Host→IG 报文在 `IgSync` 的对应 session 注册通用捕获 processor，IG→Host 报文在 `HostSync` 的对应 session 注册；业务/测试经 `igSync().subscribe<PacketT>(cb)` / `hostSync().subscribe<PacketT>(cb)` 订阅投递（捕获时同步回调，值拷贝）。原拉取接口（`takeReceived`）已删。具体报文列表见 [状态同步设计初版.md](../design/多通道同步/状态同步设计初版.md) §8.1 注册总纲与 `EventProcess.h` 的 `PacketCaptureProc`。
+**收包侧已全支持（纯订阅，2026-08）**：按上表「链路」列，Host→IG 报文在 `IgSync` 的对应 session 注册通用捕获 processor，IG→Host 报文在 `HostSync` 的对应 session 注册；业务/测试经 `igSync().addCallback<PacketT>(cb)` / `hostSync().addCallback<PacketT>(cb)` 订阅投递（捕获时同步回调，值拷贝）。原拉取接口（`takeReceived`）已删。具体报文列表见 [状态同步设计初版.md](../design/多通道同步/状态同步设计初版.md) §8.1 注册总纲与 `EventProcess.h` 的 `PacketCaptureProc`。
 
 | 方向端点 | UDP session（持续/每帧） | TCP session（一次性/配置/请求/响应） |
 | --- | --- | --- |
@@ -164,7 +164,7 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 1. **`ViewCtrl` 的 XOff/YOff/ZOff 是「相对绑定实体原点的偏移」（米），不是绝对坐标**（`CigiBaseViewCtrl.h`：`The Offset from the specified entity's origin along the entity's X axis`）。传 LLA/绝对 XYZ 进去会被对端当米级偏移解释，语义错误。
 2. **`ViewCtrl` 无 Detach+LLA（绝对经纬高）模式**：`lla位姿传输设计.md` 的核心「Host 发 LLA 眼点、IG LLA→ECEF」无法用 `ViewCtrl` 表达；`EntityPositionCtrl` 的 Detach+Lat/Lon/Alt 是 CIGI 下绝对 LLA 的唯一正统。
 3. **字段为 `float`（32 位）偏移**：即使塞度数，也既无语义又无精度（LLA 需要 `double`）。
-4. **ownship 区分是 CIGI 产线标准约定**：`EntityID==0` 专指 ownship（本机眼点），`EyeCaptureProc`（ownship 相机）+ `_entityPoseProc`（命令实体）双 processor 各司其职，是既有 §4.1 约定而非临时 hack。
+4. **ownship 区分是 CIGI 产线标准约定**：`EntityID==0` 专指 ownship（本机眼点）。`IgSync` 对 `EntityPositionCtrlV4` 注册 **UDP/TCP 双链路通用捕获**（`_eyeProc` 数据面 / `_entityPoseProc` 命令面），均向同一回调多播，业务回调按 `EntityID` 分流——ownship 相机（`==0`）与命令实体（`≠0`）各司其职，是既有 §4.1 约定而非临时 hack。
 5. `ViewCtrl` 的正确定位是「相对某实体的视点」（如坐乘视点）——**并行扩展位**，不与绝对 LLA/XYZ 眼点冲突，未来需要时另加，不替换现状。
 
 > 来源：`thirdparty/cigi`（Boeing CIGI SDK，V4 报文处理表 `CigiOutgoingMsg.cpp` 的 `SetOutgoingHostV4Tbls` / `SetOutgoingIGV4Tbls`；入站表 `CigiIncomingMsg.cpp` 的 `SetIncomingHostV4Tbls` / `SetIncomingIGV4Tbls`）。

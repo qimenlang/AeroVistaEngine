@@ -312,7 +312,7 @@ struct HostEyePose {
 | 与 JSON / 线格式 | `WorldPos` ↔ Attach+XYZ；`LlaPos` ↔ Detach+LLA；`frame` 可由 variant 索引推导，不必再存易漂移的第二份枚举（若保留 `CoordFrame` 枚举，必须与 variant 同步更新） |
 | API | `compose` / `apply` / 组包均 `std::visit` 或按类型重载；**禁止** `.position.x` 无标签读写 |
 
-**实现现状（2026-08）**：`HostEyePose`（`SyncConfig.h`）采用 `HostEyeCoordFrame frame` 枚举 + `DVec3 position` + `DVec3 eulerYprDeg`（非 variant）——`frame` 判别字段，`EyeCaptureProc` 解包时按 AttachState 一次构造对应语义。相比 variant 少了编译期判别，但字段仅两个模式且消费端集中（`SynchronSystem`），枚举 + 注释约束可接受；后续若再增模式再评估 variant。
+**实现现状（2026-08 / 2026-09）**：`HostEyePose`（`SyncConfig.h`）采用 `HostEyeCoordFrame frame` 枚举 + `DVec3 position` + `DVec3 eulerYprDeg`（非 variant）——`frame` 判别字段，业务侧回调（`Engine::onEntityPositionCtrl`）在订阅回调中按 AttachState 一次构造对应语义（原 `EyeCaptureProc` 定制类已删，改走 UDP 通用捕获投递原始报文，2026-09）。相比 variant 少了编译期判别，但字段仅两个模式且消费端集中（`SynchronSystem`），枚举 + 注释约束可接受；后续若再增模式再评估 variant。
 
 入队、组包全程走类型分支；线格式 `EyePose` 仍带显式 AttachState（§5），解包时构造对应 `WorldPos` 或 `LlaPos`。
 

@@ -765,7 +765,7 @@ SCENARIO("IG sends a UDP message and Host processor receives it",
 
 // =============================================================================
 // 6. 碰撞检测体积对（红测已转绿）：Host 发 CollDetVolDefV4 → IG 回 CollDetVolRespV4
-//    经订阅 subscribe<CigiCollDetVolDefV4>() / subscribe<CigiCollDetVolRespV4>() 投递断言。
+//    经订阅 addCallback<CigiCollDetVolDefV4>() / addCallback<CigiCollDetVolRespV4>() 投递断言。
 // =============================================================================
 
 SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
@@ -784,7 +784,7 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
             std::optional<CigiCollDetVolRespV4> hostResp;
 
             // 订阅：捕获时投递（IG 侧）。
-            engineB.synchronSystem().igSync().subscribe<CigiCollDetVolDefV4>(
+            engineB.synchronSystem().igSync().addCallback<CigiCollDetVolDefV4>(
                 [&](const CigiCollDetVolDefV4& def) { igDef = def; });
 
             // Host → IG：碰撞检测体积定义（首版默认值填充）。
@@ -810,7 +810,7 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
             REQUIRE(igDef->GetVolEn());
 
             // 订阅：捕获时投递（Host 侧）。
-            hostA.subscribe<CigiCollDetVolRespV4>(
+            hostA.addCallback<CigiCollDetVolRespV4>(
                 [&](const CigiCollDetVolRespV4& resp) { hostResp = resp; });
 
             // IG → Host：碰撞检测体积响应（首版默认值填充）。
@@ -1261,7 +1261,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 }
 
 // =============================================================================
-// 10. 全 9 类报文支持：通用捕获（PacketCaptureProc + subscribe<PacketT> 纯订阅投递）
+// 10. 全 9 类报文支持：通用捕获（PacketCaptureProc + addCallback<PacketT> 纯订阅投递）
 //     按发送源（IgSync/HostSync）与链路（UDP 持续 / TCP 一次性）注册（cigi梳理.md 链路矩阵）。
 //     各取一个代表性报文验证：TCP 一次性（EntityCtrl）、UDP 持续（ViewCtrl）、IG→Host 响应（IGMsg）。
 //     2026-08 起数据交付为纯订阅模式（拉取 takeReceived/CaptureProcBase 已删）。
@@ -1281,7 +1281,7 @@ SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
         {
             int sinkCount = 0;
             CigiEntityCtrlV4 sinkValue;
-            engineB.synchronSystem().igSync().subscribe<CigiEntityCtrlV4>(
+            engineB.synchronSystem().igSync().addCallback<CigiEntityCtrlV4>(
                 [&](const CigiEntityCtrlV4& ent) {
                     ++sinkCount;
                     sinkValue = ent;
@@ -1321,7 +1321,7 @@ SCENARIO("IG subscribes a per-frame Host→IG ViewCtrl over UDP",
         {
             int sinkCount = 0;
             CigiViewCtrlV4 sinkValue;
-            engineB.synchronSystem().igSync().subscribe<CigiViewCtrlV4>(
+            engineB.synchronSystem().igSync().addCallback<CigiViewCtrlV4>(
                 [&](const CigiViewCtrlV4& view) {
                     ++sinkCount;
                     sinkValue = view;
@@ -1361,7 +1361,7 @@ SCENARIO("Host subscribes an IG→Host CigiIGMsgV4 over TCP",
         {
             int sinkCount = 0;
             CigiIGMsgV4 sinkValue;
-            hostA.subscribe<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            hostA.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
                 ++sinkCount;
                 sinkValue = msg;
             });
@@ -1392,7 +1392,7 @@ SCENARIO("Host subscribes an IG→Host CigiIGMsgV4 over TCP",
 }
 
 // HostSync 侧订阅：IG→Host 报文的到达通知。
-SCENARIO("HostSync subscribe delivers an IG→Host packet to the sink",
+SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
          "[acceptance][bdd][sync][cmd][e2e][all-packets]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
@@ -1406,7 +1406,7 @@ SCENARIO("HostSync subscribe delivers an IG→Host packet to the sink",
         {
             int sinkCount = 0;
             std::uint16_t sinkMsgId = 0;
-            hostA.subscribe<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            hostA.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
                 ++sinkCount;
                 sinkMsgId = msg.GetMsgID();
             });
@@ -1439,7 +1439,9 @@ SCENARIO("HostSync subscribe delivers an IG→Host packet to the sink",
 // =============================================================================
 // 11. 命令实体位姿：Host 下发 EntityPositionCtrlV4（EntityID≠0）→ IG engine
 //     订阅 → updateEntityPose 更新 entityMap 位姿 + transform 矩阵。
-//     ownship 眼点（EntityID==0）被 UDP 侧 EyeCaptureProc 占用；命令实体摆放走 TCP（§4.1 / cigi梳理.md 链路矩阵）。
+//     ownship 眼点（EntityID==0）与命令实体（EntityID≠0）同 PacketID（EntityPositionCtrlV4），
+//     UDP 链路（眼点）与 TCP 链路（命令实体）各注册通用捕获，经多播
+//     addCallback<CigiEntityPositionCtrlV4> 同回调按 EntityID 分流（§4.1 / cigi梳理.md 链路矩阵）。
 // =============================================================================
 
 SCENARIO("Host places an entity pose over TCP and IG engine updates the entity transform",
