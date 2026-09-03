@@ -2,7 +2,7 @@
 # Install once: pip install pre-commit lizard && pre-commit install
 #
 # clang-tidy needs compile_commands.json from a Ninja configure, e.g.:
-#   cmake --preset clang-Ninja
+#   cmake --preset clang-Ninja-Debug
 # Optional: set AEROVISTA_TIDY_BUILD_DIR to the build directory.
 #
 # lizard (CCN) needs: pip install lizard  (invoked as python -m lizard)

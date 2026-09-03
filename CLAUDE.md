@@ -73,7 +73,7 @@ void renderOneTick();
 ## 2. Engine complexity gates
 
 **Scope:** `engine/source/**/*.{cpp,h,hpp}`
-Authority: `doc/notes/代码质量指标.md` §6. Naming/VSG style stays in §1.
+Authority: `doc/notes/cleancode/代码质量指标.md` §6. Naming/VSG style stays in §1.
 
 ### Thresholds (hard)
 
@@ -100,7 +100,7 @@ python scripts/clang_tidy_engine.py engine/source/path/Foo.cpp
 python scripts/lizard_engine.py engine/source/path/Foo.cpp
 ```
 
-3. Need `compile_commands.json` for tidy (e.g. `cmake --preset clang-Ninja` or `ci-debug`). Optional: `AEROVISTA_TIDY_BUILD_DIR`.
+3. Need `compile_commands.json` for tidy (e.g. `cmake --preset clang-Ninja-Debug` or `ci-clang`). Optional: `AEROVISTA_TIDY_BUILD_DIR`.
 4. Full source scan when unsure: `python scripts/lizard_engine.py --all-source`.
 
 ### Fix pattern (preferred)

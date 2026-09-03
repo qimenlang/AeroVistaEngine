@@ -36,7 +36,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
 
 ## 3. 本项目（Windows clang）支持矩阵
 
-本项目 `clang-Ninja` / `ci-clang` preset 用 LLVM clang，target 为 `x86_64-pc-windows-msvc`（MSVC ABI）。**支持与否由 target 平台决定，不由 clang++ / clang-cl 驱动入口决定**——两者是同一前端，仅 flag 语法不同（clang-cl 用 `/fsanitize=`，clang++ 用 `-fsanitize=`）。
+本项目本地 `clang-Ninja-Debug` / `clang-Ninja-Release`、CI `ci-clang` preset 用 LLVM clang，target 为 `x86_64-pc-windows-msvc`（MSVC ABI）。**支持与否由 target 平台决定，不由 clang++ / clang-cl 驱动入口决定**——两者是同一前端，仅 flag 语法不同（clang-cl 用 `/fsanitize=`，clang++ 用 `-fsanitize=`）。
 
 | Sanitizer | Windows clang（MSVC target） | 说明 |
 |-----------|------------------------------|------|

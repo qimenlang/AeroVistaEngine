@@ -25,7 +25,7 @@
 | `.cursor/rules/anti-hallucination.mdc` | 行为约束 | 规范约束 |
 | `.cursor/rules/requirement-clarification.mdc` | 需求澄清 / 分解 | 规范约束 |
 | `.cursor/rules/clean-code-guardrails.mdc` | 注释纪律、函数单一职责、错误/空值策略、参数精简 | 规范约束（AI 自查 + review） |
-| `doc/notes/代码质量指标.md` | 指标原理与门禁接线 | 文档 |
+| `doc/notes/cleancode/代码质量指标.md` | 指标原理与门禁接线 | 文档 |
 
 **结论**：Clean Code 的「机械维度」已有工具支撑；「语义维度」目前是空白，正是本讨论要补的。
 
@@ -54,7 +54,7 @@
 | **参数精简**（避免 boolean 入参、优先返回值、命令查询分离） | 建议 | `readability-function-size` 的参数选项可做硬上限（如 ≤5），其余软规则 |
 | **消除重复 DRY** | 建议（软） | AI 复制粘贴重灾区；检测工具噪声大，只做告警/自查级 |
 | 类单一职责 SRP | 建议（软） | 语义性，与模块划分强相关，判断成本中等 |
-| 依赖方向 / 禁止新循环依赖 | 建议（软） | `代码质量指标.md` §3.4 已有依据，可提为编码自查项 |
+| 依赖方向 / 禁止新循环依赖 | 建议（软） | `cleancode/代码质量指标.md` §3.4 已有依据，可提为编码自查项 |
 | 魔法数字提取 | 可选 | clang-tidy 可开（`cppcoreguidelines-avoid-magic-numbers`），但需豁免清单，噪声控制成本高 |
 | 系统架构 / 并发原则 | **不建议** | 粒度太大，写成规则会变成空话 |
 | 注释率、函数行数硬上限 | **不建议** | 易被刷（gaming），且与复杂度门禁重叠/冲突 |
@@ -188,4 +188,4 @@ bool createVulkanDevice(int& outQueueFamily);
 1. 先以讨论稿评审，确认原则取舍。
 2. 落地为软规则文件后，试用 1~2 周看是否产生「假阳性」或与现有门禁冲突。
 3. 定期把「软规则里能机械化的条目」迁移到 clang-tidy / 脚本。
-4. 阈值与豁免策略演进参照 `代码质量指标.md` §5 的增量门禁思路。
+4. 阈值与豁免策略演进参照 `cleancode/代码质量指标.md` §5 的增量门禁思路。

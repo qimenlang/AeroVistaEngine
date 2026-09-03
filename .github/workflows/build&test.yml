@@ -81,7 +81,7 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
-  # Mirrors the local clang-Ninja toolchain: clang frontend + MSVC STL/link.exe.
+  # Mirrors the local clang-Ninja-Debug toolchain: clang frontend + MSVC STL/link.exe.
   # Requires LLVM >= 20 on windows-latest (VS18 STL demands Clang 20+; STL1000).
   build-clang:
     name: ci-clang
