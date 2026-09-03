@@ -5,7 +5,6 @@
     "hostEyeStalePolicy": "ReuseLast",
     "requireConnectedIg": false
   },
-  "coordFrame": "Ellipsoid",
   "igConfig": {
     "udpPortSend": 8000,
     "udpPortRecv": 8003,

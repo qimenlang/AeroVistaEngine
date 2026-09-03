@@ -1,6 +1,6 @@
 ﻿# LLA 位姿传输设计
 
-在已落地的本地笛卡尔 Host→IG 相机同步之上，增加 **LLA + 当地姿态** 作为椭球模式下的权威眼点语义。  
+同步层只支持 LLA（2026-09 收敛）：Host→IG 相机同步恒传 **LLA + 当地姿态**（`Detach`+LLA）。  
 帧时序、连接态、无新包 / 断线沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5（防回声已随拆进程移除）；坐标系背景见 [坐标系统总结.md](../../notes/坐标系统总结.md)。  
 本文取代「仅做场景 JSON 装配、暂不动同步」的前置草案方向（见 [坐标系统模块设计.md](./坐标系统模块设计.md)），把范围收束到 **能传、能采、能写** 的 LLA 同步闭环。
 
@@ -29,17 +29,17 @@
 | 权威眼点 | 椭球模式下 Host→IG 传 **LLA + YPR（当地）** |
 | 写相机 | IG：`LLA→ECEF`，在 ENU 叠 `offsetDeg`，再写 `LookAt` |
 | 采样出站 | **已随拆进程移除**（2026-08）：Host 为 viewhost、键盘累积直接产出 LLA + 当地 YPR（不经 LookAt 采样，见 [viewhost设计.md](../viewhost设计.md) §4.2） |
-| 本地模式 | 现有 XYZ + 世界轴 YPR 路径行为不变 |
+| 本地场景 | 仅单机渲染，不参与同步（无 `igConfig`；本地 = 场景无椭球，见 §2.1） |
 
 **不做**（见 §8）：仅为演示把普通模型钉到某 LLA、本迭代强制依赖瓦片。实体 / 相机配置结构见 [位姿配置设计.md](./位姿配置设计.md)。
 
-成功标准：同一套帧循环下，Host 与全体 IG 在椭球场景中共用眼点；各通道 frustum 仍由本地 `offsetDeg` 区分；本地笛卡尔同步回归不破。
+成功标准：同一套帧循环下，Host 与全体 IG 在椭球场景中共用眼点；各通道 frustum 仍由本地 `offsetDeg` 区分。
 
 **本迭代保证与不保证**：
 
 | 保证 | 不保证 |
 | --- | --- |
-| LLA 位姿采 / 传 / 写在数值与同步语义上正确 | `coordFrame: "Ellipsoid"` + 普通 `.vsgt` 且未钉到 ECEF 时，画面「看得见合理地球场景」 |
+| LLA 位姿采 / 传 / 写在数值与同步语义上正确 | `injectEllipsoidIfMissing=true`（或启 IG 同步自动注入）+ 普通 `.vsgt` 且未钉到 ECEF 时，画面「看得见合理地球场景」 |
 | 有 `EllipsoidModel` 后投影 / Trackball / 跟拍走椭球路径 | 无瓦片、模型仍在本地原点时的可视化观感 |
 
 装配与可视化边界见 §2.6。
@@ -49,35 +49,36 @@
 ## 2. EllipsoidModel 装配
 
 本节收束：**配置意图 → 场景加载后可选注入 → 运行时只认场景有无 `EllipsoidModel`**。  
-`coordFrame`、注入时机、半径、冲突、默认初始相机均在此定义；其它章节只引用本节结论。
+`injectEllipsoidIfMissing`、注入时机、半径、冲突、默认初始相机均在此定义；其它章节只引用本节结论。
 
-### 2.1 两层判据（因果一条链）
+### 2.1 判据（因果一条链）
 
 不是两套互斥开关，而是先后关系：
 
 | 层 | 职责 |
 | --- | --- |
-| JSON `coordFrame` | **意图**：模型**未**自带椭球时，是否要注入 `EllipsoidModel` |
-| 场景上有无 `EllipsoidModel` | **运行时唯一判据**：同步走本地 XYZ 还是 LLA / ECEF；组包 / 采样类型始终跟场景走 |
+| JSON `injectEllipsoidIfMissing`（或启 IG 同步） | **意图**：模型**未**自带椭球时，是否要注入 `EllipsoidModel` |
+| 场景上有无 `EllipsoidModel` | **运行时唯一判据**：读 pose 哪半 / 是否参与同步（同步只 LLA，2026-09 收敛） |
 
-JSON `coordFrame` **只**驱动「是否注入」，**不**单独决定组包类型。  
+注入意图**只**驱动「是否注入」，**不**单独决定组包类型。  
 「World = ECEF」是约定：有 `EllipsoidModel` 后 LookAt / Transform 用地心笛卡尔米制。瓦片只提供地表几何，**不是**模式开关。
 
-### 2.2 配置字段 `coordFrame`
+### 2.2 配置字段 `injectEllipsoidIfMissing`
 
-`main` / `left` / `right` 等通道 JSON 顶层可选字段（方案 A；非法值解析失败）：
+通道 JSON 顶层可选字段（方案 A；非 bool 解析失败）：
 
 ```text
-coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
+injectEllipsoidIfMissing?: bool   // 缺省 = false
 ```
 
 | 注意 | 说明 |
 | --- | --- |
-| 取值语义 | 坐标系**意图** `"Ellipsoid"` / `"Local"` |
+| 取值语义 | 无自带椭球时是否注入 WGS-84 椭球 |
+| 生效范围 | **仅单机渲染（无 `igConfig`）**；启 IG 同步时引擎自动注入，无需此开关 |
 | 场景对象 | 挂到 scene 上的类型名才是 `vsg::EllipsoidModel`（勿与配置取值混用） |
-| HELLO | **不**携带 / 协商 `coordFrame`（第一版） |
+| HELLO | **不**携带 / 协商注入意图（第一版） |
 
-> **坐标系判据（写死，2026-09）**：眼点与命令实体的坐标系**运行时判据统一为「场景有无 `EllipsoidModel`」**（§2.1）；`coordFrame` 是配置意图，**仅在「场景无椭球」时驱动注入**——模型自带椭球则**必须写 `coordFrame: "Ellipsoid"`，否则 fail-fast**（§2.3），由此 `coordFrame` 与场景判据严格等价。`AttachState` 在线格式上仍是位置字段的判别（`Attach`=XYZ / `Detach`=LLA，CIGI 原生，§5），但**不承载**「选坐标系」的业务语义，它由场景判据派生的填充值决定。命令实体见 [实体与运动控制设计.md](./实体与运动控制设计.md) §4.2。
+> **坐标系判据（写死，2026-09）**：眼点与命令实体的坐标系**运行时判据统一为「场景有无 `EllipsoidModel`」**（§2.1）；`injectEllipsoidIfMissing` 只在「场景无椭球」时决定是否注入，自带椭球则一律保留（无 fail-fast——运行时只看场景判据，与注入开关解耦）。**同步层只支持 LLA**：眼点与命令实体位姿在线格式恒为 `Detach`+LLA（§5），无 `Attach`+XYZ 路径。命令实体见 [实体与运动控制设计.md](./实体与运动控制设计.md) §4.2。
 
 ### 2.3 装配流程（保留 / 注入 / 相机）
 
@@ -85,17 +86,14 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
 
 ```text
 1. 解析通道 JSON
-   - 得到 coordFrame 意图；非法值 → 解析失败（方案 A）
+   - 得到 injectEllipsoidIfMissing 意图；非 bool → 解析失败（方案 A）
 2. loadScene(model)
 3. 查询场景是否已有 "EllipsoidModel"
-   ├─ 已有（如 readymap.vsgt）
-   │    → 保留：不删除、不替换半径
-   │    → coordFrame 为 "Ellipsoid" → 冗余，保持即可
-   │    → coordFrame 为 "Local" / 缺省 → **报错（fail-fast）**：模型自带椭球必须写 `coordFrame: "Ellipsoid"`，
-   │      否则 `coordFrame` 与场景判据不等价、Host 侧按 `coordFrame` 填 XYZ 会与 IG 按椭球读 LLA 错位（2026-09 方案 A）
+   ├─ 已有（如 readymap.vsgt）→ 保留：不删除、不替换半径（自带椭球即椭球场景）
    └─ 没有
-        → coordFrame == "Ellipsoid" → 注入 EllipsoidModel::create()（WGS-84，§2.4）
-        → 缺省 / "Local"           → 不注入 → 本地笛卡尔
+        → 有 igConfig（启 IG 同步）→ 注入 EllipsoidModel::create()（WGS-84，§2.4；同步只 LLA 需椭球）
+        → injectEllipsoidIfMissing == true → 注入 EllipsoidModel::create()（WGS-84，§2.4；单机椭球渲染）
+        → 否则 → 不注入 → 本地笛卡尔（仅单机渲染）
 4. 若此时场景有 EllipsoidModel
    → 写默认初始 LookAt（见 [位姿配置设计.md](./位姿配置设计.md) §4）；禁止再用 AABB + 世界 Z-up
 5. 创建 Projection / Trackball
@@ -103,11 +101,11 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
    → 无椭球：普通透视
    （禁止在本步之后再补挂 EllipsoidModel）
 6. 此后同步 / 组包 / 写相机只读场景有无 EllipsoidModel：
-   无 → WorldPos + setCameraPose
-   有 → LlaPos  + setCameraPoseLla（§4；Engine 持有椭球引用，无则 API 返回 false）
+   无 → 单机本地渲染（不参与同步）
+   有 → LLA + setCameraPoseLla（§4；Engine 持有椭球引用，无则 API 返回 false）
 ```
 
-一句话：**只有场景加载完且没有 `EllipsoidModel` 时，才根据 `coordFrame` 决定是否另外注入**；已有则一律保留，但**模型自带椭球时 `coordFrame` 必须为 `"Ellipsoid"`，否则报错**（fail-fast，保证 `coordFrame` 与场景判据严格等价）。
+一句话：**只有场景加载完且没有 `EllipsoidModel` 时，才按「启 IG 同步 / `injectEllipsoidIfMissing`」决定是否注入**；已有则一律保留。
 
 步骤 4 的默认初始相机：见 [位姿配置设计.md](./位姿配置设计.md) §4。按 AABB 计算 centre / radius，分别用 Local 或 Ellipsoid 公式生成 LookAt，不再写死北京为唯一默认。
 
@@ -116,16 +114,16 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
 | 来源 | 半径 |
 | --- | --- |
 | 模型自带（如 `readymap.vsgt`） | **沿用文件内** `EllipsoidModel`（勿替换为默认） |
-| `coordFrame: "Ellipsoid"` 注入 | `EllipsoidModel::create()` → VSG 默认 **WGS-84**（赤道 6378137，极 6356752.3142） |
+| `injectEllipsoidIfMissing=true` 或启 IG 同步注入 | `EllipsoidModel::create()` → VSG 默认 **WGS-84**（赤道 6378137，极 6356752.3142） |
 
 `readymap` 内半径（6378140 / 6356750）与 WGS-84 略有差异。同一会话内 Host 与各 IG **不得混用**「一边读瓦片椭球、一边注入默认 WGS-84」；否则同一 LLA 算出的 ECEF 可差**米级**——线上看眼点数字一致，LookAt.eye 却对不齐；肉眼难辨，普通跟拍测试也难覆盖。
 
-第一版 **HELLO 仍不传半径**（与不传 `coordFrame` 同级）；靠部署一致 + 可观测 / 测试兜底：
+第一版 **HELLO 仍不传半径**（与不传注入意图同级）；靠部署一致 + 可观测 / 测试兜底：
 
 | 项 | 要求 |
 | --- | --- |
 | 日志 | 场景装配完成（保留或注入之后）打印一次：`radiusEquator`、`radiusPolar`、来源（`model` / `inject-WGS84`），级别至少 `INFO` |
-| 测试 | BDD **显式**覆盖「两端半径不一致」：例如 Host=`readymap`、IG=`coordFrame:Ellipsoid` 无瓦片注入；预期为 **fail**（跟拍 ECEF 超差）或标记 **`[skip]`/文档化已知错配**——二者选一并在用例名写清，禁止默默绿过 |
+| 测试 | BDD **显式**覆盖「两端半径不一致」：例如 Host=`readymap`、IG=`injectEllipsoidIfMissing:true` 无瓦片注入；预期为 **fail**（跟拍 ECEF 超差）或标记 **`[skip]`/文档化已知错配**——二者选一并在用例名写清，禁止默默绿过 |
 | 同端自检（推荐） | 单进程内可 assert 当前 `EllipsoidModel` 半径与期望来源一致；跨进程第一版不强制互查 |
 
 后续若要硬防：可在 HELLO 或首帧附带半径，不符则 ERROR + 计数器（类似 §4.5）；非本迭代必做。
@@ -134,13 +132,11 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
 
 | 情况 | 策略 |
 | --- | --- |
-| Host / 各 IG | **配置意图应一致**（人工 / 部署约束）；`main` / `left` / `right` 保持意图与模型椭球来源一致；最终均应同有或同无场景 `EllipsoidModel`，否则眼点按 §4.5 拒收 |
-| 跨进程 init | **不**互查 `coordFrame` / 半径 |
-| 运行时兜底 | 线格式 Attach vs Detach 与本机场景不符 → 拒收该眼点（§4.5 / §5） |
+| Host / 各 IG | **配置意图应一致**（人工 / 部署约束）；参与同步的 IG 均应有场景 `EllipsoidModel`（有 `igConfig` 时引擎自动注入，§2.3） |
+| 跨进程 init | **不**互查注入意图 / 半径 |
+| 本地场景 + `igConfig` | 引擎自动注入椭球（2026-09 收敛，取代原「fail-fast 拒绝」——同步只 LLA，要同步就该有椭球，注入即可） |
 
-依赖：(1) 各通道 JSON 部署一致；(2) 线格式拒收。此为明确假设，不是遗漏实现。
-
-**可观测性（必做）**：配错时 `readyIgCount` / SOF 计数仍可正常——链路活着，只是眼点被丢、相机不动。拒收要求见 §4.5（首拒收 `[ERROR]`、`eyePoseRejectedByFrameMismatch` 计数器等）。
+依赖：(1) 各通道 JSON 部署一致；(2) 场景 `EllipsoidModel` 为运行时唯一判据。此为明确假设，不是遗漏实现。
 
 ### 2.6 与可视化 / 摆模的边界
 
@@ -292,32 +288,18 @@ M_inv   = computeWorldToLocalTransform(lla)
 
 **Host 无 offsetDeg（2026-08 拆进程）**：Host 为独立 viewhost 进程，不施加通道偏移，也不存在「权威窗 ⊕ offset 后采样再广播」的双重叠加问题（原约束源于 engine 同进程 Host+IG，已随拆进程移除）。各 IG 的 `offsetDeg` 只在各自 IG 进程施加。
 
-### 4.2 `HostEyePose`（禁止裸 `dvec3` 双语义）
+### 4.2 `HostEyePose`（只 LLA，无 frame 判别）
 
-**不要**用同一个 `dvec3 position` 按 `frame` 既表示 XYZ（米）又表示 LLA（度/度/米）。忘查 `frame` 时，会把 lat 当 X 送进 `setCameraPose` 或把 ECEF 大数当经纬——`1e-4` 米与 `1e-4` 度都不会自己报警，属于最难查的一类 bug。
-
-**选定**：专用位置类型 + `variant`（或等价 tagged union），让非法混用在编译期失败：
+**同步层只支持 LLA（2026-09 收敛）**：`HostEyePose` 不再需要 `frame` 判别字段，`position` 恒为 LLA（纬度°、经度°、海拔 米），`eulerYprDeg` 恒为当地 ENU YPR（§3.2）。
 
 ```text
-struct WorldPos { vsg::dvec3 xyz; };          // 米
-struct LlaPos   { vsg::dvec3 lla; };          // (lat°, lon°, alt m)；也可拆成 lat/lon/alt 字段
-
 struct HostEyePose {
-  vsg::dvec3 eulerYprDeg;                     // 语义随持有的位置类型：世界轴 or 当地 ENU
-  std::variant<WorldPos, LlaPos> position;    // 或 visit / accessor，禁止无判别读写
+  DVec3 position{};     // 纬度°、经度°、海拔 米（LLA）
+  DVec3 eulerYprDeg{};  // 当地 ENU YPR（度）
 };
 ```
 
-| 约定 | 说明 |
-| --- | --- |
-| `holds_alternative<WorldPos>` | 本地模式；`eulerYprDeg` = 世界轴 YPR |
-| `holds_alternative<LlaPos>` | 椭球模式；`eulerYprDeg` = 当地 ENU YPR（§3.2） |
-| 与 JSON / 线格式 | `WorldPos` ↔ Attach+XYZ；`LlaPos` ↔ Detach+LLA；`frame` 可由 variant 索引推导，不必再存易漂移的第二份枚举（若保留 `CoordFrame` 枚举，必须与 variant 同步更新） |
-| API | `compose` / `apply` / 组包均 `std::visit` 或按类型重载；**禁止** `.position.x` 无标签读写 |
-
-**实现现状（2026-08 / 2026-09）**：`HostEyePose`（`SyncConfig.h`）采用 `HostEyeCoordFrame frame` 枚举 + `DVec3 position` + `DVec3 eulerYprDeg`（非 variant）——`frame` 判别字段，业务侧回调（`Engine::onEntityPositionCtrl`）在订阅回调中按 AttachState 一次构造对应语义（原 `EyeCaptureProc` 定制类已删，改走 UDP 通用捕获投递原始报文，2026-09）。相比 variant 少了编译期判别，但字段仅两个模式且消费端集中（`SynchronSystem`），枚举 + 注释约束可接受；后续若再增模式再评估 variant。
-
-入队、组包全程走类型分支；线格式 `EyePose` 仍带显式 AttachState（§5），解包时构造对应 `WorldPos` 或 `LlaPos`。
+**实现现状（2026-09）**：`HostEyePose`（`SyncConfig.h`）已删除 `HostEyeCoordFrame frame` 枚举，只保留 `DVec3 position`（LLA）+ `DVec3 eulerYprDeg`（当地 ENU YPR）。业务侧回调（`Engine::onEntityPositionCtrl`）按 `EntityID` 分流——ownship 眼点翻译为 LLA 入队决策器、命令实体摆放恒 `Detach`+LLA。原「本地 XYZ / 椭球 LLA 双语义 + variant」讨论随同步只 LLA 移除，不再需要编译期判别。
 
 ### 4.3 帧路径（IG 侧；Host 采样/扇出已随拆进程移除）
 
@@ -340,9 +322,9 @@ postFrame:
 
 二者正交：stale 管「没新包怎么办」；防回声已无宿主侧（§4.4 随拆进程移除）。
 
-#### 场景重建与模式换轨时的缓存
+#### 场景重建时的缓存
 
-注入须在相机创建前（§2.3）。同一进程换 `-c` / 重载场景 → 重建图形与（可能）切换 Local↔Ellipsoid 时：
+注入须在相机创建前（§2.3）。同一进程换 `-c` / 重载场景 → 重建图形时：
 
 | 缓存 | 动作 |
 | --- | --- |
@@ -351,7 +333,7 @@ postFrame:
 
 当前仅 `shutdown()` 会清缓存不够：热重载 / 测试里只重建图形时必须走上述触发点，否则旧类型缓存残留。
 
-模式切换后第一帧：Host（viewhost）按当前累积眼点直接扇出（键盘累积无位置类型切换问题）；engine IG 侧经 `resetEyeCaches()` 清缓存，按新场景模式接收 / 拒收眼点（§4.5）。
+模式切换后第一帧：Host（viewhost）按当前累积眼点直接扇出；engine IG 侧经 `resetEyeCaches()` 清缓存。
 
 ### 4.4 防回声（比较 LookAt，不反解 YPR）——已随拆进程移除
 
@@ -373,55 +355,37 @@ postFrame:
 | `forward` | `normalize(center - eye)` | 方向，如 `1 - dot < 1e-8` 或角 ~`1e-4` rad |
 | `up` | LookAt 的 `up`（可先与 forward 正交化再比） | 同上 |
 
-### 4.5 Host / IG 模式一致性与拒收可观测性
+### 4.5 Host / IG 模式一致性（运行时无错配）
 
-同一会话内应同为本地或同为椭球。  
-判定「报文模式」：解包得到的 Attach→`WorldPos`，Detach→`LlaPos`（§5）。  
-若与本机场景（有无 `EllipsoidModel`）不一致：**丢弃该眼点**；**不**做静默单位换算；**不得**静默到无人知晓。
+同步层只支持 LLA（2026-09 收敛）：眼点恒为 `Detach`+LLA，无 `Attach`+XYZ 路径。
 
-Host（viewhost）**组包**取自待发送的 `HostEyePose` 位置类型（键盘累积眼点，见 [viewhost设计.md](../viewhost设计.md) §4.2），**不**由 IG 猜测。
+参与同步（有 `igConfig`）的场景在装配时**自动注入椭球**（§2.3），因此运行时不存在「场景无椭球却收 LLA」的错配路径——无需运行时拒收。原 `eyePoseRejectedByFrameMismatch` 计数器、`setEllipsoidMode` 场景模式注入与运行时 frame mismatch 拒收已随同步只 LLA 删除（2026-09）。
 
-#### 拒收时的可观测性（第一版必做）
-
-配错时握手与节拍仍健康（`readyIgCount` 不降、`sofSentCount` 正常），唯一业务症状是相机不跟拍——生产多通道下属于最难查的一类故障。拒收作为容错手段时，**可观测性必须跟上**：
-
-| 项 | 要求 |
-| --- | --- |
-| 日志 | IG（及若 Host 侧也校验时）在收到**首个**模式不符的 EyePose 时打 **`[ERROR]` 一次**（含本机期望 frame、报文 frame / AttachState、channelId）；同一会话内持续不符可降频或只打首次，避免每帧刷屏 |
-| 计数器 | `eyePoseRejectedByFrameMismatch`（`uint64`，进程内累加）；每次因 frame 不符丢弃眼点时 +1 |
-| 暴露 | 可供测试断言；运行期可经现有统计 / debug 出口读取（与 FrameStats 同类即可，具体挂点实现定） |
-| 行为 | 丢弃的是眼点应用；IGCtrl 节拍与 SOF 回执**照常**（与「链路正常、位姿拒收」一致） |
-
-第一版**不**因 mode mismatch 自动断开 TCP/UDP 或把 IG 标为 not-ready（避免与「部署配错」以外的瞬时异常纠缠）；靠 ERROR + 计数器让运维 / 测试发现。若后续要 fail-fast，可再加配置项「首拒收即 abort init / 摘 peer」。
-
-> **命令实体侧复用同一模式（2026-09）**：命令实体位姿（`EntityID≠0`）的坐标系一致性拒收**完全复用本节机制**——解包 `AttachState` 反推发送方坐标系、与本机场景判据比对、不一致丢弃 + 首拒 `[ERROR]` + 计数器 `entityPoseRejectedByFrameMismatch`（与眼点 `eyePoseRejectedByFrameMismatch` 分列）。详见 [实体与运动控制设计.md](./实体与运动控制设计.md) §9。
+单机本地渲染（无 `igConfig`、场景无椭球）不参与同步，不产生模式一致性问题。
 
 ---
 
 ## 5. 报文（CIGI）
 
-现状（本地）：`IGCtrl` + `EntityPositionCtrl` **Attach** + `X/Y/Z off` + YPR（过渡约定）。
-
-椭球目标：
+同步只 LLA（2026-09 收敛）：`IGCtrl` + `EntityPositionCtrl` **Detach** + `Lat/Lon/Alt` + YPR。
 
 | 项 | 约定 |
 | --- | --- |
 | 同 datagram | 仍为 `IGCtrl` +（有眼点时）`EntityPositionCtrl` |
 | 位置 | **Detach** + Lat / Lon / Alt |
 | 姿态 | Yaw / Pitch / Roll = §3.2 当地 YPR（应用约定，见 §3.2） |
-| 模式区分 | **线上仅** Attach / Detach（CIGI 原生）；解包后映射为 `WorldPos` / `LlaPos` |
-| 组包依据 | 待发送 `HostEyePose` 的位置类型（§4.5） |
+| 模式 | 恒 Detach + LLA（同步只 LLA，2026-09 收敛；无 Attach+XYZ 路径） |
 | 乱序 | 仍按 `frameCntr` 整包取新 |
 
-**分层（写死，避免「EyePose 加 frame」歧义）**：
+**分层（写死，同步只 LLA）**：
 
-| 层 | 是否带 frame / 位置类型 | 说明 |
-| --- | --- | --- |
-| **线格式** | **否**（不另加应用层布尔） | 只走 CIGI `EntityPositionCtrl.AttachState`：Attach=本地 XYZ，Detach=LLA |
-| **`CigiWire::EyePose`（解包后的内部 struct）** | **是** | 携带从 `AttachState` 推出的判别（或直接做成 `variant<WorldPos,LlaPos>` + YPR），供 `SynchronSystem` 使用 |
-| **`HostEyePose`** | **是**（§4.2） | 应用层权威眼点；与 wire 内部 EyePose 可共用类型或薄转换 |
+| 层 | 说明 |
+| --- | --- |
+| **线格式** | 恒走 CIGI `EntityPositionCtrl` **Detach** + Lat/Lon/Alt |
+| **`CigiWire::EyePose`（解包后的内部 struct）** | 恒 LLA 语义（x=纬度、y=经度、z=海拔），无 frame 判别字段 |
+| **`HostEyePose`** | 应用层权威眼点，恒 LLA（§4.2） |
 
-禁止在 UDP 载荷里再塞私有 frame 标志；禁止内部 struct 丢掉 AttachState 只留裸 x/y/z。
+线格式无私有 frame 字段；`AttachState` 恒为 Detach（CIGI 字段布局，非业务坐标系选择）。
 
 精度与合法范围：
 
@@ -429,76 +393,42 @@ Host（viewhost）**组包**取自待发送的 `HostEyePose` 位置类型（键�
 - Yaw / Pitch / Roll：CCL 多为 **float**；接受量化误差，测试容差覆盖。
 - **CCL 默认开 bound check**：`Lat∈[-90,90]`，`Lon∈[-180,180]`，`Pitch∈[-90,90]`（越界抛异常或返回错误）。组包前必须保证落在范围内：采样后 **normalize lon 到 (-180,180]**，非法 lat/pitch **丢弃本帧眼点**（IGCtrl 仍发）并打日志 / 计数（可与 wire 校验共用或单列 `eyePoseRejectedByRange`）；**不要**关全局 `bndchk` 把脏值发出去。
 
-本地 Attach 路径保留，回归继续覆盖（与椭球 Detach **并列**，不是被取代）。
+#### Detach / EntityID / ParentID（同步只 LLA）
 
-#### Attach / Detach / EntityID / ParentID（为何这样设计）
-
-这些字段属于 **CIGI 实体控制报文**（`EntityPositionCtrl`），**不是** VSG 场景图的「有没有父 `MatrixTransform` / 是否挂在 scene root」。
+这些字段属于 **CIGI 实体控制报文**（`EntityPositionCtrl`），**不是** VSG 场景图的「有没有父 `MatrixTransform` / 是否挂在 scene root」。同步层只支持 LLA（2026-09 收敛），眼点恒为 `Detach` + LLA。
 
 | 概念 | 在本设计中的含义 | **不是** |
 | --- | --- | --- |
-| **线格式** | UDP 里真正发出的 CIGI 字节（`IGCtrl` + 可选 `EntityPositionCtrl`） | 配置里的 `coordFrame`；进程内 `HostEyePose` |
-| **`AttachState`** | CIGI 自带开关：决定**后面位置字段怎么解释** | 场景节点是否 Attach 到父 Transform |
-| **Attach** | 位置走 **`X/Y/Z off`（米）**，相对某个 **Parent 实体** | 「模型挂在父节点下、要乘完整父链得 world」 |
-| **Detach** | 位置走 **`Lat/Lon/Alt`**，**独立实体**，不再相对 parent | 「直接挂在 scene root」 |
+| **线格式** | UDP 里真正发出的 CIGI 字节（`IGCtrl` + 可选 `EntityPositionCtrl`） | 配置里的 `injectEllipsoidIfMissing`；进程内 `HostEyePose` |
+| **`AttachState`** | CIGI 自带开关，恒为 `Detach`（同步只 LLA） | 场景节点是否 Attach 到父 Transform |
 | **`EntityID`** | CIGI **实体槽编号**（本项目眼点固定用 `0`） | VSG 节点指针 / scene 子节点下标 |
-| **`ParentID`** | Attach 时相对的**父实体槽**；`0` = **无父实体**（CIGI 约定） | scene root；VSG 父节点 |
+| **`ParentID`** | `Detach` 下恒为 `0`（无父实体） | scene root；VSG 父节点 |
 
-**为何本地笛卡尔用 Attach + XYZ，而不是 Detach + XYZ？**
-
-| `AttachState` | CIGI / CCL 位置字段语义 |
-| --- | --- |
-| Attach | `X/Y/Z off`：相对 parent 的偏移（米）→ 适合本地世界系眼点 |
-| Detach | `Lat/Lon/Alt`：大地坐标，且有范围校验（纬 ±90、经 ±180 等） |
-
-本地跟拍要传的是**场景世界系米制 XYZ**。若误用 `Detach` 却把米制塞进 Lat/Lon：语义错、大数易撞 bound check / 拒包，并与真正的椭球 LLA Detach 混淆。  
-故本地路径采用**过渡约定**（与 [多通道同步模块设计.md](./多通道同步模块设计.md) §8 一致）：
-
-```text
-Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
-```
-
-本项目 IG **不查实体 1 的真实位姿**，把 X/Y/Z **直接当作本地世界眼点**写入相机；`ParentID=1` 只满足「Attach 必须相对某个 parent」的组包形状。
-
-**为何椭球用 Detach + LLA + ParentID=0？**
-
-- 权威眼点已是经纬高 → 与 CIGI Detach 字段语义一致。
-- Detach = 独立实体，**不得**再带非 0 `ParentID`；否则合规 IG / CCL 可能拒包或忽略位姿。
-- `ParentID=0` 表示 CIGI「无父实体」，**不是**「挂到 VSG scene root」。
-
-**为何眼点固定 `EntityID=0`？**
-
-- 眼点占用**固定实体槽**；Attach↔Detach 只改附着与坐标语义，**不换槽**。
-- 同一 `EntityID=0` 帧间从 Attach 切到 Detach（或反向）表示该槽改附着方式，**合法**。
-- 不要为 LLA 另开未声明的 EntityID，以免与「已 Attach 到其它 parent 的槽」冲突或状态分裂。
+**为何眼点固定 `EntityID=0`**：眼点占用固定实体槽；`AttachState` 恒 Detach，不换槽。
 
 **组包表（设计期写死）**：
 
 | 模式 | `AttachState` | `EntityID` | `ParentID` | 位置字段 |
 | --- | --- | --- | --- | --- |
-| 本地 XYZ | **Attach** | **0** | **1**（合成 parent） | X/Y/Z off |
-| 椭球 LLA | **Detach** | **0**（同一眼点槽） | **0**（无父；Detach 下必须） | Lat / Lon / Alt |
+| LLA（唯一） | **Detach** | **0** | **0**（无父；Detach 下必须） | Lat / Lon / Alt |
 
-本项目 IG 按自研解包消费眼点，仍按上表组包，保证与标准约束及日后对接第三方 IG 时一致。  
-验收「线契约」必须**同时**覆盖 Attach 与 Detach：前者是本地回归，后者是椭球路径；另测 Attach↔Detach 切换合法。
+`appendEye`（`cigi_wire::appendEye(CigiOutgoingMsg&, const EyePose*)`，业务侧组装眼点；IGCtrl 由 `outMsgWithIgCtrlUdp()` 自动前置，2026-08-25 起 `appendHostFrame` 已删）：恒设置 `Detach` + LLA + `ParentID=0`；`unpack` 校验 `ParentID==0`（不符则丢弃眼点）。
 
-`appendEye`（`cigi_wire::appendEye(CigiOutgoingMsg&, const EyePose*)`，业务侧组装眼点；IGCtrl 由 `outMsgWithIgCtrlUdp()` 自动前置，2026-08-25 起 `appendHostFrame` 已删）：按 `HostEyePose` 分支设置上表组合；`unpack` 校验 Detach⇒`ParentID==0`（不符则拒收该眼点并计入可观测错误，可与 frame mismatch 分列或归入 wire 校验计数）。
-
-相机侧闭环仍是：**解包 → `WorldPos`/`LlaPos` → `setCameraPose` / `setCameraPoseLla` 写 LookAt**；不把眼点做成「挂在场景父链上再乘 world Transform」的实体节点。
+相机侧闭环仍是：**解包 → LLA → `setCameraPoseLla` 写 LookAt**；不把眼点做成「挂在场景父链上再乘 world Transform」的实体节点。
 
 ---
 
 ## 6. 配置
 
-本文只覆盖 **LLA 传输语义相关的通道字段**（`coordFrame` 意图、椭球注入、初始相机默认、`offsetDeg`、同步地址等）；实体 / 相机 pose 的 JSON 结构与解析规则见 [位姿配置设计.md](./位姿配置设计.md)。
+本文只覆盖 **LLA 传输语义相关的通道字段**（`injectEllipsoidIfMissing` 意图、椭球注入、初始相机默认、`offsetDeg`、同步地址等）；实体 / 相机 pose 的 JSON 结构与解析规则见 [位姿配置设计.md](./位姿配置设计.md)。
 
-**本迭代 LLA 侧最小集**（`coordFrame` / 注入 / 初始相机 / 半径 / 部署约束的完整语义见 **§2**）：
+**本迭代 LLA 侧最小集**（`injectEllipsoidIfMissing` / 注入 / 初始相机 / 半径 / 部署约束的完整语义见 **§2**）：
 
-- 新增可选顶层 `coordFrame`：`"Local"` \| `"Ellipsoid"`，缺省等价 `"Local"`（§2.2）。
+- 可选顶层 `injectEllipsoidIfMissing`（bool，缺省 `false`；§2.2）。参与同步的 IG 无需配置——引擎自动注入。
 - 椭球来源与注入：§2.3、§2.4。
-- **不**在 HELLO 中增加 `coordFrame` 字段（§2.2 / §2.5）。
+- **不**在 HELLO 中增加注入意图字段（§2.2 / §2.5）。
 
-`readymap` 等自带椭球时**必须写 `coordFrame: "Ellipsoid"`**，否则装配报错（fail-fast，§2.3）。各通道意图与模型椭球来源应一致（§2.4–§2.5）。
+模型自带椭球时一律保留（无 fail-fast，§2.3）；本地单机渲染不参与同步。各通道意图与模型椭球来源应一致（§2.4–§2.5）。
 
 **投影 near/far（Ellipsoid 专有）**：`EllipsoidPerspective` **每帧动态计算** near/far，由 eye 海拔和视线角度决定（见 [位姿配置设计.md](./位姿配置设计.md) §4.4）。这高度自适应飞行仿真场景，但会带来深度精度损失和数值边界 corner case 的 trade-off。配置中不直接控制 near/far。
 
@@ -513,16 +443,15 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 | LLA 本机往返 | **已移除**（2026-08 拆进程：依赖 LookAt 采样，随 `HostPosePublisher` 删除；改由 `setCameraPoseLla` 写入 + LookAt 字段断言覆盖） |
 | LLA Host→IG 跟拍 | **跨进程真报文**：viewhost 发布 LLA 眼点 → IG `LookAt.eye`（ECEF）与 Host 同椭球换算一致（Host 无 `offsetDeg`；邻通道另测 ⊕ yaw） |
 | `offsetDeg` | 仅 `yaw` 有定义；Host 眼点可含 pitch/roll，左/右仅 yaw 偏移时仍满足 `R_ig=R_host·Rz(δ)`（各通道 up 轴平行）；`offsetDeg.pitch/roll≠0` → **不测试** |
-| 线契约 | Detach+LLA 与 Attach+XYZ 打包/解包；`AttachState`→位置类型正确；**Detach 时 ParentID=0、EntityID=0**；Attach 时 EntityID=0、ParentID=1；切换 Attach↔Detach 组合合法 |
-| 组包依据 | Host 按 `HostEyePose` 位置类型选择 Attach/Detach；线上无私有 frame 字段 |
-| 模式隔离 | 本地回归全绿；错模式眼点不污染相机；首拒收 `[ERROR]`；`eyePoseRejectedByFrameMismatch` 递增；SOF/ready 仍正常 |
-| 模式装配 | 按 §2：无椭球才看 `coordFrame` 注入；模型自带椭球则 **fail-fast**（必须写 `coordFrame: "Ellipsoid"`，否则 `init` 失败）；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
+| 线契约 | Detach+LLA 打包/解包；**Detach 时 ParentID=0、EntityID=0**（同步只 LLA，无 Attach 路径） |
+| 组包依据 | 恒 Detach+LLA；线上无私有 frame 字段 |
+| 模式装配 | 按 §2：无椭球才看「启 IG 同步 / `injectEllipsoidIfMissing`」注入；模型自带椭球则保留；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
 | 范围校验 | Lat/Lon/Pitch 越界不抛穿；丢弃眼点并计数；lon 归一化到 (-180,180] |
 | 权威 offset | **已移除**（2026-08 拆进程：Host 为 viewhost、无 `offsetDeg`；原「权威窗全 0」约束不再适用） |
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
 | 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
 | 防回声 / stale | 防回声**已移除**（2026-08 拆进程，§4.4）；stale 沿用既有 ReuseLast/Freeze 用例 |
-| 场景换轨 | 同进程重载 / 换配置导致 Local↔Ellipsoid：SynchronSystem 位姿缓存清空（`resetEyeCaches`；`_lastSent` 已随拆进程删除） |
+| 场景重建清缓存 | 同进程重载场景：SynchronSystem 位姿缓存清空（`resetEyeCaches`；`_lastSent` 已随拆进程删除） |
 | `_lastSent` 换轨 | **已移除**（2026-08 拆进程：`_lastSent` 随 `HostPosePublisher` 删除，无 Host 重发路径） |
 | 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
 
@@ -535,8 +464,8 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 | 本迭代把普通 `.vsgt` 钉到指定 LLA 作为主交付 | 演示 ECEF 摆模可另开；不挡传眼点（见 §1 不保证项） |
 | 用 `normalize(eye)` 作为正式 `up` | 非正式椭球法向 |
 | 仅 init 写 LookAt、推迟写入口 / 采样 / 报文 | 无法完成帧同步 |
-| 让 `coordFrame` 与场景 `EllipsoidModel` 各判各的、互不驱动 | 只允许 §2「配置意图 → 可选注入 → 场景判据」 |
-| HELLO 携带 / 协商 `coordFrame` | 第一版靠部署一致 + 线格式拒收（§2.5） |
+| 让注入开关与场景 `EllipsoidModel` 各判各的、互不驱动 | 只允许 §2「注入意图 → 可选注入 → 场景判据」 |
+| HELLO 携带 / 协商椭球注入意图 | 第一版靠部署一致 + 场景装配兜底（§2.5） |
 | 本迭代强制摆模 / 瓦片才能跑单测 | 单测与 BDD 可自挂椭球断言数值（§2.6） |
 | 显示 Genlock、精时钟、Host 拆进程上行变更 | 仍属同步文档 P2 / 后期 |
 
@@ -546,13 +475,13 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 
 ## 9. 实现顺序
 
-1. 按 §2 完成 `coordFrame` 解析、`loadScene` 后注入/保留 `EllipsoidModel`、默认 LLA 初始相机（均在相机创建前）
+1. 按 §2 完成 `injectEllipsoidIfMissing` 解析、`loadScene` 后注入/保留 `EllipsoidModel`、默认 LLA 初始相机（均在相机创建前）
 2. `setCameraPoseLla` + LLA 本机往返（LookAt↔LLA/YPR 互逆；单测，无网络；方向用 3×3）
-3. **本地路径先迁移** `HostEyePose` → `variant<WorldPos,LlaPos>`（本阶段只产生 / 消费 `WorldPos`）；`compose` / `apply` / `_lastApplied` 全部分支可读类型（`capture` / 防回声 / `_lastSent` 已随拆进程移除）；**跑通全部现有本地回归**后再合并
-4. `CigiWire`：内部 `EyePose` 带位置类型（由 **AttachState** 映射，线上不加私有 frame）；本地仍 Attach+XYZ
-5. 椭球分支：`LlaPos` + `setCameraPoseLla`；Detach+double LLA；EntityID/ParentID 按 §5；模式不符拒收 + §4.5 可观测性
-6. 场景重建 / 模式换轨：清空同步位姿缓存（§4.3；`_lastSent` 已随拆进程删除，无重发路径）
-7. BDD：LLA Host→IG 跟拍、`offsetDeg`、模式装配与初始相机、半径、换轨缓存、本地回归（防回声已随拆进程移除）
+3. `HostEyePose` 收敛为只 LLA（删 `frame` 枚举；`compose` / `apply` / `_lastApplied` 全部按 LLA 语义；本地路径随同步只 LLA 删除）
+4. `CigiWire`：`EyePose` 收敛为只 LLA（删 `EyeFrame`；`appendEye` 恒 Detach+LLA）
+5. 椭球分支：`setCameraPoseLla`；Detach+double LLA；EntityID/ParentID 按 §5；参与同步场景自动注入椭球
+6. 场景重建清空同步位姿缓存（§4.3）
+7. BDD：LLA Host→IG 跟拍、`offsetDeg`、模式装配与初始相机、半径、场景重建清缓存
 8. （可选）瓦片联调；HELLO 传半径等增强
 
 与 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.8 / §9 P1「椭球 / ECEF 相机驱动」对齐；落地后更新该节状态为已实现，并收回「未实现前勿假设 XYZ 眼点在椭球下正确」的警告。

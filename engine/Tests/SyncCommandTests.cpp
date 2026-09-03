@@ -1442,75 +1442,8 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
 //     ownship 眼点（EntityID==0）与命令实体（EntityID≠0）同 PacketID（EntityPositionCtrlV4），
 //     UDP 链路（眼点）与 TCP 链路（命令实体）各注册通用捕获，经多播
 //     addCallback<CigiEntityPositionCtrlV4> 同回调按 EntityID 分流（§4.1 / cigi梳理.md 链路矩阵）。
+//     同步层只支持 LLA（2026-09 收敛）：命令实体摆放恒 Detach+LLA（见下方 Ellipsoid 用例）。
 // =============================================================================
-
-SCENARIO("Host places an entity pose over TCP and IG engine updates the entity transform",
-         "[acceptance][bdd][sync][cmd][e2e][entity-pose]")
-{
-    GIVEN("independent Host and an IG engine with a configured entity")
-    {
-        constexpr int kBase = 33600;
-
-        // 带实体配置的 IG（本地坐标系，id=7）。
-        const TempConfigFile igFile(
-            std::string(R"({ "coordFrame": "Local", )") +
-            R"("entities": [ { "id": 7, "model": "models/teapot.vsgt", )"
-            R"("pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } } ], )" +
-            R"("igConfig": { "udpPortSend": )" + std::to_string(kBase) +
-            R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
-            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
-            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( }, )" +
-            R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 } })");
-
-        HostSync hostA;
-        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
-
-        Engine engineIg;
-        engineIg.extent = {640, 480};
-        engineIg.showWindow = false;
-        REQUIRE(engineIg.loadConfig(igFile.path()));
-        REQUIRE(engineIg.init());
-        REQUIRE(hostA.readyIgCount() == 1);
-
-        WHEN("Host sends EntityPositionCtrlV4 for entity 7 over TCP (one-shot placement)")
-        {
-            {
-                auto& tcp = hostA.outMsgWithIgCtrlTcp();
-                CigiEntityPositionCtrlV4 pose;
-                pose.SetEntityID(7);
-                pose.SetAttachState(CigiBaseEntityPositionCtrl::Attach);
-                pose.SetXoff(10.0);
-                pose.SetYoff(20.0);
-                pose.SetZoff(5.0);
-                pose.SetYaw(30.0f);
-                pose.SetPitch(0.0f);
-                pose.SetRoll(0.0f);
-                tcp << pose;
-                hostA.flushTcp();
-            }
-            engineIg.tickSync();
-
-            THEN("engine entity 7 pose and transform are updated")
-            {
-                vsg::dvec3 pos, ypr;
-                REQUIRE(engineIg.sampleEntityPoseById(7, pos, ypr));
-                REQUIRE(pos.x == Catch::Approx(10.0));
-                REQUIRE(pos.y == Catch::Approx(20.0));
-                REQUIRE(pos.z == Catch::Approx(5.0));
-                REQUIRE(ypr.x == Catch::Approx(30.0));
-
-                auto mt = engineIg.entityTransform(7);
-                REQUIRE(mt);
-                // 本地：translate(position) * R(ypr)，验证平移分量。
-                const auto m = mt->matrix;
-                REQUIRE(m(3, 0) == Catch::Approx(10.0));
-                REQUIRE(m(3, 1) == Catch::Approx(20.0));
-                REQUIRE(m(3, 2) == Catch::Approx(5.0));
-            }
-        }
-    }
-}
 
 // Ellipsoid 正向摆放回归保护（实体与运动控制设计.md §4.2 / lla位姿传输设计.md §2.1）。
 // 注意：本用例**不**验证「坐标系由场景判据决定」的新语义——那是负向拒收用例的职责
@@ -1527,7 +1460,7 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
         constexpr int kBase = 33650;
 
         const TempConfigFile igFile(
-            std::string(R"({ "coordFrame": "Ellipsoid", )") +
+            std::string(R"({ "injectEllipsoidIfMissing": true, )") +
             R"("entities": [ { "id": 7, "model": "models/teapot.vsgt", )"
             R"("pose": { "ellipsoid": { "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 }, )"
             R"("eulerYprDeg": [0, 0, 0] } } } ], )" +

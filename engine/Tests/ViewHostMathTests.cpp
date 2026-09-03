@@ -36,7 +36,6 @@ namespace
     cigi_wire::EyePose makeLlaEye(double lat, double lon, double alt, double yaw = 0.0)
     {
         cigi_wire::EyePose eye;
-        eye.frame = cigi_wire::EyeFrame::LLA;
         eye.x = lat;
         eye.y = lon;
         eye.z = alt;

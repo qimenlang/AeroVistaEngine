@@ -88,10 +88,11 @@ namespace
     }
 
     /// `entitiesArrayBody` 是 JSON 数组字面量，例如 `[ {...}, {...} ]`。
-    std::string channelJson(const char* coordFrame, const std::string& entitiesArrayBody,
+    std::string channelJson(bool injectEllipsoidIfMissing, const std::string& entitiesArrayBody,
                             const std::string& cameraObject = {})
     {
-        std::string s = std::string("{ \"coordFrame\": \"") + coordFrame + "\", \"entities\": " + entitiesArrayBody;
+        std::string s = std::string("{ \"injectEllipsoidIfMissing\": ") +
+                        (injectEllipsoidIfMissing ? "true" : "false") + ", \"entities\": " + entitiesArrayBody;
         if (!cameraObject.empty())
             s += ", \"camera\": " + cameraObject;
         s += ", " + std::string(kWindow) + " }";
@@ -116,9 +117,9 @@ namespace
     }
 
     const char* kSceneLocalJson =
-        R"({"coordFrame":"Local","entities":[{"id":1,"name":"teapot","model":"models/teapot.vsgt","pose":{"local":{"position":[10.0,0.0,-2.0],"eulerYprDeg":[90.0,0.0,0.0]}}}],"camera":{"pose":{"local":{"position":[0.0,0.0,0.0],"eulerYprDeg":[-90.0,0.0,0.0]}}},"window":{"x":100,"y":100,"width":1280,"height":720}})";
+        R"({"entities":[{"id":1,"name":"teapot","model":"models/teapot.vsgt","pose":{"local":{"position":[10.0,0.0,-2.0],"eulerYprDeg":[90.0,0.0,0.0]}}}],"camera":{"pose":{"local":{"position":[0.0,0.0,0.0],"eulerYprDeg":[-90.0,0.0,0.0]}}},"window":{"x":100,"y":100,"width":1280,"height":720}})";
     const char* kSceneEcefJson =
-        R"({"coordFrame":"Ellipsoid","entities":[{"id":1,"name":"teapot","model":"models/teapot.vsgt","pose":{"ellipsoid":{"lla":{"lat":39.9087,"lon":116.3975,"alt":0.0},"eulerYprDeg":[0.0,0.0,0.0]}}}],"camera":{"pose":{"ellipsoid":{"lla":{"lat":39.90852,"lon":116.3975,"alt":3.0},"eulerYprDeg":[0.0,-12.0,0.0]}}},"window":{"x":100,"y":100,"width":1280,"height":720}})";
+        R"({"injectEllipsoidIfMissing":true,"entities":[{"id":1,"name":"teapot","model":"models/teapot.vsgt","pose":{"ellipsoid":{"lla":{"lat":39.9087,"lon":116.3975,"alt":0.0},"eulerYprDeg":[0.0,0.0,0.0]}}}],"camera":{"pose":{"ellipsoid":{"lla":{"lat":39.90852,"lon":116.3975,"alt":3.0},"eulerYprDeg":[0.0,-12.0,0.0]}}},"window":{"x":100,"y":100,"width":1280,"height":720}})";
 
     void requireLookAtMatchesLocalPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
     {
@@ -324,10 +325,10 @@ SCENARIO("local entity pose from config matches sampled engine pose",
         constexpr vsg::dvec3 kPos{1.5, -2.0, 3.25};
         constexpr vsg::dvec3 kYpr{30.0, 5.0, -2.0};
         const TempConfigFile cfgFile(channelJson(
-            "Local", "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
+            false, "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
-        REQUIRE(engine.config.coordFrame == CoordFrameIntent::LOCAL);
+        REQUIRE_FALSE(engine.config.injectEllipsoidIfMissing);
 
         WHEN("the entity pose is sampled by id")
         {
@@ -351,14 +352,14 @@ SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
         constexpr vsg::dvec3 kLla{39.9, 116.4, 12.0};
         constexpr vsg::dvec3 kEllYpr{15.0, 3.0, -1.0};
         const TempConfigFile cfgFile(channelJson(
-            "Ellipsoid",
+            true,
             "[" +
                 jsonEntity(1, kTeapot,
                            jsonPoseBoth(vsg::dvec3{100, 200, 300}, vsg::dvec3{90, 0, 0}, kLla, kEllYpr)) +
                 "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
-        REQUIRE(engine.config.coordFrame == CoordFrameIntent::ELLIPSOID);
+        REQUIRE(engine.config.injectEllipsoidIfMissing);
 
         WHEN("the entity pose is sampled by id")
         {
@@ -382,7 +383,7 @@ SCENARIO("loaded entity is parented under a MatrixTransform",
     GIVEN("a Local entity config with pose.local")
     {
         const TempConfigFile cfgFile(channelJson(
-            "Local",
+            false,
             "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{1, 2, 3}, vsg::dvec3{0, 0, 0})) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
@@ -409,7 +410,7 @@ SCENARIO("multiple entities: entitySize matches config and ids resolve one-to-on
         const std::string entities =
             "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{1, 0, 0}, vsg::dvec3{0, 0, 0})) + ", " +
             jsonEntity(2, kLz, jsonPoseLocalOnly(vsg::dvec3{0, 2, 0}, vsg::dvec3{10, 0, 0})) + "]";
-        const TempConfigFile cfgFile(channelJson("Local", entities));
+        const TempConfigFile cfgFile(channelJson(false, entities));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 
@@ -440,7 +441,7 @@ SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
         constexpr vsg::dvec3 kYprB{0.0, 15.0, 0.0};
         const std::string entities = "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPosA, kYprA)) + ", " +
                                      jsonEntity(2, kLz, jsonPoseLocalOnly(kPosB, kYprB)) + "]";
-        const TempConfigFile cfgFile(channelJson("Local", entities));
+        const TempConfigFile cfgFile(channelJson(false, entities));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
         REQUIRE(engine.entitySize() == 2);
@@ -470,7 +471,7 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
             jsonEntity(1, kTeapot,
                        jsonPoseBoth(vsg::dvec3{100, 200, 300}, vsg::dvec3{90, 0, 0}, kLlaA, kYprA)) +
             ", " + jsonEntity(2, kLz, jsonPoseEllipsoidOnly(kLlaB, kYprB)) + "]";
-        const TempConfigFile cfgFile(channelJson("Ellipsoid", entities));
+        const TempConfigFile cfgFile(channelJson(true, entities));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
         REQUIRE(engine.ellipsoidModel());
@@ -501,33 +502,33 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
 TEST_CASE("loadEngineChannelConfig rejects entities item without model",
           "[unit][config][parse][pose][entities]")
 {
-    requireLoadFails(channelJson("Local", R"([{ "id": 1, "pose": { "local": { "position": [0,0,0], "eulerYprDeg": [0,0,0] } } }])"));
+    requireLoadFails(channelJson(false, R"([{ "id": 1, "pose": { "local": { "position": [0,0,0], "eulerYprDeg": [0,0,0] } } }])"));
 }
 
 TEST_CASE("loadEngineChannelConfig rejects entities item without id",
           "[unit][config][parse][pose][entities][id]")
 {
-    requireLoadFails(channelJson("Local", std::string("[{ \"model\": \"") + kTeapot + "\" }]"));
+    requireLoadFails(channelJson(false, std::string("[{ \"model\": \"") + kTeapot + "\" }]"));
 }
 
 TEST_CASE("loadEngineChannelConfig rejects entities item with non-integer id",
           "[unit][config][parse][pose][entities][id]")
 {
-    requireLoadFails(channelJson("Local", std::string("[{ \"id\": \"a\", \"model\": \"") + kTeapot + "\" }]"));
+    requireLoadFails(channelJson(false, std::string("[{ \"id\": \"a\", \"model\": \"") + kTeapot + "\" }]"));
 }
 
 TEST_CASE("loadEngineChannelConfig rejects duplicate entity ids",
           "[unit][config][parse][pose][entities][id]")
 {
     requireLoadFails(channelJson(
-        "Local", std::string("[{ \"id\": 1, \"model\": \"") + kTeapot + "\" }, { \"id\": 1, \"model\": \"" + kLz +
-                     "\" }]"));
+        false, std::string("[{ \"id\": 1, \"model\": \"") + kTeapot + "\" }, { \"id\": 1, \"model\": \"" + kLz +
+                   "\" }]"));
 }
 
 TEST_CASE("loadEngineChannelConfig rejects empty entities array",
           "[unit][config][parse][pose][entities]")
 {
-    requireLoadFails(channelJson("Local", "[]"));
+    requireLoadFails(channelJson(false, "[]"));
 }
 
 TEST_CASE("loadEngineChannelConfig rejects top-level model together with entities",
@@ -544,26 +545,40 @@ TEST_CASE("loadEngineChannelConfig rejects singular entity together with entitie
                      jsonEntity(1, kTeapot) + " ], " + kWindow + " }");
 }
 
-TEST_CASE("loadEngineChannelConfig rejects pose when selected local half is missing",
+TEST_CASE("loadEngineChannelConfig accepts pose with only the non-selected half",
           "[unit][config][parse][pose][entities]")
 {
-    requireLoadFails(channelJson(
-        "Local",
+    // 双轨自由解析（2026-09 收敛）：不再按 injectEllipsoidIfMissing 强制某半，两半均可解析。
+    const TempConfigFile file(channelJson(
+        false,
         "[" + jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(vsg::dvec3{39.9, 116.4, 0}, vsg::dvec3{0, 0, 0})) + "]"));
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.entities.size() == 1);
+    REQUIRE(cfg.entities[0].hasPoseEllipsoid);
+    REQUIRE_FALSE(cfg.entities[0].hasPoseLocal);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects pose when selected ellipsoid half is missing",
+TEST_CASE("loadEngineChannelConfig accepts pose with ellipsoid half absent despite inject flag",
           "[unit][config][parse][pose][entities]")
 {
-    requireLoadFails(channelJson(
-        "Ellipsoid", "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{0, 0, 0}, vsg::dvec3{0, 0, 0})) + "]"));
+    // 双轨自由解析（2026-09 收敛）：injectEllipsoidIfMissing=true 只驱动注入，不强制 pose 必须带 ellipsoid 半。
+    const TempConfigFile file(channelJson(
+        true, "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{0, 0, 0}, vsg::dvec3{0, 0, 0})) + "]"));
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.entities.size() == 1);
+    REQUIRE(cfg.entities[0].hasPoseLocal);
+    REQUIRE_FALSE(cfg.entities[0].hasPoseEllipsoid);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects local pose with incomplete position array",
           "[unit][config][parse][pose][entities]")
 {
     requireLoadFails(channelJson(
-        "Local",
+        false,
         std::string("[{ \"id\": 1, \"model\": \"") + kTeapot +
             R"(", "pose": { "local": { "position": [1, 2], "eulerYprDeg": [0, 0, 0] } } }])"));
 }
@@ -572,22 +587,29 @@ TEST_CASE("loadEngineChannelConfig rejects unknown key on entities item",
           "[unit][config][parse][pose][entities]")
 {
     requireLoadFails(channelJson(
-        "Local", std::string("[{ \"id\": 1, \"model\": \"") + kTeapot + R"(", "scale": 2.0 }])"));
+        false, std::string("[{ \"id\": 1, \"model\": \"") + kTeapot + R"(", "scale": 2.0 }])"));
 }
 
-TEST_CASE("loadEngineChannelConfig rejects camera pose when selected local half is missing",
+TEST_CASE("loadEngineChannelConfig accepts camera pose with only the non-selected half",
           "[unit][config][parse][pose][camera]")
 {
-    requireLoadFails(channelJson(
-        "Local", "[" + jsonEntity(1, kTeapot) + "]",
+    // 双轨自由解析（2026-09 收敛）：不强制 camera pose 必须带「选中」半，运行时按场景有无椭球选半。
+    const TempConfigFile file(channelJson(
+        false, "[" + jsonEntity(1, kTeapot) + "]",
         R"({ "pose": { "ellipsoid": { "lla": { "lat": 39.9, "lon": 116.4, "alt": 500 }, "eulerYprDeg": [0, 0, 0] } } })"));
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.hasCamera);
+    REQUIRE(cfg.camera.hasPoseEllipsoid);
+    REQUIRE_FALSE(cfg.camera.hasPoseLocal);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects camera local pose with incomplete eulerYprDeg",
           "[unit][config][parse][pose][camera]")
 {
     requireLoadFails(channelJson(
-        "Local", "[" + jsonEntity(1, kTeapot) + "]",
+        false, "[" + jsonEntity(1, kTeapot) + "]",
         R"({ "pose": { "local": { "position": [0, -10, 5], "eulerYprDeg": [0, 0] } } })"));
 }
 
@@ -602,7 +624,7 @@ SCENARIO("entity name defaults to model basename and explicit name is kept",
     {
         const std::string entities =
             "[" + jsonEntity(1, kLz) + ", " + jsonEntity(2, kTeapot, {}, "tower") + "]";
-        const TempConfigFile cfgFile(channelJson("Local", entities));
+        const TempConfigFile cfgFile(channelJson(false, entities));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 
@@ -626,7 +648,7 @@ SCENARIO("entity without pose has no MatrixTransform parent",
 {
     GIVEN("a Local entity with id/model but no pose")
     {
-        const TempConfigFile cfgFile(channelJson("Local", "[" + jsonEntity(1, kTeapot) + "]"));
+        const TempConfigFile cfgFile(channelJson(false, "[" + jsonEntity(1, kTeapot) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
         REQUIRE(engine.entitySize() == 1);
@@ -650,7 +672,7 @@ SCENARIO("single entities entry still registers in the id map",
         constexpr vsg::dvec3 kPos{2.0, 3.0, 4.0};
         constexpr vsg::dvec3 kYpr{5.0, 0.0, 0.0};
         const TempConfigFile cfgFile(
-            channelJson("Local", "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
+            channelJson(false, "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 
@@ -674,7 +696,7 @@ SCENARIO("sampleEntityPoseById matches MatrixTransform for local pose",
         constexpr vsg::dvec3 kPos{1.0, -2.0, 3.0};
         constexpr vsg::dvec3 kYpr{12.0, 4.0, -3.0};
         const TempConfigFile cfgFile(
-            channelJson("Local", "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
+            channelJson(false, "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 
@@ -700,7 +722,7 @@ SCENARIO("duplicate entity names are allowed; lookup is by id only",
     {
         const std::string entities =
             "[" + jsonEntity(1, kTeapot, {}, "twin") + ", " + jsonEntity(2, kLz, {}, "twin") + "]";
-        const TempConfigFile cfgFile(channelJson("Local", entities));
+        const TempConfigFile cfgFile(channelJson(false, entities));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 
@@ -735,7 +757,7 @@ SCENARIO("local camera pose from config matches LookAt",
         constexpr vsg::dvec3 kPos{0.0, -50.0, 10.0};
         constexpr vsg::dvec3 kYpr{20.0, 5.0, 0.0};
         const TempConfigFile cfgFile(channelJson(
-            "Local", "[" + jsonEntity(1, kTeapot) + "]",
+            false, "[" + jsonEntity(1, kTeapot) + "]",
             std::string(R"({ "pose": { "local": )") + jsonLocalPose(kPos, kYpr) + " } }"));
         Engine engine;
         engine.extent = {640, 480};
@@ -761,7 +783,7 @@ SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
     GIVEN("an Ellipsoid config with different camera pose halves")
     {
         const TempConfigFile cfgFile(channelJson(
-            "Ellipsoid", "[" + jsonEntity(1, kTeapot) + "]",
+            true, "[" + jsonEntity(1, kTeapot) + "]",
             std::string(R"({ "pose": )") +
                 jsonPoseBoth(vsg::dvec3{0, -50, 10}, vsg::dvec3{90, 0, 0}, vsg::dvec3{39.9, 116.4, 500},
                              vsg::dvec3{0, 10, 0}) +
@@ -796,7 +818,7 @@ SCENARIO("no camera config: Local default LookAt frames entities AABB",
         constexpr vsg::dvec3 kPos{2.0, 0.0, 0.0};
         constexpr vsg::dvec3 kYpr{0.0, 0.0, 0.0};
         const TempConfigFile cfgFile(
-            channelJson("Local", "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
+            channelJson(false, "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr)) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 
@@ -822,7 +844,7 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
         constexpr vsg::dvec3 kLla{-33.8688, 151.2093, 0.0};
         constexpr vsg::dvec3 kYpr{0.0, 0.0, 0.0};
         const TempConfigFile cfgFile(
-            channelJson("Ellipsoid", "[" + jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(kLla, kYpr)) + "]"));
+            channelJson(true, "[" + jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(kLla, kYpr)) + "]"));
         Engine engine;
         initOffscreen(engine, cfgFile.path());
 

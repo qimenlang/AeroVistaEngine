@@ -35,3 +35,10 @@
 - [ ] 背景：UDP payload 当前带 `receivedAtUs`（I/O 线程 recv 时刻），用于时钟同步 §4.0 的 `simTimeUs(now) = lastSimTimeUs + (nowUs - lastReceivedAtUs)`。
 - [ ] 不能简单去掉：主线程 processor 解包时刻比 recv 时刻晚 0~5ms（UDP 空队列等待），60fps 下 ~30% 帧周期误差。
 - [ ] 待定：是否可接受误差 / 是否需改为「I/O 线程解包」或其他注入方式。
+
+## 本地笛卡尔「合成 parent」约定（已解决，2026-09）
+
+- [x] **已解决**：同步层收敛为只支持 LLA（2026-09 落地）——眼点与命令实体恒 `Detach`+LLA，本地绝对 XYZ 的 `Attach + ParentID=1` 合成 parent 借壳已随 `EyeFrame::WORLD_LOCAL` / `EyePose.frame` / `HostEyeCoordFrame` 删除而移除（`CigiWire.cpp::appendEye` 只走 Detach 分支）。
+- [x] 后续演进：`coordFrame` 枚举 → `injectEllipsoidIfMissing`（bool，仅单机椭球渲染）；参与同步（有 `igConfig`）的场景由引擎自动注入椭球。
+- [x] 相关测试（本地线契约 / E2E / 回归）已删或改椭球场景；本地场景保留但仅单机渲染（无 `igConfig`）。
+- 关联文档：[lla位姿传输设计.md](./design/多通道同步/lla位姿传输设计.md) §2/§5、[实体与运动控制设计.md](./design/多通道同步/实体与运动控制设计.md) §4.2。

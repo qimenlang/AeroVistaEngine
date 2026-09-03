@@ -93,13 +93,11 @@ public:
     bool entityName(int id, std::string& outName) const;
     vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
 
-    /// 应用 SynchronSystem 产出的相机位姿（按 frame 分派 setCameraPose / setCameraPoseLla）。
+    /// 应用 SynchronSystem 产出的相机位姿（恒 LLA → setCameraPoseLla）。
     void applySyncCameraPose(const aerovista::sync::HostEyePose& pose);
 
-    /// 更新指定实体的位姿（命令面 Host→IG 摆放）。`frame` 为 ELLIPSOID 时按 LLA 写，否则本地 XYZ。
-    /// 回调主线程解包时调用，直接写 entityMap（主线程安全，§6）。
-    void updateEntityPose(int id, const aerovista::sync::DVec3& positionOrLla, const aerovista::sync::DVec3& eulerYprDeg,
-                          CoordFrameIntent frame);
+    /// 更新指定实体的位姿（命令面 Host→IG 摆放，恒 LLA）。回调主线程解包时调用，直接写 entityMap（主线程安全，§6）。
+    void updateEntityPose(int id, const aerovista::sync::DVec3& lla, const aerovista::sync::DVec3& eulerYprDeg);
 
     /// 订阅回调：EntityPositionCtrlV4 到达时分流（§4.1）——EntityID==0 ownship 眼点翻译为
     /// HostEyePose 入队 SynchronSystem 决策器；EntityID≠0 命令实体走 updateEntityPose 摆放。

@@ -33,9 +33,9 @@ namespace
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     // 拆 Host 进程后 engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
-        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":false},"igConfig":{"udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"hostEyeStalePolicy":"ReuseLast","requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -82,18 +82,18 @@ namespace
 } // namespace
 
 // =============================================================================
-// 验收：coordFrame → 场景 EllipsoidModel（lla位姿传输设计.md §2.1 / §6 / §7）
-// JSON 意图："Ellipsoid" | "Local"（缺省 Local）；挂到 scene 的对象类型为 EllipsoidModel。
+// 验收：injectEllipsoidIfMissing → 场景 EllipsoidModel 注入（lla位姿传输设计.md §2）。
+// 运行时坐标系由「场景有无 EllipsoidModel」决定；此开关只在无椭球时决定是否注入。
 // =============================================================================
 
-SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has none",
-         "[acceptance][bdd][config][coordFrame]")
+SCENARIO("injectEllipsoidIfMissing injects EllipsoidModel on scene; otherwise lz has none",
+         "[acceptance][bdd][config][ellipsoid-inject]")
 {
     GIVEN("a channel config that uses lz.vsgt (model has no built-in EllipsoidModel)")
     {
-        WHEN("coordFrame is set to Ellipsoid")
+        WHEN("injectEllipsoidIfMissing is true")
         {
-            const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+            const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + kMinimalModel + ", " +
                                       kMinimalWindow + "}");
             Engine engine;
             REQUIRE(engine.loadConfig(file.path()));
@@ -106,7 +106,7 @@ SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has 
             }
         }
 
-        WHEN("coordFrame is omitted (defaults to Local)")
+        WHEN("injectEllipsoidIfMissing is omitted (defaults to false)")
         {
             const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow + "}");
             Engine engine;
@@ -122,35 +122,37 @@ SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has 
     }
 }
 
-SCENARIO("model-built-in EllipsoidModel requires coordFrame Ellipsoid (Local or omitted fails fast)",
-         "[acceptance][bdd][config][coordFrame]")
+SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfMissing",
+         "[acceptance][bdd][config][ellipsoid-inject]")
 {
     GIVEN("a channel config that uses readymap.vsgt (model already has EllipsoidModel)")
     {
-        WHEN("coordFrame is omitted (defaults to Local)")
+        WHEN("injectEllipsoidIfMissing is omitted (defaults to false)")
         {
             const TempConfigFile file(std::string("{") + kReadymapModel + ", " + kMinimalWindow + "}");
             Engine engine;
             REQUIRE(engine.loadConfig(file.path()));
             engine.showWindow = false;
 
-            THEN("init fails fast (built-in ellipsoid requires coordFrame Ellipsoid)")
+            THEN("init succeeds and the scene keeps the built-in EllipsoidModel")
             {
-                REQUIRE_FALSE(engine.init());
+                REQUIRE(engine.init());
+                REQUIRE(engine.ellipsoidModel());
             }
         }
 
-        WHEN("coordFrame is explicitly Local")
+        WHEN("injectEllipsoidIfMissing is true")
         {
-            const TempConfigFile file(std::string(R"({ "coordFrame": "Local", )") + kReadymapModel + ", " +
+            const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + kReadymapModel + ", " +
                                       kMinimalWindow + "}");
             Engine engine;
             REQUIRE(engine.loadConfig(file.path()));
             engine.showWindow = false;
 
-            THEN("init fails fast (built-in ellipsoid requires coordFrame Ellipsoid)")
+            THEN("init succeeds and the built-in EllipsoidModel is kept (no re-inject)")
             {
-                REQUIRE_FALSE(engine.init());
+                REQUIRE(engine.init());
+                REQUIRE(engine.ellipsoidModel());
             }
         }
     }
@@ -168,7 +170,7 @@ SCENARIO("coordFrame Ellipsoid injects before camera create with fallback LLA Lo
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
@@ -212,7 +214,7 @@ SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardco
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kReadymapModel + ", " +
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + kReadymapModel + ", " +
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
@@ -259,7 +261,7 @@ SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string(R"({ "coordFrame": "Local", )") + kMinimalModel + ", " +
+        const TempConfigFile file(std::string(R"({ )") + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
@@ -297,7 +299,6 @@ SCENARIO("Local multiple entities no pose camera uses overall AABB",
         Engine engine;
         engine.showWindow = false;
         const TempConfigFile file(R"({
-            "coordFrame": "Local",
             "entities": [
                 { "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } },
                 { "id": 2, "model": "models/lz.vsgt", "pose": { "local": { "position": [100, 0, 0], "eulerYprDeg": [0, 0, 0] } } }
@@ -340,7 +341,7 @@ SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
         Engine engine;
         engine.showWindow = false;
         const TempConfigFile file(R"({
-            "coordFrame": "Ellipsoid",
+            "injectEllipsoidIfMissing": true,
             "entities": [
                 {
                     "id": 1,
@@ -386,7 +387,7 @@ SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
@@ -426,7 +427,6 @@ SCENARIO("camera pose overrides AABB computed position",
         Engine engine;
         engine.showWindow = false;
         const TempConfigFile file(R"({
-            "coordFrame": "Local",
             "entities": [
                 { "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } }
             ],
@@ -470,7 +470,7 @@ SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kMinimalModel + ", " +
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
@@ -497,7 +497,7 @@ SCENARIO("Local Perspective near far proportional to radius",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string(R"({ "coordFrame": "Local", )") + kMinimalModel + ", " +
+        const TempConfigFile file(std::string(R"({ )") + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
@@ -533,7 +533,6 @@ SCENARIO("Local camera pose recomputes near far to prevent clipping",
         Engine engine;
         engine.showWindow = false;
         const TempConfigFile file(R"({
-            "coordFrame": "Local",
             "entities": [
                 { "id": 1, "model": "models/lz.vsgt" }
             ],
@@ -774,7 +773,7 @@ SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init whe
 {
     GIVEN("an IG-only config that does not set requireConnectedIg")
     {
-        const TempConfigFile file(std::string("{") + jsonIgConfig(18005) + ", " +
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + jsonIgConfig(18005) + ", " +
                                   kMinimalModel + ", " + kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
@@ -796,7 +795,7 @@ SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
-        const TempConfigFile file(std::string("{") + jsonIgConfig(18003) + R"(, "syncSystem": { "requireConnectedIg": true }, )" +
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + jsonIgConfig(18003) + R"(, "syncSystem": { "requireConnectedIg": true }, )" +
                                   kMinimalModel + ", " + kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
@@ -882,7 +881,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config]
 TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg", "[unit][config][parse]")
 {
     // igConfig 自包含本地绑定 + 远端目标，不再需要独立的 hostEndpoint 配对。
-    const TempConfigFile file(std::string("{") + jsonIgConfig() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
+    const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + jsonIgConfig() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1018,6 +1017,7 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
     const TempConfigFile file(
         R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
         R"("hostEyeStalePolicy": "Freeze", "requireConnectedIg": true }, )"
+        R"("injectEllipsoidIfMissing": true, )"
         R"("igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )"
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
         R"("model": "models/lz.vsgt" })");

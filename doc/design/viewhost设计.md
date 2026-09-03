@@ -114,21 +114,18 @@ thirdparty/sync/examples/viewhost/
 5. HostSync::shutdown()                              // 退出时收尾
 ```
 
-### 4.2 眼点表示与平移参考系（frame 由 hostConfig `coordFrame` 决定）
+### 4.2 眼点表示与平移参考系（恒 LLA）
 
-**frame 由 hostConfig `coordFrame` 决定（2026-09，取代「默认 LLA」写死，见 §5）**：`Ellipsoid` → `EyePose.frame = EyeFrame::LLA`（Detach+LLA）；`Local` → `EyePose.frame = EyeFrame::WORLD_LOCAL`（Attach+XYZ）。下文 LLA 字段语义与平移换算仅适用于 Ellipsoid 模式。
-
-**Ellipsoid 模式字段语义**：眼点用椭球模式 LLA 表示，`cigi_wire::EyePose.frame = EyeFrame::LLA`，字段语义见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §3.1 / §3.2 与 `CigiWire.h`：
+viewhost 作为 Host 端恒发 **LLA**（同步只 LLA，2026-09 收敛；`cigi_wire::EyePose` 无 frame 判别字段，恒 Detach+LLA）。字段语义见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §3.1 / §3.2 与 `CigiWire.h`：
 
 | EyePose 字段 | LLA 语义 |
 | --- | --- |
-| `frame` | `EyeFrame::LLA`（Detach+LLA 编码） |
 | `x` | 纬度 lat（度，`[-90, 90]`） |
 | `y` | 经度 lon（度，`[-180, 180]`） |
 | `z` | 海拔 alt（米，相对椭球面） |
 | `yawDeg` / `pitchDeg` / `rollDeg` | 当地 **ENU** YPR（东-北-天；`yaw=0` 朝北，`+yaw` 左转朝西） |
 
-> **术语澄清**：viewhost 作为 Host 端发的是 **LLA**（`frame=LLA`），**不是** ECEF。ECEF（地心米制笛卡尔）是 IG 侧椭球场景的渲染工作坐标（[lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2）；`cigi_wire::EyePose` 只有 `frame` 枚举（WORLD_LOCAL / LLA），无「直接发 ECEF」选项。默认 LLA 即配合 engine 椭球场景（`scene_ecef_*.json`，`coordFrame: "Ellipsoid"`）。
+> **术语澄清**：viewhost 作为 Host 端发的是 **LLA**，**不是** ECEF。ECEF（地心米制笛卡尔）是 IG 侧椭球场景的渲染工作坐标（[lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2）；`cigi_wire::EyePose` 无「直接发 ECEF」选项。LLA 即配合 engine 椭球场景（`scene_ecef_ig_*.json` 等参与同步的 IG 自动注入椭球）。
 
 **平移参考系（机头局部 + 绝对垂直）**：
 
@@ -213,9 +210,9 @@ void ViewHostDlg::onTick()
 - `_controlling` = toggle 按钮状态；`_moveStep` / `_turnStepDeg` 为每帧增量（按实际 dt 归一化，见 §4.3，单位米/度）。
 - `applyManualStep(eye, dFwd, dRight, dUp, dyawDeg, dpitchDeg)` 为**自由函数**（`aerovista::viewhost`），按 §4.2 把 `dFwd`/`dRight`/`dUp` 换算成 lat/lon/alt，把 `dyaw`/`dpitch` 累加到 YPR；从当前 `_eye` 累积。
 
-**`_eye` 初始化（写死，与 hostConfig `coordFrame` 对齐）**：
+**`_eye` 初始化（写死，恒 LLA）**：
 
-- `_eye` 构造后**立即初始化**为：`frame` 由 hostConfig `coordFrame` 决定——`Ellipsoid` → `EyeFrame::LLA` + 初始演示眼点（lat/lon/alt，位于模型群附近）；`Local` → `EyeFrame::WORLD_LOCAL` + 初始演示眼点（XYZ）；`yaw = 0`、`pitch = roll = 0`。**禁止**用 `cigi_wire::EyePose` 默认构造（其 `frame=WORLD_LOCAL`，当 `coordFrame=Ellipsoid` 时首帧会发出 WorldLocal，与期望 LLA 矛盾）。
+- `_eye` 构造后**立即初始化**为：初始演示眼点（lat/lon/alt，位于模型群附近），`yaw = 0`、`pitch = roll = 0`。同步只 LLA（2026-09 收敛），`EyePose` 无 frame 字段。
 - 进入手动模式：从「当前 `_eye`」起始累积，保证切入手动瞬间眼点不跳变。
 
 **键盘切换控制（空格热键，写死）**：
@@ -296,11 +293,10 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 - 复用 sync 库 `loadHostConfig`，配置形态与 `viewhost.json` 一致（顶层仅 `hostConfig` 块，未知键拒绝）：
 
 ```jsonc
-{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100, "coordFrame": "Ellipsoid" } }
+{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
 ```
 
-- **`coordFrame` 字段（新增，2026-09）**：`"Local"` | `"Ellipsoid"`（缺省 `"Local"`，与 IG 侧 `EngineChannelConfig.coordFrame` 同义，见 [位姿配置设计.md](./多通道同步/位姿配置设计.md) §1）。**决定 viewhost 眼点 frame**：`Ellipsoid` → `frame=LLA`（Detach+LLA）、`Local` → `frame=WORLD_LOCAL`（Attach+XYZ）。与 IG 侧坐标系**靠人工部署保持一致**（同 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2.5）。
-- **取代「默认 LLA」写死**：原「眼点默认 LLA（§4.2）」改为「由 hostConfig `coordFrame` 决定」；`viewhost.json` 不再无坐标系统开关。
+- **坐标系字段**：viewhost（Host 进程）**不配置任何坐标系字段**——同步只 LLA（2026-09 收敛），Host 恒发 LLA，与 IG 侧坐标系**靠人工部署保持一致**（IG 侧由「场景有无 `EllipsoidModel`」决定，见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2.5）。`viewhost.json` 仅含 `hostConfig` 端口块。
 
 ## 6. 测试策略
 
@@ -308,7 +304,6 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 
 - **不测**：MFC UI（`CDialog` 消息循环 / `GetAsyncKeyState` 轮询）、`HostDriver`（`HostSync` 薄封装）。`HostSync` 的握手 / 扇出 / LLA 组包已由 `engine/Tests` 的 `HostIGTests`（`[viewhost]` / `[standalone]`）覆盖；UI 壳无新逻辑，测它成本高、价值低。
 - **测（`[unit]`）**：viewhost 新增的**纯数值逻辑**——键盘步进→LLA 换算（§4.2 的 `forward_enu` / `right_enu` / lat·lon 增量）。这是现有测试覆盖不到的新逻辑，且边界易错：lat clamp、lon normalize 到 `(-180,180]`、`cos(lat)` 除零、yaw normalize。
-- **测（`[unit]` / `[acceptance]`，待实现）**：hostConfig `coordFrame` 解析（`loadHostConfig` 读 `"Local"`/`"Ellipsoid"`、非法值失败、缺省 `"Local"`）+ 组包按 `coordFrame` 选 `Attach`/`Detach`（`Ellipsoid`→Detach+LLA、`Local`→Attach+XYZ）。依赖 `HostConfig.coordFrame` 字段（sync 库 `SyncConfig.h`），随实现一并落地。
 
 **约束（写死）**：步进换算必须保持**纯 C++**——不依赖 MFC / vsg，只依赖 `cigi_wire::EyePose` 这一 POD 类型（include `CigiWire.h` 即可，不产生链接依赖），否则无法挂入 `engine/Tests`。
 
@@ -332,7 +327,7 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 - **扇出驱动走 UI 定时器（初版写死）**：`HostDriver::update`（`outMsgWithIgCtrlUdp+appendEye+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
 - **触发方式选 toggle 按钮（否决左键开始 / 右键结束）**：右键在 Windows 惯例为上下文菜单语义，且按钮控件对右键不产生点击通知，需在对话框层额外处理 `WM_RBUTTON*`；左/右键还缺状态可见性。改为单一 toggle 按钮（文字+颜色反映状态）承载「开始控制 ↔ 停止控制」。
 - **键盘读取用 `GetAsyncKeyState` 轮询（否决 `OnKeyDown`）**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框，且按下有重复延迟；物理键状态轮询与焦点无关、连续输入跟手，但需 toggle 开关避免与文字输入冲突（§4.4）。
-- **默认 LLA 眼点（非 ECEF）**：viewhost 发 `frame=LLA` 的 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。**（已演进 2026-09：`frame` 改由 hostConfig `coordFrame` 决定，见 §5）**
+- **恒 LLA 眼点（非 ECEF，2026-09 收敛）**：viewhost 发 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。
 - **程序放 `thirdparty/sync/examples/`**：viewhost 是 sync 库的 Host 接入示例，与 `minimal_viewhost.cpp` 并列，不进 `tools/`（§3）。
 - **平移参考系 = 机头局部（否决地理固定 N/S/E/W）**：WASD 沿当前 `yaw` 的机头局部水平面移动，配合方向键 yaw/pitch 的姿态控制更符合「驾驶」直觉；上下用绝对垂直 alt（§4.2）。
 - **测试范围分层（写死）**：UI / `HostDriver` 薄封装不测（`HostSync` 已由 `HostIGTests` 覆盖）；步进换算是新增纯数值逻辑，挂 `engine/Tests` 的 `[unit]` 测试，与示例共用同一份源码（§6）。

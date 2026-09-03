@@ -87,6 +87,8 @@ namespace
     {
         if (hasRequireConnectedIg && !cfg.hasIgConfig)
             throw std::runtime_error("requireConnectedIg without igConfig is invalid");
+        // 同步只 LLA（2026-09 收敛）：本地笛卡尔场景参与同步的 fail-fast 无法在配置加载期判定
+        // （「场景有无 EllipsoidModel」要 loadScene 后才知道），移至 Engine::ensureEllipsoidModelForFrame。
     }
 
     std::string basenameOfModel(const std::string& modelPath)
@@ -157,7 +159,7 @@ namespace
         return pose;
     }
 
-    void parseDualPose(const JsonObject& poseObj, CoordFrameIntent frame, bool& hasLocal, LocalPoseConfig& local,
+    void parseDualPose(const JsonObject& poseObj, bool& hasLocal, LocalPoseConfig& local,
                        bool& hasEllipsoid, EllipsoidPoseConfig& ellipsoid)
     {
         rejectUnknownKeys(poseObj, {"local", "ellipsoid"});
@@ -173,13 +175,10 @@ namespace
             hasEllipsoid = true;
             ellipsoid = parseEllipsoidPose(requireObjectValue(*v, "ellipsoid"));
         }
-        if (frame == CoordFrameIntent::LOCAL && !hasLocal)
-            throw std::runtime_error("pose.local required when coordFrame is Local");
-        if (frame == CoordFrameIntent::ELLIPSOID && !hasEllipsoid)
-            throw std::runtime_error("pose.ellipsoid required when coordFrame is Ellipsoid");
+        // 双轨自由解析；运行时按「场景有无 EllipsoidModel」选半（2026-09 收敛），不再加载期强制选半。
     }
 
-    EntityConfig parseEntityItem(const JsonObject& obj, CoordFrameIntent frame)
+    EntityConfig parseEntityItem(const JsonObject& obj)
     {
         rejectUnknownKeys(obj, {"id", "name", "model", "pose"});
         EntityConfig entity;
@@ -191,13 +190,13 @@ namespace
         if (const JsonValue* poseValue = find(obj, "pose"))
         {
             entity.hasPose = true;
-            parseDualPose(requireObjectValue(*poseValue, "pose"), frame, entity.hasPoseLocal, entity.localPose,
+            parseDualPose(requireObjectValue(*poseValue, "pose"), entity.hasPoseLocal, entity.localPose,
                           entity.hasPoseEllipsoid, entity.ellipsoidPose);
         }
         return entity;
     }
 
-    std::vector<EntityConfig> parseEntitiesArray(const JsonValue& value, CoordFrameIntent frame)
+    std::vector<EntityConfig> parseEntitiesArray(const JsonValue& value)
     {
         rejectNull(value, "entities");
         if (!value.isArray())
@@ -211,7 +210,7 @@ namespace
         std::unordered_set<int> seenIds;
         for (const JsonValue& item : arr)
         {
-            const EntityConfig entity = parseEntityItem(requireObjectValue(item, "entities[]"), frame);
+            const EntityConfig entity = parseEntityItem(requireObjectValue(item, "entities[]"));
             if (!seenIds.insert(entity.id).second)
                 throw std::runtime_error("duplicate entity id");
             entities.push_back(entity);
@@ -219,14 +218,14 @@ namespace
         return entities;
     }
 
-    CameraConfig parseCamera(const JsonObject& obj, CoordFrameIntent frame)
+    CameraConfig parseCamera(const JsonObject& obj)
     {
         rejectUnknownKeys(obj, {"pose"});
         CameraConfig camera;
         if (const JsonValue* poseValue = find(obj, "pose"))
         {
             camera.hasPose = true;
-            parseDualPose(requireObjectValue(*poseValue, "pose"), frame, camera.hasPoseLocal, camera.localPose,
+            parseDualPose(requireObjectValue(*poseValue, "pose"), camera.hasPoseLocal, camera.localPose,
                           camera.hasPoseEllipsoid, camera.ellipsoidPose);
         }
         return camera;
@@ -244,7 +243,7 @@ namespace
         if (hasEntityKey)
             throw std::runtime_error("singular entity is not supported; use entities");
         if (hasEntitiesKey)
-            cfg.entities = parseEntitiesArray(*find(root, "entities"), cfg.coordFrame);
+            cfg.entities = parseEntitiesArray(*find(root, "entities"));
         if (hasModelKey)
             cfg.model = requireString(root, "model");
     }
@@ -267,7 +266,7 @@ namespace
     {
         // hostConfig 已移出 engine schema（2026-08 拆 Host 进程）——engine 配置含 hostConfig 属未知键拒绝。
         rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
-                                 "coordFrame", "entities", "entity", "camera"});
+                                 "injectEllipsoidIfMissing", "entities", "entity", "camera"});
 
         EngineChannelConfig cfg;
 
@@ -283,18 +282,12 @@ namespace
         if (const JsonValue* v = find(root, "window"))
             cfg.window = parseWindow(requireObjectValue(*v, "window"));
 
-        if (const JsonValue* v = find(root, "coordFrame"))
+        if (const JsonValue* v = find(root, "injectEllipsoidIfMissing"))
         {
-            rejectNull(*v, "coordFrame");
-            if (!v->isString())
-                throw std::runtime_error("missing/invalid string: coordFrame");
-            const std::string s = v->asString();
-            if (s == "Local")
-                cfg.coordFrame = CoordFrameIntent::LOCAL;
-            else if (s == "Ellipsoid")
-                cfg.coordFrame = CoordFrameIntent::ELLIPSOID;
-            else
-                throw std::runtime_error("coordFrame must be \"Local\" or \"Ellipsoid\"");
+            rejectNull(*v, "injectEllipsoidIfMissing");
+            if (!v->isBool())
+                throw std::runtime_error("missing/invalid bool: injectEllipsoidIfMissing");
+            cfg.injectEllipsoidIfMissing = v->asBool();
         }
 
         parseModelEntityMutex(root, cfg);
@@ -302,7 +295,7 @@ namespace
         if (const JsonValue* v = find(root, "camera"))
         {
             cfg.hasCamera = true;
-            cfg.camera = parseCamera(requireObjectValue(*v, "camera"), cfg.coordFrame);
+            cfg.camera = parseCamera(requireObjectValue(*v, "camera"));
         }
 
         validateIgEndpointPairing(cfg, cfg.syncSystem.requireConnectedIg);

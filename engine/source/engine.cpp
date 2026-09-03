@@ -18,7 +18,6 @@
 #include <string>
 #include <vector>
 
-using aerovista::sync::HostEyeCoordFrame;
 using aerovista::sync::HostEyePose;
 using aerovista::sync::IgConfig;
 using aerovista::sync::SynchronSystem;
@@ -487,7 +486,7 @@ bool Engine::sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3&
     if (it == _entityMap.end())
         return false;
     const Entity& entity = it->second;
-    if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
+    if (ellipsoidModel())
     {
         if (!entity.hasEllipsoidPose)
             return false;
@@ -531,7 +530,7 @@ vsg::ref_ptr<vsg::MatrixTransform> Engine::entityTransform(int id) const
 
 vsg::dmat4 Engine::makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const
 {
-    if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
+    if (ellipsoid)
     {
         const vsg::dvec3 lla = toDVec3(cfg.ellipsoidPose.lla);
         const vsg::dvec3 ypr = toDVec3(cfg.ellipsoidPose.eulerYprDeg);
@@ -577,12 +576,12 @@ void Engine::applyCameraPoseFromConfig()
 {
     if (!config.hasCamera || !config.camera.hasPose)
         return;
-    if (config.coordFrame == CoordFrameIntent::ELLIPSOID && config.camera.hasPoseEllipsoid)
+    if (ellipsoidModel() && config.camera.hasPoseEllipsoid)
     {
         setCameraPoseLla(toDVec3(config.camera.ellipsoidPose.lla), toDVec3(config.camera.ellipsoidPose.eulerYprDeg));
         return;
     }
-    if (config.coordFrame == CoordFrameIntent::LOCAL && config.camera.hasPoseLocal)
+    if (!ellipsoidModel() && config.camera.hasPoseLocal)
     {
         setCameraPose(toDVec3(config.camera.localPose.position), toDVec3(config.camera.localPose.eulerYprDeg));
 
@@ -609,22 +608,17 @@ bool Engine::ensureEllipsoidModelForFrame()
 {
     auto ellipsoidModel = _scene ? _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel") : vsg::ref_ptr<vsg::EllipsoidModel>{};
     const char* ellipsoidSource = "model";
-    if (ellipsoidModel)
+    if (!ellipsoidModel)
     {
-        if (config.coordFrame == CoordFrameIntent::LOCAL)
+        // 同步只 LLA（2026-09 收敛）：启用 IG 同步（有 igConfig）的场景必须有椭球——自动注入，
+        // 无需用户配开关；无 igConfig 的单机场景靠 config.injectEllipsoidIfMissing 决定是否注入椭球。
+        const bool needEllipsoidForSync = _synchronSystem && _synchronSystem->hasIg();
+        if (config.injectEllipsoidIfMissing || needEllipsoidForSync)
         {
-            // fail-fast：模型自带椭球时必须写 coordFrame "Ellipsoid"，否则 coordFrame 与
-            // 场景判据不等价、Host 侧按 coordFrame 填 XYZ 会与 IG 按椭球读 LLA 错位（lla设计 §2.3）。
-            std::cerr << "[ERROR] scene has a model-built-in EllipsoidModel but coordFrame is Local; "
-                         "model-built-in ellipsoid requires coordFrame \"Ellipsoid\" (lla设计 §2.3)\n";
-            return false;
+            ellipsoidModel = vsg::EllipsoidModel::create();
+            _scene->setObject("EllipsoidModel", ellipsoidModel);
+            ellipsoidSource = needEllipsoidForSync ? "inject-ig-sync" : "inject-WGS84";
         }
-    }
-    else if (config.coordFrame == CoordFrameIntent::ELLIPSOID)
-    {
-        ellipsoidModel = vsg::EllipsoidModel::create();
-        _scene->setObject("EllipsoidModel", ellipsoidModel);
-        ellipsoidSource = "inject-WGS84";
     }
 
     if (ellipsoidModel)
@@ -632,9 +626,6 @@ bool Engine::ensureEllipsoidModelForFrame()
         std::cerr << "[INFO] EllipsoidModel radii equator=" << ellipsoidModel->radiusEquator()
                   << " polar=" << ellipsoidModel->radiusPolar() << " source=" << ellipsoidSource << "\n";
     }
-    // 场景模式注入：仅传「是否椭球」判据（sync 决策器 frame 校验用），不传对象。
-    if (_synchronSystem)
-        _synchronSystem->setEllipsoidMode(ellipsoidModel != nullptr);
     return true;
 }
 
@@ -671,8 +662,6 @@ bool Engine::assembleEntitiesScene()
 
         if (cfg.hasPose)
         {
-            if (config.coordFrame == CoordFrameIntent::ELLIPSOID && !ellipsoid)
-                return false;
             auto mt = vsg::MatrixTransform::create();
             mt->matrix = makeEntityMatrix(cfg, ellipsoid);
             mt->addChild(loaded);
@@ -1260,12 +1249,9 @@ void Engine::applySyncCameraPose(const HostEyePose& pose)
 {
     if (!hasGraphics())
         return;
-    const vsg::dvec3 position(pose.position.x, pose.position.y, pose.position.z);
+    const vsg::dvec3 lla(pose.position.x, pose.position.y, pose.position.z);
     const vsg::dvec3 eulerYprDeg(pose.eulerYprDeg.x, pose.eulerYprDeg.y, pose.eulerYprDeg.z);
-    if (pose.frame == HostEyeCoordFrame::LLA)
-        setCameraPoseLla(position, eulerYprDeg);
-    else
-        setCameraPose(position, eulerYprDeg);
+    setCameraPoseLla(lla, eulerYprDeg);
 }
 
 void Engine::tickSync()
@@ -1361,57 +1347,31 @@ void Engine::onEntityPositionCtrl(const CigiEntityPositionCtrlV4& pose)
 {
     if (pose.GetEntityID() == 0)
     {
-        // ownship 眼点（§4.1）：翻译 CCL → HostEyePose（AttachState→frame + 字段提取）
-        // 入队 SynchronSystem 决策器；frame 校验 / offset 合成 / stale 决策在 update() 路径。
+        // ownship 眼点（§4.1）：翻译 CCL → HostEyePose（恒 LLA，2026-09 收敛）
+        // 入队 SynchronSystem 决策器；offset 合成 / stale 决策在 update() 路径。
         HostEyePose eye;
         eye.eulerYprDeg = {pose.GetYaw(), pose.GetPitch(), pose.GetRoll()};
-        if (pose.GetAttachState() == CigiBaseEntityPositionCtrl::Detach)
-        {
-            eye.frame = HostEyeCoordFrame::LLA;
-            eye.position = {pose.GetLat(), pose.GetLon(), pose.GetAlt()};
-        }
-        else
-        {
-            eye.frame = HostEyeCoordFrame::WORLD_LOCAL;
-            eye.position = {pose.GetXoff(), pose.GetYoff(), pose.GetZoff()};
-        }
+        eye.position = {pose.GetLat(), pose.GetLon(), pose.GetAlt()};
         _synchronSystem->queueHostEyePose(eye);
         return;
     }
 
-    // 命令实体摆放（EntityID≠0）：Attach→本地 XYZ，Detach→LLA（§4.1）。
-    if (pose.GetAttachState() == CigiBaseEntityPositionCtrl::Detach)
-        updateEntityPose(pose.GetEntityID(), aerovista::sync::DVec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
-                         aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()},
-                         CoordFrameIntent::ELLIPSOID);
-    else
-        updateEntityPose(pose.GetEntityID(),
-                         aerovista::sync::DVec3{pose.GetXoff(), pose.GetYoff(), pose.GetZoff()},
-                         aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()},
-                         CoordFrameIntent::LOCAL);
+    // 命令实体摆放（EntityID≠0）：同步层只 LLA（§4.2）。
+    updateEntityPose(pose.GetEntityID(), aerovista::sync::DVec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
+                     aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()});
 }
 
-void Engine::updateEntityPose(int id, const aerovista::sync::DVec3& positionOrLla,
-                              const aerovista::sync::DVec3& eulerYprDeg, CoordFrameIntent frame)
+void Engine::updateEntityPose(int id, const aerovista::sync::DVec3& lla,
+                              const aerovista::sync::DVec3& eulerYprDeg)
 {
     auto it = _entityMap.find(id);
     if (it == _entityMap.end())
         return;
     Entity& entity = it->second;
 
-    // 更新语义位姿缓存（供 sampleEntityPoseById 等读取），并按 frame 写 transform 矩阵。
-    if (frame == CoordFrameIntent::ELLIPSOID)
-    {
-        entity.hasEllipsoidPose = true;
-        entity.ellipsoidLla = {positionOrLla.x, positionOrLla.y, positionOrLla.z};
-        entity.ellipsoidYpr = {eulerYprDeg.x, eulerYprDeg.y, eulerYprDeg.z};
-    }
-    else
-    {
-        entity.hasLocalPose = true;
-        entity.localPosition = {positionOrLla.x, positionOrLla.y, positionOrLla.z};
-        entity.localYpr = {eulerYprDeg.x, eulerYprDeg.y, eulerYprDeg.z};
-    }
+    entity.hasEllipsoidPose = true;
+    entity.ellipsoidLla = {lla.x, lla.y, lla.z};
+    entity.ellipsoidYpr = {eulerYprDeg.x, eulerYprDeg.y, eulerYprDeg.z};
     ensureEntityTransform(entity);
     recomputeEntityTransform(entity);
 }

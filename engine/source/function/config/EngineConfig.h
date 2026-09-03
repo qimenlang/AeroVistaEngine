@@ -22,13 +22,6 @@ struct WindowConfig
     int height = 1080;
 };
 
-/// JSON `coordFrame` 意图：场景无椭球时按意图注入 EllipsoidModel（lla设计 §2）。
-enum class CoordFrameIntent
-{
-    LOCAL,
-    ELLIPSOID
-};
-
 struct Vec3Config
 {
     double x = 0.0;
@@ -79,7 +72,10 @@ struct EngineChannelConfig
     IgConfig igConfig{};
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
-    CoordFrameIntent coordFrame = CoordFrameIntent::LOCAL;
+    /// 场景模型无自带 EllipsoidModel 时，是否注入一个 WGS-84 椭球（lla设计 §2）。
+    /// 仅对「单机椭球渲染」（无 igConfig）生效；启用 IG 同步（有 igConfig）时引擎自动注入，无需此开关。
+    /// 运行时坐标系由「场景有无 EllipsoidModel」决定，与此开关解耦（2026-09 收敛）。
+    bool injectEllipsoidIfMissing = false;
 
     /// 对应 JSON 对象键出现时置位（父键 enable）。
     bool hasIgConfig = false;
