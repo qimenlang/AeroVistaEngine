@@ -1511,3 +1511,149 @@ SCENARIO("Host places an entity pose over TCP and IG engine updates the entity t
         }
     }
 }
+
+// Ellipsoid 正向摆放回归保护（实体与运动控制设计.md §4.2 / lla位姿传输设计.md §2.1）。
+// 注意：本用例**不**验证「坐标系由场景判据决定」的新语义——那是负向拒收用例的职责
+// （Host 填 Attach/XYZ 但 IG 是椭球场景 → 拒收 + entityPoseRejectedByFrameMismatch +1，暂缓实现）。
+// 这里的 SetAttachState(Detach) 是 CCL 线格式硬约束：CigiBaseEntityPositionCtrl 的
+// LatOrXoff/LonOrYoff/AltOrZoff 是同一组 union 成员，要发 LLA 就必须置 Detach（否则被
+// 解释为相对父实体的 XYZ 偏移），并非用 AttachState 做业务层坐标系选择。本用例仅钉住
+// 「Detach+LLA 正确走到 ELLIPSOID 语义位姿」这条既有路径，防止回归。
+SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LLA",
+         "[acceptance][bdd][sync][cmd][e2e][entity-pose][ellipsoid]")
+{
+    GIVEN("independent Host and an IG engine with an entity configured in Ellipsoid")
+    {
+        constexpr int kBase = 33650;
+
+        const TempConfigFile igFile(
+            std::string(R"({ "coordFrame": "Ellipsoid", )") +
+            R"("entities": [ { "id": 7, "model": "models/teapot.vsgt", )"
+            R"("pose": { "ellipsoid": { "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 }, )"
+            R"("eulerYprDeg": [0, 0, 0] } } } ], )" +
+            R"("igConfig": { "udpPortSend": )" + std::to_string(kBase) +
+            R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
+            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( }, )" +
+            R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 } })");
+
+        HostSync hostA;
+        REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
+        hostA.run();
+
+        Engine engineIg;
+        engineIg.extent = {640, 480};
+        engineIg.showWindow = false;
+        REQUIRE(engineIg.loadConfig(igFile.path()));
+        REQUIRE(engineIg.init());
+        REQUIRE(hostA.readyIgCount() == 1);
+
+        WHEN("Host sends EntityPositionCtrlV4 for entity 7 over TCP with Detach + LLA")
+        {
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityPositionCtrlV4 pose;
+                pose.SetEntityID(7);
+                pose.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+                pose.SetLat(39.9087);
+                pose.SetLon(116.3975);
+                pose.SetAlt(100.0);
+                pose.SetYaw(15.0f);
+                pose.SetPitch(0.0f);
+                pose.SetRoll(0.0f);
+                tcp << pose;
+                hostA.flushTcp();
+            }
+            engineIg.tickSync();
+
+            THEN("engine entity 7 pose is read as LLA (ellipsoid semantic pose)")
+            {
+                vsg::dvec3 pos, ypr;
+                REQUIRE(engineIg.sampleEntityPoseById(7, pos, ypr));
+                REQUIRE(pos.x == Catch::Approx(39.9087));
+                REQUIRE(pos.y == Catch::Approx(116.3975));
+                REQUIRE(pos.z == Catch::Approx(100.0));
+                REQUIRE(ypr.x == Catch::Approx(15.0));
+
+                auto mt = engineIg.entityTransform(7);
+                REQUIRE(mt);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// 12. 跨链路单次投递：EntityPositionCtrlV4 在 UDP/TCP 双链路各注册一个通用捕获
+//     （_eyeProc / _entityPoseProc），addCallback 一个回调会同时挂到两个 processor
+//     （存储层冗余），但报文按链路喂 session，每次发送只触发其中一个——回调恰好调用一次。
+// =============================================================================
+
+SCENARIO("IG sink callback fires once per EntityPositionCtrlV4 over both TCP and UDP",
+         "[acceptance][bdd][sync][cmd][e2e][entity-pose][debug]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 33700);
+
+        int sinkCount = 0;
+        CigiEntityPositionCtrlV4 sinkValue;
+        // 同一回调注册到 UDP（_eyeProc）与 TCP（_entityPoseProc）两个通用捕获
+        //（addCallback 按类型遍历全部匹配 processor，§8.1）。
+        engineB.synchronSystem().igSync().addCallback<CigiEntityPositionCtrlV4>(
+            [&](const CigiEntityPositionCtrlV4& pose) {
+                ++sinkCount;
+                sinkValue = pose;
+            });
+
+        WHEN("Host sends one EntityPositionCtrlV4 over TCP")
+        {
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityPositionCtrlV4 pose;
+                pose.SetEntityID(7);
+                pose.SetAttachState(CigiBaseEntityPositionCtrl::Attach);
+                pose.SetXoff(1.0);
+                pose.SetYoff(2.0);
+                pose.SetZoff(3.0);
+                tcp << pose;
+                hostA.flushTcp();
+            }
+            engineB.tickSync();
+            engineA.tickSync();
+
+            THEN("IG sink receives the packet exactly once")
+            {
+                REQUIRE(sinkCount == 1);
+                REQUIRE(sinkValue.GetEntityID() == 7);
+                REQUIRE(sinkValue.GetXoff() == Catch::Approx(1.0));
+            }
+        }
+
+        WHEN("Host sends one EntityPositionCtrlV4 over UDP")
+        {
+            sinkCount = 0;
+
+            auto& udp = hostA.outMsgWithIgCtrlUdp();
+            CigiEntityPositionCtrlV4 pose;
+            pose.SetEntityID(7);
+            pose.SetAttachState(CigiBaseEntityPositionCtrl::Attach);
+            pose.SetXoff(4.0);
+            pose.SetYoff(5.0);
+            pose.SetZoff(6.0);
+            udp << pose;
+            hostA.flushUdp();
+            engineB.tickSync();
+            engineA.tickSync();
+
+            THEN("IG sink receives the packet exactly once over UDP too")
+            {
+                REQUIRE(sinkCount == 1);
+                REQUIRE(sinkValue.GetEntityID() == 7);
+                REQUIRE(sinkValue.GetXoff() == Catch::Approx(4.0));
+            }
+        }
+    }
+}

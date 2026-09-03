@@ -613,8 +613,11 @@ bool Engine::ensureEllipsoidModelForFrame()
     {
         if (config.coordFrame == CoordFrameIntent::LOCAL)
         {
-            std::cerr << "[WARN] scene has EllipsoidModel but coordFrame is Local; "
-                         "runtime stays ellipsoid (lla设计 §2.3)\n";
+            // fail-fast：模型自带椭球时必须写 coordFrame "Ellipsoid"，否则 coordFrame 与
+            // 场景判据不等价、Host 侧按 coordFrame 填 XYZ 会与 IG 按椭球读 LLA 错位（lla设计 §2.3）。
+            std::cerr << "[ERROR] scene has a model-built-in EllipsoidModel but coordFrame is Local; "
+                         "model-built-in ellipsoid requires coordFrame \"Ellipsoid\" (lla设计 §2.3)\n";
+            return false;
         }
     }
     else if (config.coordFrame == CoordFrameIntent::ELLIPSOID)

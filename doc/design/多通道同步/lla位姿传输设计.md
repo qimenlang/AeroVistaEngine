@@ -77,6 +77,8 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
 | 场景对象 | 挂到 scene 上的类型名才是 `vsg::EllipsoidModel`（勿与配置取值混用） |
 | HELLO | **不**携带 / 协商 `coordFrame`（第一版） |
 
+> **坐标系判据（写死，2026-09）**：眼点与命令实体的坐标系**运行时判据统一为「场景有无 `EllipsoidModel`」**（§2.1）；`coordFrame` 是配置意图，**仅在「场景无椭球」时驱动注入**——模型自带椭球则**必须写 `coordFrame: "Ellipsoid"`，否则 fail-fast**（§2.3），由此 `coordFrame` 与场景判据严格等价。`AttachState` 在线格式上仍是位置字段的判别（`Attach`=XYZ / `Detach`=LLA，CIGI 原生，§5），但**不承载**「选坐标系」的业务语义，它由场景判据派生的填充值决定。命令实体见 [实体与运动控制设计.md](./实体与运动控制设计.md) §4.2。
+
 ### 2.3 装配流程（保留 / 注入 / 相机）
 
 **写死顺序**（实现与验收同一条链；判据对象为场景上名为 `"EllipsoidModel"` 的对象）：
@@ -88,8 +90,9 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
 3. 查询场景是否已有 "EllipsoidModel"
    ├─ 已有（如 readymap.vsgt）
    │    → 保留：不删除、不替换半径
-   │    → 即使 coordFrame 为 "Local" / 缺省 → 仍按椭球（打警告，勿当本地 XYZ）
    │    → coordFrame 为 "Ellipsoid" → 冗余，保持即可
+   │    → coordFrame 为 "Local" / 缺省 → **报错（fail-fast）**：模型自带椭球必须写 `coordFrame: "Ellipsoid"`，
+   │      否则 `coordFrame` 与场景判据不等价、Host 侧按 `coordFrame` 填 XYZ 会与 IG 按椭球读 LLA 错位（2026-09 方案 A）
    └─ 没有
         → coordFrame == "Ellipsoid" → 注入 EllipsoidModel::create()（WGS-84，§2.4）
         → 缺省 / "Local"           → 不注入 → 本地笛卡尔
@@ -104,7 +107,7 @@ coordFrame?: "Local" | "Ellipsoid"     // 缺省 = Local
    有 → LlaPos  + setCameraPoseLla（§4；Engine 持有椭球引用，无则 API 返回 false）
 ```
 
-一句话：**只有场景加载完且没有 `EllipsoidModel` 时，才根据 `coordFrame` 决定是否另外注入**；已有则一律保留。
+一句话：**只有场景加载完且没有 `EllipsoidModel` 时，才根据 `coordFrame` 决定是否另外注入**；已有则一律保留，但**模型自带椭球时 `coordFrame` 必须为 `"Ellipsoid"`，否则报错**（fail-fast，保证 `coordFrame` 与场景判据严格等价）。
 
 步骤 4 的默认初始相机：见 [位姿配置设计.md](./位姿配置设计.md) §4。按 AABB 计算 centre / radius，分别用 Local 或 Ellipsoid 公式生成 LookAt，不再写死北京为唯一默认。
 
@@ -391,6 +394,8 @@ Host（viewhost）**组包**取自待发送的 `HostEyePose` 位置类型（键�
 
 第一版**不**因 mode mismatch 自动断开 TCP/UDP 或把 IG 标为 not-ready（避免与「部署配错」以外的瞬时异常纠缠）；靠 ERROR + 计数器让运维 / 测试发现。若后续要 fail-fast，可再加配置项「首拒收即 abort init / 摘 peer」。
 
+> **命令实体侧复用同一模式（2026-09）**：命令实体位姿（`EntityID≠0`）的坐标系一致性拒收**完全复用本节机制**——解包 `AttachState` 反推发送方坐标系、与本机场景判据比对、不一致丢弃 + 首拒 `[ERROR]` + 计数器 `entityPoseRejectedByFrameMismatch`（与眼点 `eyePoseRejectedByFrameMismatch` 分列）。详见 [实体与运动控制设计.md](./实体与运动控制设计.md) §9。
+
 ---
 
 ## 5. 报文（CIGI）
@@ -493,7 +498,7 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 - 椭球来源与注入：§2.3、§2.4。
 - **不**在 HELLO 中增加 `coordFrame` 字段（§2.2 / §2.5）。
 
-`readymap` 等自带椭球时可不写 `coordFrame`（仍走 ECEF）；写 `"Ellipsoid"` 亦可。各通道意图与模型椭球来源应一致（§2.4–§2.5）。
+`readymap` 等自带椭球时**必须写 `coordFrame: "Ellipsoid"`**，否则装配报错（fail-fast，§2.3）。各通道意图与模型椭球来源应一致（§2.4–§2.5）。
 
 **投影 near/far（Ellipsoid 专有）**：`EllipsoidPerspective` **每帧动态计算** near/far，由 eye 海拔和视线角度决定（见 [位姿配置设计.md](./位姿配置设计.md) §4.4）。这高度自适应飞行仿真场景，但会带来深度精度损失和数值边界 corner case 的 trade-off。配置中不直接控制 near/far。
 
@@ -511,7 +516,7 @@ Attach + X/Y/Z off + EntityID=0 + ParentID=1（合成 parent）
 | 线契约 | Detach+LLA 与 Attach+XYZ 打包/解包；`AttachState`→位置类型正确；**Detach 时 ParentID=0、EntityID=0**；Attach 时 EntityID=0、ParentID=1；切换 Attach↔Detach 组合合法 |
 | 组包依据 | Host 按 `HostEyePose` 位置类型选择 Attach/Detach；线上无私有 frame 字段 |
 | 模式隔离 | 本地回归全绿；错模式眼点不污染相机；首拒收 `[ERROR]`；`eyePoseRejectedByFrameMismatch` 递增；SOF/ready 仍正常 |
-| 模式装配 | 按 §2：无椭球才看 `coordFrame` 注入；模型自带则保留；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
+| 模式装配 | 按 §2：无椭球才看 `coordFrame` 注入；模型自带椭球则 **fail-fast**（必须写 `coordFrame: "Ellipsoid"`，否则 `init` 失败）；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
 | 范围校验 | Lat/Lon/Pitch 越界不抛穿；丢弃眼点并计数；lon 归一化到 (-180,180] |
 | 权威 offset | **已移除**（2026-08 拆进程：Host 为 viewhost、无 `offsetDeg`；原「权威窗全 0」约束不再适用） |
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |

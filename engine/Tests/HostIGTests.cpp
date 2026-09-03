@@ -1025,6 +1025,7 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
 
     // 模型内嵌 EllipsoidModel（此 API 标尺无需 coordFrame 注入）。
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
+    engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
     REQUIRE(engine.init(modelPath));
 
     auto camera = engine.mainCamera();
@@ -1048,6 +1049,7 @@ TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit
     engine.showWindow = false;
 
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
+    engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
     REQUIRE(engine.init(modelPath));
 
     auto ellipsoidPerspective = engine.mainCamera()->projectionMatrix.cast<vsg::EllipsoidPerspective>();
@@ -1759,6 +1761,8 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
         REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(host.sync.readyIgCount() == 2);
+        engineA.config.coordFrame = CoordFrameIntent::ELLIPSOID;
+        engineB.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath)); // sync-only IG：单进程避免第二个 Vulkan Device
 
@@ -1814,6 +1818,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
         engine.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
+        engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         TestHost host;
         REQUIRE(host.init(kBase));
         REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
@@ -1850,6 +1855,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
         engine.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
+        engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         TestHost host;
         REQUIRE(host.init(kBase));
         REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
@@ -1889,6 +1895,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
         engine.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
+        engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         TestHost host;
         REQUIRE(host.init(kBase));
         REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
@@ -1934,6 +1941,8 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
         REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(host.sync.readyIgCount() == 2);
+        engineA.config.coordFrame = CoordFrameIntent::ELLIPSOID;
+        engineB.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
 
@@ -2025,6 +2034,8 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
         REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(host.sync.readyIgCount() == 2);
+        engineA.config.coordFrame = CoordFrameIntent::ELLIPSOID;
+        engineB.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         REQUIRE(engineA.initGraphics(modelPath));
         REQUIRE(engineB.initSceneMode(modelPath));
 
@@ -2062,6 +2073,7 @@ SCENARIO("Host ellipsoid vs IG local rejects mismatched eye and keeps SOF health
         REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(host.sync.readyIgCount() == 2);
+        engineA.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         REQUIRE(engineA.initGraphics(readymapPath));
         REQUIRE(engineB.initSceneMode(teapotPath));
         REQUIRE(ellipsoidOf(engineA));
@@ -2245,6 +2257,7 @@ SCENARIO("Host local vs IG ellipsoid rejects mismatched Attach eye and keeps SOF
         REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
         REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
         REQUIRE(host.sync.readyIgCount() == 2);
+        engineB.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         REQUIRE(engineA.initGraphics(teapotPath));
         REQUIRE(engineB.initSceneMode(readymapPath));
         REQUIRE_FALSE(engineA.ellipsoidModel());
@@ -2467,6 +2480,7 @@ SCENARIO("Local to Ellipsoid initGraphics clears caches and switches scene mode"
 
         WHEN("initGraphics reloads readymap (Local → Ellipsoid) without sync shutdown")
         {
+            engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
             REQUIRE(engine.initGraphics(readymapPath));
 
             THEN("eye caches are cleared and the scene is ellipsoid")
@@ -2493,6 +2507,7 @@ SCENARIO("Ellipsoid to Local initGraphics clears caches and switches scene mode"
         const vsg::Path teapotPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         TestHost host;
         REQUIRE(host.init(kBase));
+        engine.config.coordFrame = CoordFrameIntent::ELLIPSOID;
         REQUIRE(engine.init(readymapPath, makeIgOnlyRole(kBase + 1, kBase)));
         REQUIRE(ellipsoidOf(engine));
 
@@ -2506,6 +2521,7 @@ SCENARIO("Ellipsoid to Local initGraphics clears caches and switches scene mode"
 
         WHEN("initGraphics reloads teapot (Ellipsoid → Local) without sync shutdown")
         {
+            engine.config.coordFrame = CoordFrameIntent::LOCAL;
             REQUIRE(engine.initGraphics(teapotPath));
 
             THEN("eye caches are cleared and the scene is local")

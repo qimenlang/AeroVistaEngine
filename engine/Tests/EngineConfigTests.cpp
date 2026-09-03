@@ -122,22 +122,21 @@ SCENARIO("coordFrame Ellipsoid places EllipsoidModel on scene; otherwise lz has 
     }
 }
 
-SCENARIO("model-built-in EllipsoidModel is kept when coordFrame is Local or omitted",
+SCENARIO("model-built-in EllipsoidModel requires coordFrame Ellipsoid (Local or omitted fails fast)",
          "[acceptance][bdd][config][coordFrame]")
 {
     GIVEN("a channel config that uses readymap.vsgt (model already has EllipsoidModel)")
     {
-        WHEN("coordFrame is omitted")
+        WHEN("coordFrame is omitted (defaults to Local)")
         {
             const TempConfigFile file(std::string("{") + kReadymapModel + ", " + kMinimalWindow + "}");
             Engine engine;
             REQUIRE(engine.loadConfig(file.path()));
             engine.showWindow = false;
-            REQUIRE(engine.init());
 
-            THEN("the scene still carries EllipsoidModel (runtime stays ellipsoid)")
+            THEN("init fails fast (built-in ellipsoid requires coordFrame Ellipsoid)")
             {
-                REQUIRE(engine.ellipsoidModel());
+                REQUIRE_FALSE(engine.init());
             }
         }
 
@@ -148,11 +147,10 @@ SCENARIO("model-built-in EllipsoidModel is kept when coordFrame is Local or omit
             Engine engine;
             REQUIRE(engine.loadConfig(file.path()));
             engine.showWindow = false;
-            REQUIRE(engine.init());
 
-            THEN("the scene still carries EllipsoidModel (Local does not strip model ellipsoid)")
+            THEN("init fails fast (built-in ellipsoid requires coordFrame Ellipsoid)")
             {
-                REQUIRE(engine.ellipsoidModel());
+                REQUIRE_FALSE(engine.init());
             }
         }
     }
@@ -214,7 +212,8 @@ SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardco
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(std::string("{") + kReadymapModel + ", " + kMinimalWindow + "}");
+        const TempConfigFile file(std::string(R"({ "coordFrame": "Ellipsoid", )") + kReadymapModel + ", " +
+                                  kMinimalWindow + "}");
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.init());
         REQUIRE(engine.ellipsoidModel());
