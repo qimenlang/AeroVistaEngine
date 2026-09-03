@@ -86,3 +86,5 @@ test_out.txt
 # golden-test runtime artifacts (RenderingTests writes actual/diff images into source tree)
 engine/resources/renderingTests/*_actual.png
 engine/resources/renderingTests/*_actual_diff.png
+# Local run logs (multichannel launch)
+/logs/
