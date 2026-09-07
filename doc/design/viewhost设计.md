@@ -1,4 +1,4 @@
-﻿# viewhost 设计（MFC Host 宿主程序）
+# viewhost 设计（MFC Host 宿主程序）
 
 > **已按新接口同步（2026-08-24；2026-08-25 IGCtrl 自动填充）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `outMsgWithIgCtrlUdp() + cigi_wire::appendEye + flushUdp()`（[状态同步设计初版.md](./多通道同步/状态同步设计初版.md) §7.1）——`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl（帧号/自计时时间戳/`TimeStampValid=true`）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
 
@@ -288,6 +288,44 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 - 上行覆盖：TCP 16 类（IGMsg/EventNotification/AnimationStop/HatHotResp/X/LosResp/X/SensorResp/X/PositionResp/WeatherCondResp/AerosolResp/Maritime/TerrestrialSurfaceResp/CollDetSeg/VolResp）+ UDP 1 类（SOF）。
 - 纯调试工具，不改变协议语义；随机选择（`std::mt19937`），多次按键遍历覆盖。
 
+### 4.8 实体控制 UI（演进设计，待实现）
+
+**目标**：把 §4.5 的「手输 `Entity ID` + 单一摆放表单」升级为完整的实体控制界面。实体显隐 / 位姿 / 动画的协议语义见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md)（Host 权威、`EntityCtrlV4` 只切显隐——IG 侧实例已启动全量预建、`EntityPositionCtrlV4` 摆放、`AnimationCtrlV4` 动画）。
+
+**数据来源（写死：Host 读独立实体目录文件，非网络获取）**：实体目录为**独立 `entities.json`**（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §5 方案 B——`entities[]` 已从 engine 配置外移成独立文件，**文件暂放 engine 资源目录** `engine/resources/config/entities.json`，Host 与各 IG 读到一致内容、人工确保）。实体列表由 Host **读该文件**填充，不通过网络从 IG 拉取清单。**现状缺口（两处）**：① viewhost 走 `loadHostConfig` 只读 `hostConfig` 端口块、**不解析实体目录**；② 实体目录解析器**暂留 engine 侧**、未抽共享零 vsg 版本（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §5/§12）。**待定项（§4.8 演进落地时定）**：viewhost 从哪获得 `entities.json` 路径（届时 `viewhost.json` 增加路径字段，或命令行参数）与从哪获得解析器（届时抽共享解析器，或 viewhost 自持一份解析），见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §5/§12。
+
+**初始广播（写死：自动全量 + 按 `initialEntityState` 初始化权威表）**：viewhost 启动、检测到 ready IG 后，**自动**对实体目录里全部实体广播 `EntityCtrl`——权威表由 `initialEntityState` 初始化（`Active` 或未配置 → `EntityCtrl(Active)`、`Standby` → `EntityCtrl(Standby)`，见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7）。IG 侧实例启动已全量预建，`Standby` 项只是初始隐藏（非「不入场景」）。点选列表用于**后续控制**（`Standby↔Active` 切换 / 位姿 / 动画），不承担「决定加载哪些实体」，**不提供销毁按钮**（销毁协议层降级为 `Standby`，见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7/§11）。
+
+**交互（主从 master-detail，写死）**：
+
+- **左侧实体列表**：每项显示 `name`（缺省 `basename(model)`）+ 当前状态（Standby / Active）；点选后 `EntityID` 绑定到右侧面板。id 不再手输，消除打错 id 的隐患（对比 §4.5 现状手输 id）。
+- **右侧按「操作意图」分组（非按报文平铺）**：
+
+| 意图分组 | 报文 | 交互 | 首版 |
+| --- | --- | --- | --- |
+| 显隐 | `CigiEntityCtrlV4` | `Standby↔Active` 双向切换 + `alpha`（**无销毁按钮**） | ✅ |
+| 位姿 | `CigiEntityPositionCtrlV4` | lat/lon/alt + yaw/pitch/roll | ✅ |
+| 动画 | `CigiAnimationCtrlV4` | 播放/暂停/循环/速度 | ✅ |
+| 部件 / 组件 / 速度 / 加速度 / 钳制 | `ArtPartCtrl` / `CompCtrl` / `VelocityCtrl` / `AccelerationCtrl` / `ConfClampEntityCtrl` | 按需加分组（扩展点） | ❌ |
+
+- **交互语义分两类（写死）**：一次性 TCP 报文（显隐/摆放/动画/部件/组件）用「填参 → 发送」按钮；持续 UDP 报文（实时位姿/速度/加速度/钳制）用「选中实体 → toggle 持续模式」，**不适合「填参发送」**（是控制回路，非表单）。首版分组只覆盖一次性三类，持续类留扩展点。
+
+**实体加载结果（写死：首版不上报不处理）**：见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7.1——实体加载失败首版**不上报、Host 不感知**（IG 侧日志暴露，实体静默缺失）。viewhost 实体列表因此**不显示**「加载中 / 成功 / 失败」或「业务 ready」，只反映连接层 ready（现状 `readyIgCount`）与列表上用户操作后的状态。
+
+**`HostDriver` 新增接口（待实现）**：
+
+```text
+std::vector<EntitySummary> loadEntityCatalog(...);   // 读独立 entities.json → 列表（id + name + model + initialEntityState）
+void sendEntityCtrl(std::uint16_t entityId, EntityStateGrp state, std::uint8_t alpha);
+void sendAnimationCtrl(std::uint16_t entityId, AnimationStateGrp state, AnimationLoopModeGrp loop, float speed);
+```
+
+> `sendEntityPose`（§4.5）已存在，本次复用于「位姿」分组；`EntityCtrl` / `AnimationCtrl` 发送为新增。无加载结果上报订阅（首版实体加载失败不上报，§7.1）。
+
+**测试（写死）**：MFC UI 与 `HostDriver` 薄封装不测（§6 分层原则）；实体目录解析逻辑（独立 `entities.json`）在 **engine 侧**实现并以 `[unit]` 覆盖（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §13，解析器暂留 engine 侧）；生命周期 / 位姿 / 动画控制行为在 `engine/Tests` 以 `[acceptance]` 覆盖（见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。viewhost 侧是否/如何复用该解析器留待 §4.8 演进落地时定。
+
+---
+
 ## 5. 配置设计
 
 - 复用 sync 库 `loadHostConfig`，配置形态与 `viewhost.json` 一致（顶层仅 `hostConfig` 块，未知键拒绝）：
@@ -336,6 +374,9 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 - **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程；**实体摆放命令 UI 已落地（2026-08，§4.5）**，其余命令 UI 留后期。
 - **报文自检按钮（2026-08，§4.7）**：`testtcp` / `testudp` 随机发对应链路测试报文（TCP 34 种 + UDP 4 种），engine 侧全量订阅并 HUD 显示类名，用于验证各报文「发送→链路→解包→投递」全链路支持；纯调试工具，不改变协议语义。
 - **上行报文自检（2026-08，§4.7）**：engine `PacketProbeHandler`（原废弃 `CommandTriggerHandler` 改造重命名）F9 随机 TCP 上行（16 类）/ F10 发 SOF（UDP 上行仅此一种）；viewhost 侧 `HostDriver::pollIncoming`（转发 `drainIncoming`）+ 16 类 TCP 订阅刷新「最近接收」；HUD 显示「send」。IG→Host UDP 无随机多样性，F10 固定发 SOF 验证链路。
+- **实体控制 UI 演进（2026-09，§4.8）**：实体控制从「手输 Entity ID + 单一摆放表单」（§4.5）升级为主从列表 + 按操作意图分组；Host 读**独立 `entities.json`** 填充列表（不网络拉取）；一次性 TCP 报文「填参发送」、持续 UDP 报文「toggle 持续模式」分离。实体加载失败**首版不上报不处理**（无业务层 ready、无重试，见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7.1）。
+- **初始状态配置 + Standby↔Active 双向切换（2026-09，§4.8）**：实体目录新增 `initialEntityState`（默认 `Active`，可设 `Standby`）；Host 权威表按此初始化并广播 `EntityCtrl(Active)` / `EntityCtrl(Standby)`；「显隐」分组在 `Standby↔Active` 间双向切换——IG 侧实例已启动全量预建挂 Switch，切换只是 **Switch 显隐**（ON/OFF，零加载零编译、不释放模型）。**不做** `load` 文本指令——调试临时加载需求由「配置 `Standby` + 手动激活」承载，模型路径须预先写进实体目录（见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7）。
+- **销毁 UI 首版禁用（2026-09，§4.8）**：实体平时在 `Standby↔Active` 间切换，不提供「销毁」按钮——`Destroyed` 是释放资源的破坏性操作（值 2，`Remove`=同值历史别名），UI 误触代价高。**协议层 `Destroyed` 首版降级为 `Standby`**（Switch OFF、保留实例与资源，`_entityMap` 不 erase），完整销毁/重建为后续项（见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7/§11/#19）。
 
 ## 9. 与实现关系
 
@@ -350,3 +391,4 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 | **报文自检（2026-08，§4.7）** | `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket`（随机报文工厂表）+ 对话框「报文自检」区（testtcp/testudp 按钮 + 状态显示）；engine 侧全量 addCallback 探测 + HUD「recv: <类名>」；engine 全量测试通过 + 双构建（clang / MSVC）通过 |
 | **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::addCallback<T>` 模板转发；`OnInitDialog` 订阅 16 类 IG→Host TCP 报文 + UI 定时器每帧 pollIncoming + 「最近接收」显示；engine `PacketProbeHandler`（F9 随机 TCP 16 类 / F10 发 SOF）+ HUD「send」行；双构建（clang / MSVC）通过 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |
+| **实体控制 UI 演进（2026-09，§4.8）** | 待实现：实体列表（读独立 `entities.json`）+ 意图分组面板（显隐/位姿/动画）；`HostDriver::sendEntityCtrl` / `sendAnimationCtrl` / `loadEntityCatalog` 待加；加载失败首版不上报不处理（无业务层 ready） |

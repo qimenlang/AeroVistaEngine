@@ -168,3 +168,11 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 5. `ViewCtrl` 的正确定位是「相对某实体的视点」（如坐乘视点）——**并行扩展位**，不与绝对 LLA/XYZ 眼点冲突，未来需要时另加，不替换现状。
 
 > 来源：`thirdparty/cigi`（Boeing CIGI SDK，V4 报文处理表 `CigiOutgoingMsg.cpp` 的 `SetOutgoingHostV4Tbls` / `SetOutgoingIGV4Tbls`；入站表 `CigiIncomingMsg.cpp` 的 `SetIncomingHostV4Tbls` / `SetIncomingIGV4Tbls`）。
+
+
+
+状态数据权威：
+
+- Host 作为仿真状态的权威：所有改变世界状态的报文都是单向 Host→IG。IG 侧一条能写实体状态或气象状态的报文都没有；
+- IG 作为数据库的权威：IG 独占数据库派生的事实——地形几何、地表材质、它自己那份环境数据，host想知道只能问，但只会问其中一个IG；
+
