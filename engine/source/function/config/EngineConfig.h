@@ -69,7 +69,12 @@ struct EngineChannelConfig
     // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg。
     SyncSystemConfig syncSystem{};
 
-    IgConfig igConfig{};
+    /// IG 传输配置；nullopt = 未启用同步（无 igConfig）。optional 承载「有/无」语义。
+    std::optional<IgConfig> igConfig{};
+
+    /// 相机初始位姿；nullopt = 无 camera 键（默认相机走场景 AABB，位姿配置设计.md §4）。
+    std::optional<CameraConfig> camera{};
+
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
     /// 场景模型无自带 EllipsoidModel 时，是否注入一个 WGS-84 椭球（lla设计 §2）。
@@ -77,17 +82,7 @@ struct EngineChannelConfig
     /// 运行时坐标系由「场景有无 EllipsoidModel」决定，与此开关解耦（2026-09 收敛）。
     bool injectEllipsoidIfMissing = false;
 
-    /// 对应 JSON 对象键出现时置位（父键 enable）。
-    bool hasIgConfig = false;
-
     std::vector<EntityConfig> entities;
-    bool hasCamera = false;
-    CameraConfig camera{};
-
-    bool enableIg() const { return hasIgConfig; }
-
-    /// IG 传输配置：无 `igConfig`（未启同步）返回空。
-    std::optional<IgConfig> toIgConfig() const;
 };
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error = nullptr);

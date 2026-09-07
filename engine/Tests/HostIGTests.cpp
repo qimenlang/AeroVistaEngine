@@ -1215,10 +1215,10 @@ namespace
             REQUIRE(c.loadConfig(igCFile.path()));
             REQUIRE(a.init());
             // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
-            REQUIRE(b.initSync(b.config.toIgConfig(), b.config.syncSystem.requireConnectedIg));
+            REQUIRE(b.initSync(b.config.igConfig, b.config.syncSystem.requireConnectedIg));
             REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
             b.synchronSystem().setOffsetDeg(b.config.syncSystem.offsetDeg);
-            REQUIRE(c.initSync(c.config.toIgConfig(), c.config.syncSystem.requireConnectedIg));
+            REQUIRE(c.initSync(c.config.igConfig, c.config.syncSystem.requireConnectedIg));
             REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
             c.synchronSystem().setOffsetDeg(c.config.syncSystem.offsetDeg);
 
@@ -1232,7 +1232,7 @@ namespace
                 for (Engine* ig : {&b, &c})
                 {
                     if (ig->synchronSystem().hasIg() && !ig->synchronSystem().igSync().udpSynced())
-                        ig->synchronSystem().igSync().connect(ig->config.igConfig);
+                        ig->synchronSystem().igSync().connect(*ig->config.igConfig);
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
@@ -1668,7 +1668,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
         // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
-        REQUIRE(engineB.initSync(engineB.config.toIgConfig(), engineB.config.syncSystem.requireConnectedIg));
+        REQUIRE(engineB.initSync(engineB.config.igConfig, engineB.config.syncSystem.requireConnectedIg));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
         engineB.synchronSystem().setOffsetDeg(engineB.config.syncSystem.offsetDeg);
 
@@ -1694,7 +1694,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
             if (host.readyIgCount() == 2)
                 break;
             if (engineB.synchronSystem().hasIg() && !engineB.synchronSystem().igSync().udpSynced())
-                engineB.synchronSystem().igSync().connect(engineB.config.igConfig);
+                engineB.synchronSystem().igSync().connect(*engineB.config.igConfig);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         REQUIRE(host.readyIgCount() == 2);

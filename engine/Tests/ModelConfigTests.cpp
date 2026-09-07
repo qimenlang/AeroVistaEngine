@@ -600,9 +600,9 @@ TEST_CASE("loadEngineChannelConfig accepts camera pose with only the non-selecte
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.hasCamera);
-    REQUIRE(cfg.camera.hasPoseEllipsoid);
-    REQUIRE_FALSE(cfg.camera.hasPoseLocal);
+    REQUIRE(cfg.camera.has_value());
+    REQUIRE(cfg.camera->hasPoseEllipsoid);
+    REQUIRE_FALSE(cfg.camera->hasPoseLocal);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects camera local pose with incomplete eulerYprDeg",
@@ -763,10 +763,9 @@ SCENARIO("local camera pose from config matches LookAt",
         engine.extent = {640, 480};
         engine.showWindow = false;
         REQUIRE(engine.loadConfig(cfgFile.path()));
-        REQUIRE(engine.config.hasCamera);
-        REQUIRE(engine.config.camera.hasPoseLocal);
+        REQUIRE(engine.config.camera.has_value());
+        REQUIRE(engine.config.camera->hasPoseLocal);
         REQUIRE(engine.init());
-
         WHEN("the main camera LookAt is inspected")
         {
             THEN("LookAt matches the configured local camera pose")
@@ -826,8 +825,7 @@ SCENARIO("no camera config: Local default LookAt frames entities AABB",
         {
             THEN("camera key is absent and LookAt matches AABB default (设计 §4 Local)")
             {
-                REQUIRE_FALSE(engine.config.hasCamera);
-                REQUIRE_FALSE(engine.config.camera.hasPose);
+                REQUIRE_FALSE(engine.config.camera);
                 REQUIRE(engine.mainCamera());
                 requireLookAtMatchesLocalAabbDefault(engine, kPos, kYpr);
             }
@@ -852,8 +850,7 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
         {
             THEN("camera key is absent and LookAt matches AABB→ENU default (设计 §4 Ellipsoid)")
             {
-                REQUIRE_FALSE(engine.config.hasCamera);
-                REQUIRE_FALSE(engine.config.camera.hasPose);
+                REQUIRE_FALSE(engine.config.camera);
                 REQUIRE(engine.mainCamera());
                 REQUIRE(engine.ellipsoidModel());
                 requireLookAtMatchesEllipsoidAabbDefault(engine, kLla, kYpr);

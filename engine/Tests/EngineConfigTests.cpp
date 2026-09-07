@@ -59,7 +59,9 @@ namespace
     {
         REQUIRE(actual.syncSystem.channelId == expected.syncSystem.channelId);
         REQUIRE(offsetEquals(actual.syncSystem.offsetDeg, expected.syncSystem.offsetDeg));
-        REQUIRE(igConfigEquals(actual.igConfig, expected.igConfig));
+        REQUIRE(actual.igConfig.has_value() == expected.igConfig.has_value());
+        if (actual.igConfig)
+            REQUIRE(igConfigEquals(*actual.igConfig, *expected.igConfig));
         REQUIRE(actual.model == expected.model);
         REQUIRE(actual.window.x == expected.window.x);
         REQUIRE(actual.window.y == expected.window.y);
@@ -665,7 +667,7 @@ SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd]
             THEN("IG runs with addresses from the loaded config")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
+                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), *engine.config.igConfig));
             }
         }
     }
@@ -687,7 +689,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
             THEN("IG is started (engine has no Host role after 2026-08 split)")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), engine.config.igConfig));
+                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), *engine.config.igConfig));
             }
         }
     }
@@ -885,7 +887,7 @@ TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg",
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.hasIgConfig);
+    REQUIRE(cfg.igConfig.has_value());
 }
 
 TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig", "[unit][config][parse]")
@@ -996,9 +998,9 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.hasIgConfig);
-    REQUIRE(cfg.igConfig.udpPortSend == 8000);
-    REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
+    REQUIRE(cfg.igConfig.has_value());
+    REQUIRE(cfg.igConfig->udpPortSend == 8000);
+    REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
     REQUIRE(cfg.syncSystem.channelId == 0);
 }
 
@@ -1008,8 +1010,8 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.igConfig.udpPortSend == 8000);
-    REQUIRE_FALSE(cfg.igConfig.targetAddr.empty());
+    REQUIRE(cfg.igConfig->udpPortSend == 8000);
+    REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
 }
 
 TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem]")

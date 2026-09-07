@@ -85,7 +85,7 @@ namespace
 
     void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasRequireConnectedIg)
     {
-        if (hasRequireConnectedIg && !cfg.hasIgConfig)
+        if (hasRequireConnectedIg && !cfg.igConfig)
             throw std::runtime_error("requireConnectedIg without igConfig is invalid");
         // 同步只 LLA（2026-09 收敛）：本地笛卡尔场景参与同步的 fail-fast 无法在配置加载期判定
         // （「场景有无 EllipsoidModel」要 loadScene 后才知道），移至 Engine::ensureEllipsoidModelForFrame。
@@ -275,7 +275,6 @@ namespace
 
         if (const JsonValue* v = find(root, "igConfig"))
         {
-            cfg.hasIgConfig = true;
             cfg.igConfig = parseIgConfig(requireObjectValue(*v, "igConfig"));
         }
 
@@ -294,7 +293,6 @@ namespace
 
         if (const JsonValue* v = find(root, "camera"))
         {
-            cfg.hasCamera = true;
             cfg.camera = parseCamera(requireObjectValue(*v, "camera"));
         }
 
@@ -302,13 +300,6 @@ namespace
         return cfg;
     }
 } // namespace
-
-std::optional<IgConfig> EngineChannelConfig::toIgConfig() const
-{
-    if (!hasIgConfig)
-        return std::nullopt;
-    return igConfig;
-}
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error)
 {
