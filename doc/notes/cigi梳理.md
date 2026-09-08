@@ -17,6 +17,29 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 
 ---
 
+## 掉线感知与恢复（CIGI 语义）
+
+> CIGI 是数据打包协议、**不绑定传输协议**，标准行文默认假设 UDP（SISO-STD-013 §4）——链路矩阵「一次性/配置走 TCP」为本项目自选判据，非标准要求。
+
+**掉线感知 = SOF 帧流心跳（CIGI 无「连接/断开」概念，无显式 disconnect 报文）**：IG 每帧发 `SOF`（携 IG 帧号 / IG Mode）、Host 每帧回 `IGCtrl`（携 Host 帧号 / Last IG Frame Number），帧号互回显兼作存活与丢包检测（§4.2 / §4.3）。掉线由 SOF 流中断推断：Host 按对端维护 last-seen，超时未收 SOF 即判掉线。
+
+**纯 UDP 恢复 = 无状态、无需握手重连**：
+
+- 进程存活、仅链路瞬断：断帧跳过，IG 恢复发 SOF 即自然恢复，无「重连」动作。
+- 进程重启：重走启动序列（§4.7）——IG 发 `SOF(Reset/Standby)` → Host 发 `IGCtrl(Operate)` → IG 转 `Operate` 后 Host 才下发 mission data。
+
+**状态补齐 = per-IG 定向（标准语义）**：CIGI session 是「一对可寻址端口间的通信」（§4.1），Host 与每个 IG 各一 session、各自维护独立状态；关键报文按 IG 跟踪、**只重发给报失的 IG**（§4.1 "critical packets … only re-sent to the IG indicating data loss"）。定向身份即 IG 源 IP:源端口（源端口固定则持久）；UDP 语义不区分「新加入 / 重连回升」，同一处理（定向补全量）。multicast 仅适用「多 IG 相同画面」（identical imagery）；各 IG 画面不同（如多通道 frustum 拼接）按标准宜 per-IG 单播 session。
+
+**业内实现参考（2026-09 调研）**——主流形态是**检测失效 → 复位重建 → 全量重发**，非「在线自动重连 + 增量续传」：
+
+- **对象是单条 Host–IG 会话（单通道）**：谁掉线谁重建谁收全量，其余通道无感；仅当多通道共享同一物理连接 / Master 进程时才会全体一起断，而那种场景不走网络层重连。
+- **CIGI 生态（CCL）**：Host 收 SOF 超时（官方示例约 1s）即判失效 → 关旧 socket、重开 CIGI session、重设 `IG Mode=Operate`；API 手册建议 cycle standby↔operate 复位 IG、`CigiSyncFrameCounter` 对齐帧号后 **重新全量实例化实体**（IG 复位即清空实体状态，无增量补发）。
+- **COTS IG（VRSG / CAE / Prepar3D）多通道**：无单通道自动故障恢复 / 通道级冗余；画面连续靠 Host 每帧驱动 + 硬件帧锁（genlock/frame lock），掉线由人工中断处理。
+- **民航认证（FAA 14 CFR Part 60 / 加 TP 9685）**：故障部件不得用于相关训练任务（停机）→ 修复验证（对照 MQTG）后复役，不鼓励自动恢复。
+- 推论：首版「重连不补发、保持未同步」与业内一致，非异常；将来若支持重连，按「单会话定向补全量」即可，且 CIGI Reset 允许 cached models 常驻（§4.7），与本项目「实体预建常驻、运行期零编译」不冲突。
+
+---
+
 ## 1. 基础帧控制类
 
 | 报文 | 方向 | 链路 | 频率 | 功能语义 |
