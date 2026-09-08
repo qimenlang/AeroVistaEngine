@@ -18,14 +18,15 @@
 ```text
 vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
-       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + IG 决策层）
+       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + IG 决策层）
             ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / HostSync / IgSync
             │           / SyncConfig / SyncProtocol
+            ├─ Host 任务状态：HostDataManager（权威表门面，不持 socket）
             ├─ IG 决策层：SynchronSystem（收包 + offset 合成 + 产出位姿）
             └─ 外部依赖：cigicl-static、ws2_32（vsg 仅作构建期依赖，见 §3.0）
 ```
 
-- 库同时含传输层与 IG 决策层；Host 采样/扇出由 Host 宿主进程（viewhost）直接持有 `HostSync` 完成，不经 `SynchronSystem`（engine 已不承担 Host，2026-08 拆进程）。
+- 库含传输层、**Host 任务状态**（`HostDataManager`）与 IG 决策层；Host 扇出由宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager` 完成，不经 `SynchronSystem`（engine 已不承担 Host，2026-08 拆进程）。
 - 库公开接口零 vsg（内部复用 vsg header-only 数学，构建期依赖）；不依赖 `Engine`。vsg 依赖策略见 §3.0。
 - **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto`/`sync_json` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。
 
@@ -38,6 +39,7 @@ vsgEngine (exe)
 ## 2. 库结构
 
 - 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - IG 决策层（`SynchronSystem`）公开接口零 vsg（自有 POD + 注入接口）、不依赖 Engine，收包后做 offset 合成 / stale policy / 断线兜底，产出位姿由宿主取走（§3.1）。
 - 配置类型（`OffsetDeg`/`HostEyeStalePolicy`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。`SyncPaceConfig` 已于 2026-08 删除（无消费方）；`SyncRoleConfig`（Host+IG 双角色打包）已于 2026-08 拆 Host 进程后删除（无消费方，见 §4.2）。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
@@ -81,7 +83,7 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 - SynchronSystem 对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入。
 - SynchronSystem 对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（恒 LLA），宿主自行应用。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
-- **Host 侧**：Host 宿主进程（viewhost）直接持有 `HostSync`，扇出（IGCtrl + 眼点）经 `HostDriver::update` 完成；`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
+- **Host 侧**：Host 宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager`，扇出（IGCtrl + 眼点）经 `HostDriver::update` 完成；实体等权威状态经 Manager 建表、Driver 意图 API 发送（[viewhost设计.md](../viewhost设计.md) §4.0）。`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
 
 ### 3.2 配置结构归属
 
@@ -91,7 +93,19 @@ std::optional<HostEyePose> takePendingCameraPose();                 // 取走本
 
 ### 3.3 命令面桥
 
-命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `hostSync().outMsgWithIgCtrlTcp() << CigiSymbolTextDefV4` → `flushTcp()` 发文本指令；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内上行报文自检 `PacketProbeHandler`（F9 随机 TCP 上行 / F10 发 SOF，IG→Host，与 viewhost testtcp/testudp 下行对称，2026-08）挂载于窗口事件；原 `CommandTriggerHandler`（F9/F10 实机命令触发）随拆 Host **已删除**（命令面发送归 Host 进程，viewhost 实体摆放命令 UI 已落地，其余命令 UI 属后期）。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
+命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内上行报文自检 `PacketProbeHandler`（F9 随机 TCP 上行 / F10 发 SOF，IG→Host，与 viewhost testtcp/testudp 下行对称，2026-08）挂载于窗口事件；原 `CommandTriggerHandler`（F9/F10 实机命令触发）随拆 Host **已删除**（命令面发送归 Host 进程，viewhost 实体摆放命令 UI 已落地，其余命令 UI 属后期）。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
+
+### 3.4 Host 任务状态（`HostDataManager`）
+
+**写死：权威表在 sync 库，不并入 `HostSync`；viewhost 只做 UI。**
+
+`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体），用 `SyncJson` 读 `entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`；`pose.local` 与完整双轨仍由 engine `loadEntitiesFile` 服务 IG 预建）。物理文件仍放 engine 资源目录（[实体与运动控制设计.md](./实体与运动控制设计.md) §5），**不把文件迁进 sync 库**。
+
+- **做**：建表、改态、`snapshot()`、按当前行填 CIGI 报文对象。
+- **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
+- **消费方**：viewhost `HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）；`engine/Tests` 直接测 Manager（不启网络）。建表契约码 `ENT-04-table-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。
+
+与 IG 侧对称关系：`IgSync`（传输）+ `SynchronSystem`（决策）；Host 侧为 `HostSync`（传输）+ `HostDataManager`（状态）+ 示例层 `HostDriver`（编排）。`HostDataManager` 不是第二个 `SynchronSystem`（不做眼点合成），只承担 CIGI 任务状态的 last-value。
 
 ## 4. 配置设计
 
@@ -207,4 +221,5 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 - **`Network`（Boeing MPV，GPL）不使用**：UDP 收发统一走自有的 `UdpSocket`（GPL 依赖清除）。
 - **命令面桥不做接口解耦**：引擎 → sync 库方向的直调不构成反向依赖（§3.3）。
 - **`SyncRoleConfig` 已删除（2026-08）**：拆 Host 进程后 `enableHost`/`hostConfig` 无消费方（`SynchronSystem` 只看 IG 半边，HostSync 独立 `initialize(HostConfig)`）；删结构体，`SynchronSystem::initialize` 改收 `std::optional<IgConfig>`（空 = 不启 IG，engine `toIgConfig()` 直接产出）。
+- **`HostDataManager` 不并入 `HostSync`（2026-09）**：传输类不持实体/环境等任务状态；权威表单独类型，由 `HostDriver` 同时持有二者。未来若有人把 last-value 塞进 `HostSync`，先读 [viewhost设计.md](../viewhost设计.md) §4.0。
 - **椭球注入对象已否决（2026-08 / 2026-09）**：`SynchronSystem::setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除；`setEllipsoidMode(bool)` 场景模式注入亦随同步只 LLA（2026-09）删除——决策器无需几何对象或模式判据。`EllipsoidTransform` 接口保留于 `SyncMath.h` 作**预留**（椭球 offset 的 ENU 叠加等椭球几何下沉决策器时启用），避免未来重建公开边界。

@@ -192,10 +192,7 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 > 来源：`thirdparty/cigi`（Boeing CIGI SDK，V4 报文处理表 `CigiOutgoingMsg.cpp` 的 `SetOutgoingHostV4Tbls` / `SetOutgoingIGV4Tbls`；入站表 `CigiIncomingMsg.cpp` 的 `SetIncomingHostV4Tbls` / `SetIncomingIGV4Tbls`）。
 
+## 状态数据权威
 
-
-状态数据权威：
-
-- Host 作为仿真状态的权威：所有改变世界状态的报文都是单向 Host→IG。IG 侧一条能写实体状态或气象状态的报文都没有；
-- IG 作为数据库的权威：IG 独占数据库派生的事实——地形几何、地表材质、它自己那份环境数据，host想知道只能问，但只会问其中一个IG；
+Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（通常只问一台），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver` 编排、UI 只调 Driver（[viewhost设计.md](../design/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。
 
