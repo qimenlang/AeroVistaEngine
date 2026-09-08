@@ -60,11 +60,13 @@ namespace
     }
 
     std::string jsonEntity(int id, const std::string& model, const std::string& poseObject = {},
-                           const std::string& name = {})
+                           const std::string& name = {}, const std::string& initialEntityState = {})
     {
         std::string s = R"({ "id": )" + std::to_string(id) + R"(, "model": ")" + model + "\"";
         if (!name.empty())
             s += R"(, "name": ")" + name + "\"";
+        if (!initialEntityState.empty())
+            s += R"(, "initialEntityState": ")" + initialEntityState + "\"";
         if (!poseObject.empty())
             s += R"(, "pose": )" + poseObject;
         s += " }";
@@ -103,6 +105,40 @@ namespace
         engine.showWindow = false;
         REQUIRE(engine.loadConfig(configPath));
         REQUIRE(engine.init());
+    }
+
+    /// 场景根下每个实体一个 Switch 实例（共享几何不算实例）。
+    std::size_t hungEntityInstanceCount(vsg::ref_ptr<vsg::Node> scene)
+    {
+        const auto root = scene ? scene.cast<vsg::Group>() : vsg::ref_ptr<vsg::Group>{};
+        if (!root)
+            return 0;
+        std::size_t n = 0;
+        for (const auto& child : root->children)
+        {
+            if (child.cast<vsg::Switch>())
+                ++n;
+        }
+        return n;
+    }
+
+    bool sceneHangsEntityTransform(vsg::ref_ptr<vsg::Node> scene, vsg::ref_ptr<vsg::MatrixTransform> transform)
+    {
+        const auto root = scene ? scene.cast<vsg::Group>() : vsg::ref_ptr<vsg::Group>{};
+        if (!root || !transform)
+            return false;
+        for (const auto& child : root->children)
+        {
+            const auto visibility = child.cast<vsg::Switch>();
+            if (!visibility)
+                continue;
+            for (const auto& instance : visibility->children)
+            {
+                if (instance.node == transform)
+                    return true;
+            }
+        }
+        return false;
     }
 
     void requireLookAtMatchesLocalPose(Engine& engine, const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
@@ -382,8 +418,8 @@ SCENARIO("loaded entity is parented under a MatrixTransform",
 // Multi-entity runtime (acceptance)
 // -----------------------------------------------------------------------------
 
-SCENARIO("multiple entities: entitySize matches config and ids resolve one-to-one",
-         "[acceptance][bdd][config][pose][entities][id]")
+SCENARIO("multiple entities: catalog entries are registered and hung on the scene",
+         "[acceptance][bdd][config][pose][entities][id][ENT-02-preload]")
 {
     GIVEN("a Local channel config with two entities")
     {
@@ -394,7 +430,7 @@ SCENARIO("multiple entities: entitySize matches config and ids resolve one-to-on
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
 
-        WHEN("entity map size and ids are queried")
+        WHEN("entity map, ids, and scene instances are queried")
         {
             THEN("entitySize equals the number of configured models")
             {
@@ -405,6 +441,12 @@ SCENARIO("multiple entities: entitySize matches config and ids resolve one-to-on
                 REQUIRE(engine.hasEntityId(1));
                 REQUIRE(engine.hasEntityId(2));
                 REQUIRE_FALSE(engine.hasEntityId(99));
+            }
+            THEN("hung scene instances equal the catalog size and each transform is on the tree")
+            {
+                REQUIRE(hungEntityInstanceCount(engine.mainScene()) == engine.entitySize());
+                REQUIRE(sceneHangsEntityTransform(engine.mainScene(), engine.entityTransform(1)));
+                REQUIRE(sceneHangsEntityTransform(engine.mainScene(), engine.entityTransform(2)));
             }
         }
     }
@@ -566,8 +608,8 @@ SCENARIO("entity name defaults to model basename and explicit name is kept",
     }
 }
 
-SCENARIO("entity without pose has no MatrixTransform parent",
-         "[acceptance][bdd][config][pose][entities][default-place]")
+SCENARIO("entity without pose uses an origin MatrixTransform",
+         "[acceptance][bdd][config][pose][entities][default-place][ENT-02-pose-default]")
 {
     GIVEN("a Local entity with id/model but no pose")
     {
@@ -577,18 +619,23 @@ SCENARIO("entity without pose has no MatrixTransform parent",
         REQUIRE(engine.entitySize() == 1);
         REQUIRE(engine.hasEntityId(1));
 
-        WHEN("transform is queried by id")
+        WHEN("transform and pose are queried by id")
         {
-            THEN("entityTransform is null (default place: no MatrixTransform)")
+            vsg::dvec3 position{};
+            vsg::dvec3 ypr{};
+            THEN("a MatrixTransform exists and sampled pose is the origin")
             {
-                REQUIRE_FALSE(engine.entityTransform(1));
+                REQUIRE(engine.entityTransform(1));
+                REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
+                requireDVec3Near(position, vsg::dvec3{0.0, 0.0, 0.0});
+                requireDVec3Near(ypr, vsg::dvec3{0.0, 0.0, 0.0});
             }
         }
     }
 }
 
 SCENARIO("single entities entry still registers in the id map",
-         "[acceptance][bdd][config][pose][entities][id]")
+         "[acceptance][bdd][config][pose][entities][id][ENT-02-preload]")
 {
     GIVEN("a Local config with exactly one entities item and pose.local")
     {
@@ -661,6 +708,154 @@ SCENARIO("duplicate entity names are allowed; lookup is by id only",
             {
                 REQUIRE(nameLeft == "twin");
                 REQUIRE(nameRight == "twin");
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 启动装配（实体与运动控制设计.md §7.2 / §11 ②；验收码 ENT-02-*）
+// -----------------------------------------------------------------------------
+
+SCENARIO("Standby entity is hidden at startup without a Host",
+         "[acceptance][bdd][config][entities][visibility][ENT-02-visibility]")
+{
+    GIVEN("a Local entity configured Standby")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot, {}, {}, "Standby") + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+
+        WHEN("startup visibility is queried")
+        {
+            THEN("the entity is in the map and not visible")
+            {
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE_FALSE(engine.entityVisible(1));
+            }
+        }
+    }
+}
+
+SCENARIO("Active entity is visible at startup without a Host",
+         "[acceptance][bdd][config][entities][visibility][ENT-02-visibility]")
+{
+    GIVEN("a Local entity that omits initialEntityState")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+
+        WHEN("startup visibility is queried")
+        {
+            THEN("the entity is visible")
+            {
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.entityVisible(1));
+            }
+        }
+    }
+}
+
+SCENARIO("two entities with the same model share one geometry node",
+         "[acceptance][bdd][config][entities][shared-geometry][ENT-02-shared-geom]")
+{
+    GIVEN("two Local teapot entities at different poses")
+    {
+        const std::string entities =
+            "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{0, 0, 0}, vsg::dvec3{0, 0, 0})) + ", " +
+            jsonEntity(2, kTeapot, jsonPoseLocalOnly(vsg::dvec3{10, 0, 0}, vsg::dvec3{0, 0, 0})) + "]";
+        EntitiesConfig cfg(entities);
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+
+        WHEN("geometry nodes and transforms are compared")
+        {
+            THEN("the nodes are the same instance and the transforms differ")
+            {
+                auto nodeA = engine.entityNode(1);
+                auto nodeB = engine.entityNode(2);
+                REQUIRE(nodeA);
+                REQUIRE(nodeB);
+                REQUIRE(nodeA == nodeB);
+                REQUIRE(engine.entityTransform(1));
+                REQUIRE(engine.entityTransform(2));
+                REQUIRE(engine.entityTransform(1) != engine.entityTransform(2));
+            }
+        }
+    }
+}
+
+SCENARIO("hidden Standby sibling is excluded from the scene AABB",
+         "[acceptance][bdd][config][entities][aabb][ENT-02-aabb-hidden]")
+{
+    GIVEN("an Active teapot at the origin and a Standby teapot far on +X")
+    {
+        const std::string entities =
+            "[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{0, 0, 0}, vsg::dvec3{0, 0, 0})) + ", " +
+            jsonEntity(2, kTeapot, jsonPoseLocalOnly(vsg::dvec3{100, 0, 0}, vsg::dvec3{0, 0, 0}), {}, "Standby") + "]";
+        EntitiesConfig cfg(entities);
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+
+        WHEN("the scene AABB is computed")
+        {
+            vsg::ComputeBounds computeBounds;
+            engine.mainScene()->accept(computeBounds);
+            const vsg::dvec3 centre = (computeBounds.bounds.min + computeBounds.bounds.max) * 0.5;
+            THEN("the centre stays near the visible entity, not the midpoint")
+            {
+                REQUIRE(centre.x < 20.0);
+            }
+        }
+    }
+}
+
+SCENARIO("init continues when one entity model fails to load",
+         "[acceptance][bdd][config][entities][negative][ENT-02-load-skip]")
+{
+    GIVEN("one valid teapot and one missing model path")
+    {
+        const std::string entities =
+            "[" + jsonEntity(1, kTeapot) + ", " + jsonEntity(2, "models/missing.vsgt") + "]";
+        EntitiesConfig cfg(entities);
+        Engine engine;
+        engine.extent = {640, 480};
+        engine.showWindow = false;
+        REQUIRE(engine.loadConfig(cfg.cfgFile->path()));
+
+        WHEN("the engine initializes")
+        {
+            THEN("init succeeds and only the valid id is registered")
+            {
+                REQUIRE(engine.init());
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE_FALSE(engine.hasEntityId(2));
+                REQUIRE(engine.entitySize() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("all Standby entities use the local camera fallback",
+         "[acceptance][bdd][config][entities][aabb][camera][ENT-02-aabb-hidden]")
+{
+    GIVEN("two Local Standby entities and no camera pose")
+    {
+        const std::string entities = "[" + jsonEntity(1, kTeapot, {}, {}, "Standby") + ", " +
+                                     jsonEntity(2, kLz, {}, {}, "Standby") + "]";
+        EntitiesConfig cfg(entities);
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+
+        WHEN("the main camera LookAt is inspected")
+        {
+            auto lookAt = engine.mainCamera()->viewMatrix.cast<vsg::LookAt>();
+            REQUIRE(lookAt);
+            THEN("eye uses the empty-AABB fallback")
+            {
+                REQUIRE(vsg::length(lookAt->eye - vsg::dvec3(0.0, 0.0, 10.0)) < 1e-6);
+                REQUIRE(vsg::length(lookAt->center - vsg::dvec3(0.0, 0.0, 0.0)) < 1e-6);
             }
         }
     }

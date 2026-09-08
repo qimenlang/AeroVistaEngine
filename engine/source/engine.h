@@ -20,14 +20,13 @@ public:
         int id = 0;
         std::string name;
         std::string path;
-        bool hasLocalPose = false;
-        bool hasEllipsoidPose = false;
-        vsg::dvec3 localPosition{};
-        vsg::dvec3 localYpr{};
-        vsg::dvec3 ellipsoidLla{};
-        vsg::dvec3 ellipsoidYpr{};
+        /// true：`positionOrLla` 为 LLA、`eulerYprDeg` 为当地 ENU；false：本地笛卡尔。与场景有无椭球一致。
+        bool ellipsoid = false;
+        vsg::dvec3 positionOrLla{};
+        vsg::dvec3 eulerYprDeg{};
         vsg::ref_ptr<vsg::Node> node;
         vsg::ref_ptr<vsg::MatrixTransform> transform;
+        vsg::ref_ptr<vsg::Switch> visibility;
     };
 
     Engine();
@@ -92,6 +91,10 @@ public:
     bool hasEntityId(int id) const;
     bool entityName(int id, std::string& outName) const;
     vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
+    /// 启动装配显隐（读 Switch mask）；不在表内或无 Switch 为 false。
+    bool entityVisible(int id) const;
+    /// 实体几何 node（共享几何验收：同 model 两实体指针相同）。
+    vsg::ref_ptr<vsg::Node> entityNode(int id) const;
 
     /// 应用 SynchronSystem 产出的相机位姿（恒 LLA → setCameraPoseLla）。
     void applySyncCameraPose(const aerovista::sync::HostEyePose& pose);
@@ -108,6 +111,8 @@ private:
     /// 注册 IG 回调（眼点/命令实体分流 + 全量 Host→IG 报文自检订阅）；hasIg 时调用。
     void registerIgCallbacks();
     bool initSceneFromEntities(const std::vector<EntityConfig>& entities);
+    void assembleEntity(vsg::Group& root, const EntityConfig& cfg, vsg::ref_ptr<vsg::Node> geometry,
+                        vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid);
     bool ensureEllipsoidModel();
     void applyCameraPoseFromConfig();
     vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;
