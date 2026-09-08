@@ -17,6 +17,7 @@
 #include "CigiBaseCollDetSegResp.h"
 #include "CigiBaseCollDetVolDef.h"
 #include "CigiBaseCollDetVolResp.h"
+#include "CigiBaseEntityCtrl.h"
 #include "CigiBaseEntityPositionCtrl.h"
 #include "CigiBaseEventProcessor.h"
 #include "CigiCollDetSegDefV4.h"
@@ -32,6 +33,7 @@
 #include "CigiViewCtrlV4.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -89,6 +91,27 @@ namespace
             b.tickSync();
             c.tickSync();
         }
+    }
+
+    std::string makeIgConfigExtra(int base)
+    {
+        return std::string(R"("igConfig": { "udpPortSend": )") + std::to_string(base) +
+               R"(, "udpPortRecv": )" + std::to_string(base + 1) +
+               R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(base + 100) +
+               R"(, "targetUdpPortRecv": )" + std::to_string(base) + " }";
+    }
+
+    void sendHostEntityCtrl(HostSync& host, Engine& ig, Cigi_uint16 entityId,
+                            CigiBaseEntityCtrl::EntityStateGrp state, Cigi_uint8 alpha = 255)
+    {
+        auto& tcp = host.outMsgWithIgCtrlTcp();
+        CigiEntityCtrlV4 ent;
+        ent.SetEntityID(entityId);
+        ent.SetEntityState(state);
+        ent.SetAlpha(alpha);
+        tcp << ent;
+        host.flushTcp();
+        ig.tickSync();
     }
 
     // engine 层定义的业务 processor（§8.1）：捕获 EntityPositionCtrlV4 字段。
@@ -1509,6 +1532,115 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
 
                 auto mt = engineIg.entityTransform(7);
                 REQUIRE(mt);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// EntityCtrl 业务生效（真 Host↔IG TCP）：现有「IG subscribes … EntityCtrl over TCP」
+// 只验 sink 送达，不改。此处钉 IG 预建实体后 Switch / Alpha 是否随报文变化。
+// =============================================================================
+
+SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",
+         "[acceptance][bdd][sync][cmd][e2e][ENT-03-active]")
+{
+    GIVEN("a linked Host and an IG with a Standby catalog entity")
+    {
+        constexpr int kBase = 33800;
+        const EntitiesConfig igCfg(R"([ { "id": 1, "model": "models/teapot.vsgt", "initialEntityState": "Standby" } ])",
+                                   {}, false, makeIgConfigExtra(kBase));
+
+        HostSync host;
+        REQUIRE(host.initialize(makeTestHostConfig(kBase)));
+        host.run();
+
+        Engine ig;
+        ig.extent = {640, 480};
+        ig.showWindow = false;
+        REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
+        REQUIRE(ig.init());
+        REQUIRE(host.readyIgCount() == 1);
+        REQUIRE_FALSE(ig.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Active")
+        {
+            sendHostEntityCtrl(host, ig, 1, CigiBaseEntityCtrl::Active);
+
+            THEN("the IG entity is visible")
+            {
+                REQUIRE(ig.hasEntityId(1));
+                REQUIRE(ig.entityVisible(1));
+            }
+        }
+    }
+}
+
+SCENARIO("linked IG hides an Active entity after Host EntityCtrl Standby",
+         "[acceptance][bdd][sync][cmd][e2e][ENT-03-standby]")
+{
+    GIVEN("a linked Host and an IG with an Active catalog entity")
+    {
+        constexpr int kBase = 33850;
+        const EntitiesConfig igCfg(R"([ { "id": 1, "model": "models/teapot.vsgt" } ])", {}, false,
+                                   makeIgConfigExtra(kBase));
+
+        HostSync host;
+        REQUIRE(host.initialize(makeTestHostConfig(kBase)));
+        host.run();
+
+        Engine ig;
+        ig.extent = {640, 480};
+        ig.showWindow = false;
+        REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
+        REQUIRE(ig.init());
+        REQUIRE(host.readyIgCount() == 1);
+        REQUIRE(ig.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Standby")
+        {
+            sendHostEntityCtrl(host, ig, 1, CigiBaseEntityCtrl::Standby);
+
+            THEN("the IG entity is hidden and still registered")
+            {
+                REQUIRE(ig.hasEntityId(1));
+                REQUIRE_FALSE(ig.entityVisible(1));
+                REQUIRE(ig.entitySize() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
+         "[acceptance][bdd][sync][cmd][e2e][ENT-03-attrs]")
+{
+    GIVEN("a linked Host and an IG with an Active catalog entity")
+    {
+        constexpr int kBase = 33900;
+        const EntitiesConfig igCfg(R"([ { "id": 1, "model": "models/teapot.vsgt" } ])", {}, false,
+                                   makeIgConfigExtra(kBase));
+
+        HostSync host;
+        REQUIRE(host.initialize(makeTestHostConfig(kBase)));
+        host.run();
+
+        Engine ig;
+        ig.extent = {640, 480};
+        ig.showWindow = false;
+        REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
+        REQUIRE(ig.init());
+        REQUIRE(host.readyIgCount() == 1);
+        REQUIRE(ig.entityVisible(1));
+        REQUIRE(ig.entityAlpha(1) == std::uint8_t{255});
+
+        WHEN("Host sends EntityCtrl Active with Alpha 128")
+        {
+            sendHostEntityCtrl(host, ig, 1, CigiBaseEntityCtrl::Active, 128);
+
+            THEN("the IG entity stays visible and alpha is 128")
+            {
+                REQUIRE(ig.entityVisible(1));
+                REQUIRE(ig.entityAlpha(1) == std::uint8_t{128});
             }
         }
     }

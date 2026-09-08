@@ -8,7 +8,9 @@
 #include <aerovista/sync/SynchronSystem.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -27,6 +29,11 @@ public:
         vsg::ref_ptr<vsg::Node> node;
         vsg::ref_ptr<vsg::MatrixTransform> transform;
         vsg::ref_ptr<vsg::Switch> visibility;
+        /// CIGI Alpha：0 透明 .. 255 不透明；缺省不透明（报文未到前）。
+        std::uint8_t alpha = 255;
+        bool inheritAlpha = false;
+        bool collisionDetectEn = false;
+        bool smoothingEn = false;
     };
 
     Engine();
@@ -91,8 +98,10 @@ public:
     bool hasEntityId(int id) const;
     bool entityName(int id, std::string& outName) const;
     vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
-    /// 启动装配显隐（读 Switch mask）；不在表内或无 Switch 为 false。
+    /// 显隐（读 Switch mask）；不在表内或无 Switch 为 false。启动初值与运行期 `EntityCtrl` 共用。
     bool entityVisible(int id) const;
+    /// 运行时透明度（0 透明..255 不透明）；不在表内为空。
+    std::optional<std::uint8_t> entityAlpha(int id) const;
     /// 实体几何 node（共享几何验收：同 model 两实体指针相同）。
     vsg::ref_ptr<vsg::Node> entityNode(int id) const;
 
@@ -105,6 +114,8 @@ public:
     /// 订阅回调：EntityPositionCtrlV4 到达时分流（§4.1）——EntityID==0 ownship 眼点翻译为
     /// HostEyePose 入队 SynchronSystem 决策器；EntityID≠0 命令实体走 updateEntityPose 摆放。
     void onEntityPositionCtrl(const CigiEntityPositionCtrlV4& pose);
+    /// 订阅回调：EntityCtrlV4 切显隐 + 套属性（实体与运动控制设计.md §9）；不建实例、不加载、不编译。
+    void onEntityCtrl(const CigiEntityCtrlV4& ctrl);
 
 private:
     void applyConfigToEngine();

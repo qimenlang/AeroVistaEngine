@@ -59,6 +59,29 @@ namespace
                R"(, "alt": )" + std::to_string(lla.z) + R"( }, "eulerYprDeg": )" + jsonVec3(eulerYprDeg) + " }";
     }
 
+    CigiEntityCtrlV4 makeEntityCtrl(int id, CigiBaseEntityCtrl::EntityStateGrp state, std::uint8_t alpha = 255)
+    {
+        CigiEntityCtrlV4 ctrl;
+        ctrl.SetEntityID(static_cast<Cigi_uint16>(id));
+        ctrl.SetEntityState(state);
+        ctrl.SetAlpha(alpha);
+        return ctrl;
+    }
+
+    CigiEntityPositionCtrlV4 makeEntityPositionLla(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg)
+    {
+        CigiEntityPositionCtrlV4 pose;
+        pose.SetEntityID(static_cast<Cigi_uint16>(id));
+        pose.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+        pose.SetLat(lla.x);
+        pose.SetLon(lla.y);
+        pose.SetAlt(lla.z);
+        pose.SetYaw(static_cast<float>(eulerYprDeg.x));
+        pose.SetPitch(static_cast<float>(eulerYprDeg.y));
+        pose.SetRoll(static_cast<float>(eulerYprDeg.z));
+        return pose;
+    }
+
     std::string jsonEntity(int id, const std::string& model, const std::string& poseObject = {},
                            const std::string& name = {}, const std::string& initialEntityState = {})
     {
@@ -856,6 +879,345 @@ SCENARIO("all Standby entities use the local camera fallback",
             {
                 REQUIRE(vsg::length(lookAt->eye - vsg::dvec3(0.0, 0.0, 10.0)) < 1e-6);
                 REQUIRE(vsg::length(lookAt->center - vsg::dvec3(0.0, 0.0, 0.0)) < 1e-6);
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 运行期 EntityCtrl（实体与运动控制设计.md §9 / §11 ③；验收码 ENT-03-*）
+// 测试直接调公开 onEntityCtrl / onEntityPositionCtrl（与既有位姿注入同层），不改 ENT-02。
+// -----------------------------------------------------------------------------
+
+SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-active]")
+{
+    GIVEN("a Local Standby teapot with no pose packet yet")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot, {}, {}, "Standby") + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE_FALSE(engine.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Active")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+
+            THEN("the entity is visible without a position packet")
+            {
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.entityVisible(1));
+            }
+        }
+    }
+}
+
+SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-standby]")
+{
+    GIVEN("a Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.entityVisible(1));
+        const auto geometry = engine.entityNode(1);
+
+        WHEN("Host sends EntityCtrl Standby")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Standby));
+
+            THEN("the entity is hidden and still registered")
+            {
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+                REQUIRE(engine.entityNode(1) == geometry);
+            }
+        }
+    }
+}
+
+SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-destroyed]")
+{
+    GIVEN("a Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Destroyed")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Destroyed));
+
+            THEN("the entity is hidden and the instance is kept")
+            {
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+            }
+
+            AND_WHEN("Host sends EntityCtrl Active")
+            {
+                engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+
+                THEN("the entity is visible again")
+                {
+                    REQUIRE(engine.hasEntityId(1));
+                    REQUIRE(engine.entityVisible(1));
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("Host EntityCtrl Remove hides like Destroyed",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-destroyed]")
+{
+    GIVEN("a Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Remove")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Remove));
+
+            THEN("the entity is hidden and the instance is kept")
+            {
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-active-idempotent]")
+{
+    GIVEN("a Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        const auto geometry = engine.entityNode(1);
+        REQUIRE(engine.entityVisible(1));
+        REQUIRE(engine.entitySize() == 1);
+
+        WHEN("Host sends EntityCtrl Active again")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+
+            THEN("visibility and catalog size are unchanged")
+            {
+                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+                REQUIRE(engine.entityNode(1) == geometry);
+            }
+        }
+    }
+}
+
+SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
+         "[acceptance][bdd][entities][entity-ctrl][negative][ENT-03-unmapped]")
+{
+    GIVEN("one Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl for an id not in the catalog")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(99, CigiBaseEntityCtrl::Standby));
+
+            THEN("no instance is created and the catalog entity is unchanged")
+            {
+                REQUIRE_FALSE(engine.hasEntityId(99));
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("EntityCtrl for a skipped load id has no effect",
+         "[acceptance][bdd][entities][entity-ctrl][negative][ENT-03-failed-id]")
+{
+    GIVEN("one valid teapot and one missing model path")
+    {
+        const std::string entities =
+            "[" + jsonEntity(1, kTeapot) + ", " + jsonEntity(2, "models/missing.vsgt") + "]";
+        EntitiesConfig cfg(entities);
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.hasEntityId(1));
+        REQUIRE_FALSE(engine.hasEntityId(2));
+        REQUIRE(engine.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Active for the skipped id")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(2, CigiBaseEntityCtrl::Active));
+
+            THEN("the skipped id stays absent and the valid entity is unchanged")
+            {
+                REQUIRE_FALSE(engine.hasEntityId(2));
+                REQUIRE_FALSE(engine.entityVisible(2));
+                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("activating a Standby entity keeps the configured pose",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-standby-pose]")
+{
+    GIVEN("a Local Standby teapot with a configured pose")
+    {
+        constexpr vsg::dvec3 kPos{4.0, 2.0, 1.0};
+        constexpr vsg::dvec3 kYpr{15.0, 0.0, 0.0};
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr), {}, "Standby") + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE_FALSE(engine.entityVisible(1));
+
+        WHEN("Host sends EntityCtrl Active without a position packet")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+
+            THEN("the entity is visible at the configured pose")
+            {
+                REQUIRE(engine.entityVisible(1));
+                vsg::dvec3 position{};
+                vsg::dvec3 ypr{};
+                REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
+                requireDVec3Near(position, kPos);
+                requireDVec3Near(ypr, kYpr);
+            }
+        }
+    }
+}
+
+SCENARIO("hiding and showing does not restore the configured pose",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-pose-keep]")
+{
+    GIVEN("an Ellipsoid Active teapot at a configured LLA")
+    {
+        constexpr vsg::dvec3 kConfigLla{39.9087, 116.3975, 0.0};
+        constexpr vsg::dvec3 kPlacedLla{40.0, 116.5, 50.0};
+        constexpr vsg::dvec3 kPlacedYpr{30.0, 0.0, 0.0};
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(kConfigLla, vsg::dvec3{0, 0, 0})) + "]",
+                           {}, true);
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.entityVisible(1));
+
+        WHEN("Host places a new pose then hides and shows the entity")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+            engine.onEntityPositionCtrl(makeEntityPositionLla(1, kPlacedLla, kPlacedYpr));
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Standby));
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+
+            THEN("the sampled pose stays at the placed LLA")
+            {
+                REQUIRE(engine.entityVisible(1));
+                vsg::dvec3 lla{};
+                vsg::dvec3 ypr{};
+                REQUIRE(engine.sampleEntityPoseById(1, lla, ypr));
+                requireDVec3Near(lla, kPlacedLla, 1e-4);
+                requireDVec3Near(ypr, kPlacedYpr, 1e-4);
+            }
+        }
+    }
+}
+
+SCENARIO("hiding and showing reuses the prebuilt geometry",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-no-reload]")
+{
+    GIVEN("a Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        const auto geometry = engine.entityNode(1);
+        REQUIRE(geometry);
+
+        WHEN("Host hides then shows the entity")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Standby));
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+
+            THEN("the entity is visible on the same geometry node")
+            {
+                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.entitySize() == 1);
+                REQUIRE(engine.entityNode(1) == geometry);
+            }
+        }
+    }
+}
+
+SCENARIO("Host EntityPositionCtrl places an Active entity",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-place]")
+{
+    GIVEN("an Ellipsoid Standby teapot")
+    {
+        constexpr vsg::dvec3 kConfigLla{39.9087, 116.3975, 0.0};
+        constexpr vsg::dvec3 kPlacedLla{39.91, 116.40, 100.0};
+        constexpr vsg::dvec3 kPlacedYpr{15.0, 0.0, 0.0};
+        EntitiesConfig cfg(
+            "[" + jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(kConfigLla, vsg::dvec3{0, 0, 0}), {}, "Standby") + "]",
+            {}, true);
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+
+        WHEN("Host activates then places the entity")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
+            engine.onEntityPositionCtrl(makeEntityPositionLla(1, kPlacedLla, kPlacedYpr));
+
+            THEN("the sampled pose matches the placed LLA")
+            {
+                REQUIRE(engine.entityVisible(1));
+                vsg::dvec3 lla{};
+                vsg::dvec3 ypr{};
+                REQUIRE(engine.sampleEntityPoseById(1, lla, ypr));
+                requireDVec3Near(lla, kPlacedLla, 1e-4);
+                requireDVec3Near(ypr, kPlacedYpr, 1e-4);
+            }
+        }
+    }
+}
+
+SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
+         "[acceptance][bdd][entities][entity-ctrl][ENT-03-attrs]")
+{
+    GIVEN("a Local Active teapot")
+    {
+        EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
+        Engine engine;
+        initOffscreen(engine, cfg.cfgFile->path());
+        REQUIRE(engine.entityVisible(1));
+        REQUIRE(engine.entityAlpha(1) == std::uint8_t{255});
+
+        WHEN("Host sends EntityCtrl Active with Alpha 128")
+        {
+            engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active, 128));
+
+            THEN("the entity stays visible and alpha is 128")
+            {
+                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.entityAlpha(1) == std::uint8_t{128});
             }
         }
     }

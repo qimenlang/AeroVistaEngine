@@ -6,7 +6,9 @@
 
 #include <vsgXchange/all.h>
 
+#include "CigiBaseEntityCtrl.h"
 #include "CigiBaseEntityPositionCtrl.h"
+#include "CigiEntityCtrlV4.h"
 #include "CigiEntityPositionCtrlV4.h"
 
 #include <chrono>
@@ -15,6 +17,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -584,6 +587,14 @@ bool Engine::entityVisible(int id) const
     return children.front().mask != vsg::MASK_OFF;
 }
 
+std::optional<std::uint8_t> Engine::entityAlpha(int id) const
+{
+    const auto it = _entityMap.find(id);
+    if (it == _entityMap.end())
+        return std::nullopt;
+    return it->second.alpha;
+}
+
 vsg::ref_ptr<vsg::Node> Engine::entityNode(int id) const
 {
     const auto it = _entityMap.find(id);
@@ -915,7 +926,10 @@ void Engine::registerIgCallbacks()
     ig.addCallback<CigiAccelerationCtrlV4>([this](const CigiAccelerationCtrlV4&) { _lastReceivedPacketName = "CigiAccelerationCtrlV4"; });
     ig.addCallback<CigiViewCtrlV4>([this](const CigiViewCtrlV4&) { _lastReceivedPacketName = "CigiViewCtrlV4"; });
 
-    ig.addCallback<CigiEntityCtrlV4>([this](const CigiEntityCtrlV4&) { _lastReceivedPacketName = "CigiEntityCtrlV4"; });
+    ig.addCallback<CigiEntityCtrlV4>([this](const CigiEntityCtrlV4& ctrl) {
+        _lastReceivedPacketName = "CigiEntityCtrlV4";
+        onEntityCtrl(ctrl);
+    });
     ig.addCallback<CigiArtPartCtrlV4>([this](const CigiArtPartCtrlV4&) { _lastReceivedPacketName = "CigiArtPartCtrlV4"; });
     ig.addCallback<CigiShortArtPartCtrlV4>([this](const CigiShortArtPartCtrlV4&) { _lastReceivedPacketName = "CigiShortArtPartCtrlV4"; });
     ig.addCallback<CigiCompCtrlV4>([this](const CigiCompCtrlV4&) { _lastReceivedPacketName = "CigiCompCtrlV4"; });
@@ -1428,6 +1442,25 @@ bool Engine::captureToFile(const vsg::Path& outputPngPath)
         std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
         return false;
     }
+}
+
+void Engine::onEntityCtrl(const CigiEntityCtrlV4& ctrl)
+{
+    auto it = _entityMap.find(ctrl.GetEntityID());
+    if (it == _entityMap.end())
+    {
+        std::cerr << "[WARN] EntityCtrl for unknown entity id=" << ctrl.GetEntityID() << std::endl;
+        return;
+    }
+
+    Entity& entity = it->second;
+    if (entity.visibility)
+        entity.visibility->setAllChildren(ctrl.GetEntityState() == CigiBaseEntityCtrl::Active);
+
+    entity.alpha = ctrl.GetAlpha();
+    entity.inheritAlpha = ctrl.GetInheritAlpha() == CigiBaseEntityCtrl::Inherit;
+    entity.collisionDetectEn = ctrl.GetCollisionDetectEn() == CigiBaseEntityCtrl::Enable;
+    entity.smoothingEn = ctrl.GetSmoothingEn();
 }
 
 void Engine::onEntityPositionCtrl(const CigiEntityPositionCtrlV4& pose)
