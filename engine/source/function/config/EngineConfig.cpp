@@ -88,7 +88,7 @@ namespace
         if (hasRequireConnectedIg && !cfg.igConfig)
             throw std::runtime_error("requireConnectedIg without igConfig is invalid");
         // 同步只 LLA（2026-09 收敛）：本地笛卡尔场景参与同步的 fail-fast 无法在配置加载期判定
-        // （「场景有无 EllipsoidModel」要 loadScene 后才知道），移至 Engine::ensureEllipsoidModelForFrame。
+        // （「场景有无 EllipsoidModel」要 loadScene 后才知道），移至 Engine::ensureEllipsoidModel。
     }
 
     std::string basenameOfModel(const std::string& modelPath)

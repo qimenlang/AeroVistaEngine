@@ -108,7 +108,7 @@ private:
     /// 注册 IG 回调（眼点/命令实体分流 + 全量 Host→IG 报文自检订阅）；hasIg 时调用。
     void registerIgCallbacks();
     bool initGraphicsFromEntities();
-    bool assembleEntitiesScene();
+    bool initSceneFromEntities();
     bool ensureEllipsoidModel();
     void applyCameraPoseFromConfig();
     vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;

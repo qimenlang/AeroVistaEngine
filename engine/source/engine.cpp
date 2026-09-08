@@ -632,7 +632,7 @@ bool Engine::ensureEllipsoidModel()
     return true;
 }
 
-bool Engine::assembleEntitiesScene()
+bool Engine::initSceneFromEntities()
 {
     _entityMap.clear();
     if (!setupOptions(_options))
@@ -760,16 +760,29 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 
 bool Engine::init()
 {
+    // 初始化顺序（设计 §7.2 / §10 前提3）：applyConfig -> reset -> 场景构建 -> initSync -> Graphics。
+    // 场景构建（initSceneFromEntities / initSceneMode）只建 _scene（含椭球注入，判据纯配置 #1），
+    // 不依赖 GPU 与 sync 运行状态；sync 初始化在场景后（保证收 EntityCtrl 时 _entityMap 已建全，#23）；
+    // Graphics（Vulkan device + 离屏 + compile）依赖 _scene，必须最后。
     applyConfigToEngine();
+    resetGraphicsResources();
+
+    if (!config.entities.empty())
+    {
+        if (!initSceneFromEntities())
+            return false;
+    }
+    else
+    {
+        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
+        if (!initSceneMode(modelPath))
+            return false;
+    }
+
     if (!initSync(config.igConfig, config.syncSystem))
         return false;
 
-    if (!config.entities.empty())
-        return initGraphicsFromEntities();
-
-    // JSON 中的模型路径相对 resources/ 解析。
-    const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
-    return initGraphics(modelPath);
+    return finishGraphicsAfterScene(ellipsoidModel());
 }
 
 bool Engine::init(const vsg::Path& modelPath)
@@ -789,7 +802,7 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
 {
     // 同步进 config：椭球注入判据以 config.igConfig 为准（#1 B 方案）。
     // 无论走 Engine::init(modelPath, igConfig) 还是直接 initSync，config 都感知 igConfig，
-    // 保证装配（ensureEllipsoidModelForFrame）在不依赖 sync 运行状态的前提下正确注入椭球。
+    // 保证装配（ensureEllipsoidModel）在不依赖 sync 运行状态的前提下正确注入椭球。
     config.igConfig = igConfig;
     // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，outMsgWithIgCtrlUdp 填 TimeStamp，§7.1）——
     // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
@@ -1144,7 +1157,7 @@ bool Engine::initGraphicsFromEntities()
     try
     {
         resetGraphicsResources();
-        if (!assembleEntitiesScene())
+        if (!initSceneFromEntities())
             return false;
         return finishGraphicsAfterScene(ellipsoidModel());
     }
