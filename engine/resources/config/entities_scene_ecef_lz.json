@@ -1,0 +1,15 @@
+﻿{
+  "entities": [
+    {
+      "id": 1,
+      "name": "teapot",
+      "model": "models/lz.vsgt",
+      "pose": {
+        "ellipsoid": {
+          "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
+          "eulerYprDeg": [0.0, 0.0, 0.0]
+        }
+      }
+    }
+  ]
+}

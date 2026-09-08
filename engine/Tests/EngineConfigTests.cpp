@@ -300,14 +300,11 @@ SCENARIO("Local multiple entities no pose camera uses overall AABB",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(R"({
-            "entities": [
+        EntitiesConfig cfg(R"([
                 { "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } },
                 { "id": 2, "model": "models/lz.vsgt", "pose": { "local": { "position": [100, 0, 0], "eulerYprDeg": [0, 0, 0] } } }
-            ],
-        )" + std::string(kMinimalWindow) +
-                                  "}");
-        REQUIRE(engine.loadConfig(file.path()));
+            ])");
+        REQUIRE(engine.loadConfig(cfg.cfgFile->path()));
         REQUIRE(engine.init());
 
         WHEN("the main camera is inspected")
@@ -342,10 +339,7 @@ SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(R"({
-            "injectEllipsoidIfMissing": true,
-            "entities": [
-                {
+        EntitiesConfig cfg(R"([{
                     "id": 1,
                     "model": "models/lz.vsgt",
                     "pose": {
@@ -354,11 +348,9 @@ SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
                             "eulerYprDeg": [0, 0, 0]
                         }
                     }
-                }
-            ],
-        )" + std::string(kMinimalWindow) +
-                                  "}");
-        REQUIRE(engine.loadConfig(file.path()));
+                }])",
+                           {}, true);
+        REQUIRE(engine.loadConfig(cfg.cfgFile->path()));
         REQUIRE(engine.init());
         REQUIRE(engine.ellipsoidModel());
 
@@ -428,21 +420,10 @@ SCENARIO("camera pose overrides AABB computed position",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(R"({
-            "entities": [
-                { "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } }
-            ],
-            "camera": {
-                "pose": {
-                    "local": {
-                        "position": [10, 20, 30],
-                        "eulerYprDeg": [45, 0, 0]
-                    }
-                }
-            },
-        )" + std::string(kMinimalWindow) +
-                                  "}");
-        REQUIRE(engine.loadConfig(file.path()));
+        EntitiesConfig cfg(
+            R"([{ "id": 1, "model": "models/lz.vsgt", "pose": { "local": { "position": [0, 0, 0], "eulerYprDeg": [0, 0, 0] } } }])",
+            R"({ "pose": { "local": { "position": [10, 20, 30], "eulerYprDeg": [45, 0, 0] } } })");
+        REQUIRE(engine.loadConfig(cfg.cfgFile->path()));
         REQUIRE(engine.init());
 
         WHEN("the main camera is inspected")
@@ -534,21 +515,9 @@ SCENARIO("Local camera pose recomputes near far to prevent clipping",
     {
         Engine engine;
         engine.showWindow = false;
-        const TempConfigFile file(R"({
-            "entities": [
-                { "id": 1, "model": "models/lz.vsgt" }
-            ],
-            "camera": {
-                "pose": {
-                    "local": {
-                        "position": [0, 1000, 0],
-                        "eulerYprDeg": [0, 0, 0]
-                    }
-                }
-            },
-        )" + std::string(kMinimalWindow) +
-                                  "}");
-        REQUIRE(engine.loadConfig(file.path()));
+        EntitiesConfig cfg(R"([{ "id": 1, "model": "models/lz.vsgt" }])",
+                           R"({ "pose": { "local": { "position": [0, 1000, 0], "eulerYprDeg": [0, 0, 0] } } })");
+        REQUIRE(engine.loadConfig(cfg.cfgFile->path()));
         REQUIRE(engine.init());
 
         WHEN("the main camera projection is inspected")
@@ -1123,6 +1092,202 @@ TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][
     std::string error;
     REQUIRE_FALSE(loadIgConfig(file.path(), cfg, &error));
     REQUIRE_FALSE(error.empty());
+}
+
+// =============================================================================
+// 实体目录解析（loadEntitiesFile）：独立 entities.json -> EntityConfig 列表。
+// 契约：实体与运动控制设计.md §5（顶层 {entities:[...]}）+ 位姿配置设计.md §1
+// （条目 schema：id 1..65535 唯一 / model 必填 / name 缺省 basename /
+//   initialEntityState 仅 "Active"|"Standby" / pose 双轨可选 / 空表与未知键拒绝）。
+// =============================================================================
+
+TEST_CASE("loadEntitiesFile parses entities.json into EntityConfig list", "[unit][config][parse][entities-catalog]")
+{
+    const TempConfigFile file(
+        R"({ "entities": [)"
+        R"({ "id": 1, "name": "teapot_center", "model": "models/teapot.vsgt" },)"
+        R"({ "id": 2, "name": "truck", "model": "models/truck.vsgt", "initialEntityState": "Standby", )"
+        R"("pose": { "local": { "position": [1, 2, 3], "eulerYprDeg": [10, 20, 30] } } })"
+        R"(] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE(loadEntitiesFile(file.path(), entities, &error));
+
+    THEN("both entities parsed with defaults applied")
+    {
+        REQUIRE(entities.size() == 2);
+        REQUIRE(entities[0].id == 1);
+        REQUIRE(entities[0].name == "teapot_center");
+        REQUIRE(entities[0].model == "models/teapot.vsgt");
+        REQUIRE(entities[0].initialEntityState == EntityInitialState::ACTIVE); // 缺省 Active
+        REQUIRE_FALSE(entities[0].hasPose);
+
+        REQUIRE(entities[1].id == 2);
+        REQUIRE(entities[1].name == "truck");
+        REQUIRE(entities[1].initialEntityState == EntityInitialState::STANDBY);
+        REQUIRE(entities[1].hasPose);
+        REQUIRE(entities[1].hasPoseLocal);
+        REQUIRE_FALSE(entities[1].hasPoseEllipsoid);
+        REQUIRE(entities[1].localPose.position.x == Catch::Approx(1.0));
+        REQUIRE(entities[1].localPose.eulerYprDeg.y == Catch::Approx(20.0));
+    }
+}
+
+TEST_CASE("loadEntitiesFile applies name default from model basename", "[unit][config][parse][entities-catalog]")
+{
+    const TempConfigFile file(
+        R"({ "entities": [ { "id": 7, "model": "models/lz.vsgt" } ] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE(entities.size() == 1);
+    REQUIRE(entities[0].name == "lz.vsgt");
+}
+
+TEST_CASE("loadEntitiesFile rejects invalid initialEntityState", "[unit][config][parse][entities-catalog][negative]")
+{
+    for (const char* bad : {R"("active")", R"("ACTIVE")", R"("Destroyed")", R"("Remove")", R"("bogus")"})
+    {
+        const std::string json = "{ \"entities\": [ { \"id\": 1, \"model\": \"models/lz.vsgt\", \"initialEntityState\": " +
+                                 std::string(bad) + " } ] }";
+        const TempConfigFile file(json);
+        std::vector<EntityConfig> entities;
+        std::string error;
+        REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+        REQUIRE_FALSE(error.empty());
+    }
+}
+
+TEST_CASE("loadEntitiesFile rejects duplicate entity id", "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile file(
+        R"({ "entities": [ { "id": 1, "model": "models/lz.vsgt" }, { "id": 1, "model": "models/teapot.vsgt" } ] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEntitiesFile rejects entity id outside 1..65535", "[unit][config][parse][entities-catalog][negative]")
+{
+    for (const char* badId : {"0", "-1", "65536", "70000"})
+    {
+        const std::string json = "{ \"entities\": [ { \"id\": " + std::string(badId) +
+                                 ", \"model\": \"models/lz.vsgt\" } ] }";
+        const TempConfigFile file(json);
+        std::vector<EntityConfig> entities;
+        std::string error;
+        REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+        REQUIRE_FALSE(error.empty());
+    }
+}
+
+TEST_CASE("loadEntitiesFile rejects missing or empty model", "[unit][config][parse][entities-catalog][negative]")
+{
+    for (const char* item : {R"({ "id": 1 })", R"({ "id": 1, "model": "" })"})
+    {
+        const std::string json = "{ \"entities\": [ " + std::string(item) + " ] }";
+        const TempConfigFile file(json);
+        std::vector<EntityConfig> entities;
+        std::string error;
+        REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+        REQUIRE_FALSE(error.empty());
+    }
+}
+
+TEST_CASE("loadEntitiesFile rejects empty entities array", "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile file(R"({ "entities": [] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEntitiesFile rejects unknown keys in file or item", "[unit][config][parse][entities-catalog][negative]")
+{
+    for (const char* json : {
+             R"({ "entities": [ { "id": 1, "model": "models/lz.vsgt" } ], "bogus": 1 })",
+             R"({ "entities": [ { "id": 1, "model": "models/lz.vsgt", "bogus": 1 } ] })"})
+    {
+        const TempConfigFile file(json);
+        std::vector<EntityConfig> entities;
+        std::string error;
+        REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+        REQUIRE_FALSE(error.empty());
+    }
+}
+
+TEST_CASE("loadEntitiesFile rejects missing entities key or file", "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile fileNoKey(R"({ "model": "models/lz.vsgt" })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE_FALSE(loadEntitiesFile(fileNoKey.path(), entities, &error));
+    REQUIRE_FALSE(error.empty());
+
+    REQUIRE_FALSE(loadEntitiesFile("nonexistent-entities.json", entities, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEntitiesFile rejects item without id", "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile file(R"({ "entities": [ { "model": "models/teapot.vsgt" } ] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEntitiesFile rejects item with non-integer id", "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile file(R"({ "entities": [ { "id": "a", "model": "models/teapot.vsgt" } ] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEntitiesFile rejects local pose with incomplete position array",
+          "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile file(
+        R"({ "entities": [ { "id": 1, "model": "models/teapot.vsgt", )"
+        R"("pose": { "local": { "position": [1, 2], "eulerYprDeg": [0, 0, 0] } } } ] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE_FALSE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEngineChannelConfig parses entitiesFilePath", "[unit][config][parse][entities-catalog]")
+{
+    const TempConfigFile file(std::string(R"({ "entitiesFilePath": "config/entities.json", )") + kMinimalWindow + "}");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.entitiesFilePath == "config/entities.json");
+}
+
+TEST_CASE("loadEngineChannelConfig rejects top-level entities key", "[unit][config][parse][entities-catalog][negative]")
+{
+    const TempConfigFile file(std::string(R"({ "entities": [], )") + kMinimalWindow + "}");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][config][parse][entities-catalog]")
+{
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(std::string(RESOURCE_DIR) + "/config/viewhost_ig_main.json", cfg, &error));
+    REQUIRE(cfg.entitiesFilePath == "config/entities.json");
+
+    std::vector<EntityConfig> entities;
+    REQUIRE(loadEntitiesFile(std::string(RESOURCE_DIR) + "/config/entities.json", entities, &error));
+    REQUIRE(entities.size() == 5);
 }
 
 // =============================================================================

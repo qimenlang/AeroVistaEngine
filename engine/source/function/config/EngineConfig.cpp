@@ -178,15 +178,34 @@ namespace
         // 双轨自由解析；运行时按「场景有无 EllipsoidModel」选半（2026-09 收敛），不再加载期强制选半。
     }
 
+    EntityInitialState parseEntityInitialState(const JsonObject& obj)
+    {
+        const JsonValue* v = find(obj, "initialEntityState");
+        if (!v)
+            return EntityInitialState::ACTIVE;
+        rejectNull(*v, "initialEntityState");
+        if (!v->isString())
+            throw std::runtime_error("missing/invalid string: initialEntityState");
+        const std::string s = v->asString();
+        if (s == "Active")
+            return EntityInitialState::ACTIVE;
+        if (s == "Standby")
+            return EntityInitialState::STANDBY;
+        throw std::runtime_error("invalid initialEntityState (only \"Active\" or \"Standby\"): " + s);
+    }
+
     EntityConfig parseEntityItem(const JsonObject& obj)
     {
-        rejectUnknownKeys(obj, {"id", "name", "model", "pose"});
+        rejectUnknownKeys(obj, {"id", "name", "model", "initialEntityState", "pose"});
         EntityConfig entity;
         entity.id = requireStrictInt(obj, "id");
+        if (entity.id < 1 || entity.id > 65535)
+            throw std::runtime_error("entity id out of range 1..65535");
         entity.model = requireString(obj, "model");
         if (entity.model.empty())
             throw std::runtime_error("entities[].model must be non-empty");
         entity.name = parseOptionalString(obj, "name", basenameOfModel(entity.model));
+        entity.initialEntityState = parseEntityInitialState(obj);
         if (const JsonValue* poseValue = find(obj, "pose"))
         {
             entity.hasPose = true;
@@ -235,17 +254,17 @@ namespace
     {
         const bool hasModelKey = find(root, "model") != nullptr;
         const bool hasEntityKey = find(root, "entity") != nullptr;
-        const bool hasEntitiesKey = find(root, "entities") != nullptr;
-        const int presentCount = static_cast<int>(hasModelKey) + static_cast<int>(hasEntityKey) +
-                                 static_cast<int>(hasEntitiesKey);
-        if (presentCount > 1)
-            throw std::runtime_error("model, entity, and entities are mutually exclusive");
         if (hasEntityKey)
-            throw std::runtime_error("singular entity is not supported; use entities");
-        if (hasEntitiesKey)
-            cfg.entities = parseEntitiesArray(*find(root, "entities"));
+            throw std::runtime_error("singular entity is not supported; use a separate entities file (entitiesFilePath)");
         if (hasModelKey)
             cfg.model = requireString(root, "model");
+        if (const JsonValue* v = find(root, "entitiesFilePath"))
+        {
+            rejectNull(*v, "entitiesFilePath");
+            if (!v->isString())
+                throw std::runtime_error("missing/invalid string: entitiesFilePath");
+            cfg.entitiesFilePath = v->asString();
+        }
     }
 
     SyncSystemConfig parseSyncSystemConfig(const JsonObject& obj)
@@ -266,7 +285,7 @@ namespace
     {
         // hostConfig 已移出 engine schema（2026-08 拆 Host 进程）——engine 配置含 hostConfig 属未知键拒绝。
         rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
-                                 "injectEllipsoidIfMissing", "entities", "entity", "camera"});
+                                 "injectEllipsoidIfMissing", "entitiesFilePath", "camera"});
 
         EngineChannelConfig cfg;
 
@@ -331,6 +350,51 @@ bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, 
             throw std::runtime_error("root must be a JSON object");
 
         out = parseConfig(rootValue.asObject());
+        return true;
+    }
+    catch (const std::exception& ex)
+    {
+        if (error)
+            *error = ex.what();
+        return false;
+    }
+}
+
+bool loadEntitiesFile(const std::string& path, std::vector<EntityConfig>& out, std::string* error)
+{
+    try
+    {
+        std::ifstream in(path);
+        if (!in)
+        {
+            if (error)
+                *error = "failed to open entities file: " + path;
+            return false;
+        }
+
+        std::ostringstream oss;
+        oss << in.rdbuf();
+        std::string text = oss.str();
+        // 去掉 UTF-8 BOM（同 loadEngineChannelConfig）。
+        if (text.size() >= 3 &&
+            static_cast<unsigned char>(text[0]) == 0xEF &&
+            static_cast<unsigned char>(text[1]) == 0xBB &&
+            static_cast<unsigned char>(text[2]) == 0xBF)
+        {
+            text.erase(0, 3);
+        }
+
+        JsonParser parser(std::move(text));
+        const JsonValue rootValue = parser.parse();
+        if (!rootValue.isObject())
+            throw std::runtime_error("entities file root must be a JSON object");
+
+        const JsonObject& root = rootValue.asObject();
+        rejectUnknownKeys(root, {"entities"});
+        const JsonValue* entitiesValue = find(root, "entities");
+        if (!entitiesValue)
+            throw std::runtime_error("missing key: entities");
+        out = parseEntitiesArray(*entitiesValue);
         return true;
     }
     catch (const std::exception& ex)

@@ -13,17 +13,5 @@
     "targetUdpPortRecv": 8000
   },
   "window": { "x": 0, "y": 0, "width": 640, "height": 1080 },
-  "entities": [
-    {
-      "id": 1,
-      "name": "teapot",
-      "model": "models/lz.vsgt",
-      "pose": {
-        "ellipsoid": {
-          "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
-          "eulerYprDeg": [0.0, 0.0, 0.0]
-        }
-      }
-    }
-  ]
+  "entitiesFilePath": "config/entities_scene_ecef_lz.json"
 }

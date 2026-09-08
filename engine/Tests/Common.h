@@ -2,9 +2,12 @@
 
 #include <aerovista/sync/SyncConfig.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 
 using aerovista::sync::HostConfig;
@@ -32,6 +35,34 @@ public:
 
 private:
     std::string _path;
+};
+
+/// 写独立 entities.json + 指向它的 engine 通道配置（实体目录抽取后，测试装配用）。
+/// 两个临时文件随对象析构清理；路径反斜杠转正斜杠嵌入 JSON，避免转义。
+/// `extraFields` 为额外对象成员（不含前导逗号），例如 `"igConfig": { ... }`。
+struct EntitiesConfig
+{
+    EntitiesConfig(const std::string& entitiesArrayBody, const std::string& cameraObject = {},
+                   bool injectEllipsoidIfMissing = false, const std::string& extraFields = {})
+    {
+        entitiesFile = std::make_unique<TempConfigFile>(std::string(R"({ "entities": )") + entitiesArrayBody + " }");
+
+        std::string cfg = "{";
+        if (injectEllipsoidIfMissing)
+            cfg += R"("injectEllipsoidIfMissing": true,)";
+        std::string entitiesPath = entitiesFile->path();
+        std::replace(entitiesPath.begin(), entitiesPath.end(), '\\', '/');
+        cfg += R"("entitiesFilePath": ")" + entitiesPath + "\"";
+        if (!cameraObject.empty())
+            cfg += R"(, "camera": )" + cameraObject;
+        if (!extraFields.empty())
+            cfg += ", " + extraFields;
+        cfg += R"(, "window": { "x": 0, "y": 0, "width": 640, "height": 480 } })";
+        cfgFile = std::make_unique<TempConfigFile>(cfg);
+    }
+
+    std::unique_ptr<TempConfigFile> entitiesFile;
+    std::unique_ptr<TempConfigFile> cfgFile;
 };
 
 // =============================================================================

@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -393,6 +394,17 @@ namespace
         return std::string(RESOURCE_DIR) + "/config/default.json";
     }
 
+    /// 相对路径按 RESOURCE_DIR 解析（与 model 路径约定一致）；绝对路径原样使用（测试临时文件）。
+    std::string resolveResourcePath(const std::string& path)
+    {
+        if (path.empty())
+            return path;
+        const std::filesystem::path p(path);
+        if (p.is_absolute())
+            return path;
+        return (std::filesystem::path(RESOURCE_DIR) / p).string();
+    }
+
     std::string formatSimTimeUsParts(std::uint64_t totalUs)
     {
         const std::uint64_t sec = totalUs / 1000000;
@@ -632,7 +644,7 @@ bool Engine::ensureEllipsoidModel()
     return true;
 }
 
-bool Engine::initSceneFromEntities()
+bool Engine::initSceneFromEntities(const std::vector<EntityConfig>& entities)
 {
     _entityMap.clear();
     if (!setupOptions(_options))
@@ -644,7 +656,7 @@ bool Engine::initSceneFromEntities()
         return false;
     auto ellipsoid = ellipsoidModel();
 
-    for (const EntityConfig& cfg : config.entities)
+    for (const EntityConfig& cfg : entities)
     {
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / cfg.model;
         vsg::ref_ptr<vsg::Node> loaded;
@@ -767,9 +779,21 @@ bool Engine::init()
     applyConfigToEngine();
     resetGraphicsResources();
 
-    if (!config.entities.empty())
+    // 实体目录文件（entitiesFilePath）非空 → loadEntitiesFile 解析实体列表走实体装配；否则单模型。
+    std::vector<EntityConfig> entities;
+    if (!config.entitiesFilePath.empty())
     {
-        if (!initSceneFromEntities())
+        std::string entitiesError;
+        if (!loadEntitiesFile(resolveResourcePath(config.entitiesFilePath), entities, &entitiesError))
+        {
+            std::cerr << "[config] load entities file failed: " << entitiesError << std::endl;
+            return false;
+        }
+    }
+
+    if (!entities.empty())
+    {
+        if (!initSceneFromEntities(entities))
             return false;
     }
     else
@@ -1150,22 +1174,6 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
     _viewer->start_point() = vsg::clock::now();
     applyCameraPoseFromConfig();
     return true;
-}
-
-bool Engine::initGraphicsFromEntities()
-{
-    try
-    {
-        resetGraphicsResources();
-        if (!initSceneFromEntities())
-            return false;
-        return finishGraphicsAfterScene(ellipsoidModel());
-    }
-    catch (const vsg::Exception& ve)
-    {
-        std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
-        return false;
-    }
 }
 
 bool Engine::initGraphics(const vsg::Path& modelPath)

@@ -1459,16 +1459,15 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
     {
         constexpr int kBase = 33650;
 
-        const TempConfigFile igFile(
-            std::string(R"({ "injectEllipsoidIfMissing": true, )") +
-            R"("entities": [ { "id": 7, "model": "models/teapot.vsgt", )"
+        const EntitiesConfig igCfg(
+            R"([ { "id": 7, "model": "models/teapot.vsgt", )"
             R"("pose": { "ellipsoid": { "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 }, )"
-            R"("eulerYprDeg": [0, 0, 0] } } } ], )" +
-            R"("igConfig": { "udpPortSend": )" + std::to_string(kBase) +
-            R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
-            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
-            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( }, )" +
-            R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 } })");
+            R"("eulerYprDeg": [0, 0, 0] } } } ])",
+            {}, true,
+            std::string(R"("igConfig": { "udpPortSend": )") + std::to_string(kBase) +
+                R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
+                R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
+                R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + " }");
 
         HostSync hostA;
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
@@ -1477,7 +1476,7 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
         Engine engineIg;
         engineIg.extent = {640, 480};
         engineIg.showWindow = false;
-        REQUIRE(engineIg.loadConfig(igFile.path()));
+        REQUIRE(engineIg.loadConfig(igCfg.cfgFile->path()));
         REQUIRE(engineIg.init());
         REQUIRE(hostA.readyIgCount() == 1);
 

@@ -1,0 +1,15 @@
+﻿{
+  "entities": [
+    {
+      "id": 1,
+      "name": "teapot",
+      "model": "models/teapot.vsgt",
+      "pose": {
+        "local": {
+          "position": [10.0, 0.0, -2.0],
+          "eulerYprDeg": [90.0, 0.0, 0.0]
+        }
+      }
+    }
+  ]
+}
