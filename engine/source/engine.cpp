@@ -1,6 +1,7 @@
 ﻿#include "engine.h"
 
 #include "InitialCameraConfig.h"
+#include "function/driver/CameraDriver.h"
 #include "function/handler/FrameStatsHandler.h"
 #include "function/handler/PacketProbeHandler.h"
 
@@ -24,7 +25,6 @@
 #include <unordered_map>
 #include <vector>
 
-using aerovista::sync::HostEyePose;
 using aerovista::sync::IgConfig;
 using aerovista::sync::SynchronSystem;
 
@@ -521,11 +521,6 @@ SynchronSystem& Engine::synchronSystem()
     return *_synchronSystem;
 }
 
-CameraDriver& Engine::cameraDriver()
-{
-    return *_cameraDriver;
-}
-
 vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
 {
     return _window;
@@ -901,12 +896,10 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
     // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
     // Host 角色已拆出（2026-08）：engine 仅 IG，Host 由独立 viewhost 进程承担。
 
-    // 眼点相机驱动器装配（2026-09 从 Engine 抽出为 CameraDriver）：offsetDeg / stalePolicy 由
-    // CameraDriver 持有；SynchronSystem 只消费 channelId / requireConnectedIg。
-    // CameraDriver 在 SynchronSystem 之后创建（持有其引用，读 igLinked 做断线决策）。
-    _cameraDriver = std::make_unique<CameraDriver>(*this, *_synchronSystem);
-    _cameraDriver->setOffsetDeg(syncSystem.offsetDeg);
-    _cameraDriver->setHostEyeStalePolicy(syncSystem.hostEyeStalePolicy);
+    // 眼点相机驱动器：offset 由驱动器持有；写相机在 update/stepSync。
+    // SynchronSystem 只消费 channelId / requireConnectedIg。
+    _cameraDriver.resetEyeCaches();
+    _cameraDriver.setOffsetDeg(syncSystem.offsetDeg);
 
     // IG：SynchronSystem（IG 收发端点）；igConfig 为空时 initialize 仅清空旧 IG。
     if (!_synchronSystem->initialize(igConfig, syncSystem))
@@ -927,10 +920,10 @@ void Engine::registerIgCallbacks()
     // 命令实体位姿 + ownship 眼点：同一 PacketID（EntityPositionCtrlV4）跨链路多播投递（§4.1）。
     // addCallback 把回调多播注册到 UDP 侧 _eyeProc + TCP 侧 _entityPoseProc 两条链路的通用捕获，
     // 任一链路收到报文时两个回调均被调用，各自按 EntityID 卫语句过滤（眼点==0 / 命令实体≠0）。
-    // 眼点回调转发到 CameraDriver（决策 A 方案 1：Engine 管注册，CameraDriver 提供处理函数）；
+    // 眼点回调转发到 CameraDriver（Engine 管注册，驱动器提供处理函数）；
     // 命令实体走 Engine::onEntityPose。回调主线程解包时同步调用（主线程安全，§6）。
     ig.addCallback<CigiEntityPositionCtrlV4>(
-        [this](const CigiEntityPositionCtrlV4& pose) { _cameraDriver->onOwnshipEyePose(pose); });
+        [this](const CigiEntityPositionCtrlV4& pose) { _cameraDriver.onOwnshipEyePose(pose); });
     ig.addCallback<CigiEntityPositionCtrlV4>(
         [this](const CigiEntityPositionCtrlV4& pose) { onEntityPose(pose); });
 
@@ -1006,8 +999,7 @@ bool Engine::initSceneMode(const vsg::Path& modelPath)
 void Engine::resetGraphicsResources()
 {
     // lla §4.3：图形重建时清空眼点缓存（不拆除同步）。
-    if (_cameraDriver)
-        _cameraDriver->resetEyeCaches();
+    _cameraDriver.resetEyeCaches();
 
     _entityMap.clear();
     _currentExtent = extent;
@@ -1289,9 +1281,8 @@ bool Engine::update()
 
     _viewer->handleEvents();
 
-    // IG 眼点帧级决策（2026-09 抽到 CameraDriver），应用本帧位姿（Host 眼点由独立 viewhost 进程扇出，2026-08 拆 Host）。
-    if (_cameraDriver)
-        _cameraDriver->update();
+    // 写相机必须在 handleEvents 之后：Trackball 可能刚改过 LookAt，Host 眼点覆盖本地位姿。
+    applyLastHostEye();
 
     if (_frameStatsSwitch)
         _frameStatsSwitch->setAllChildren(_reportFrameStats);
@@ -1347,10 +1338,17 @@ void Engine::postFrame()
     // 无扇出——数据面帧节拍 / 眼点由独立 viewhost 进程经 HostDriver::update 发送。
 }
 
+void Engine::applyLastHostEye()
+{
+    const auto pose = _cameraDriver.lastAppliedEye();
+    if (!pose || !hasGraphics())
+        return;
+    setCameraPoseLla(pose->lla, pose->eulerYprDeg);
+}
+
 void Engine::stepSync()
 {
-    if (_cameraDriver)
-        _cameraDriver->update();
+    applyLastHostEye();
 }
 
 void Engine::tickSync()
@@ -1465,12 +1463,11 @@ void Engine::onEntityPose(const CigiEntityPositionCtrlV4& pose)
 {
     if (pose.GetEntityID() == 0)
         return;
-    updateEntityPose(pose.GetEntityID(), aerovista::sync::DVec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
-                     aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()});
+    updateEntityPose(pose.GetEntityID(), vsg::dvec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
+                     vsg::dvec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()});
 }
 
-void Engine::updateEntityPose(int id, const aerovista::sync::DVec3& lla,
-                              const aerovista::sync::DVec3& eulerYprDeg)
+void Engine::updateEntityPose(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg)
 {
     auto it = _entityMap.find(id);
     if (it == _entityMap.end())
@@ -1478,8 +1475,8 @@ void Engine::updateEntityPose(int id, const aerovista::sync::DVec3& lla,
     Entity& entity = it->second;
 
     entity.ellipsoid = true;
-    entity.positionOrLla = {lla.x, lla.y, lla.z};
-    entity.eulerYprDeg = {eulerYprDeg.x, eulerYprDeg.y, eulerYprDeg.z};
+    entity.positionOrLla = lla;
+    entity.eulerYprDeg = eulerYprDeg;
     ensureEntityTransform(entity);
     recomputeEntityTransform(entity);
 }

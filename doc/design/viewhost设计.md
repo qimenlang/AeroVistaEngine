@@ -1,4 +1,4 @@
-# viewhost 设计（MFC Host 宿主程序）
+﻿# viewhost 设计（MFC Host 宿主程序）
 
 > **已按新接口同步（2026-08-24；2026-08-25 IGCtrl 自动填充）**：`HostSync::update`/`EyePose` 已删除，`HostDriver::update` 改用 `outMsgWithIgCtrlUdp() + cigi_wire::appendEye + flushUdp()`（[状态同步设计初版.md](./多通道同步/状态同步设计初版.md) §7.1）——`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl（帧号/自计时时间戳/`TimeStampValid=true`）；眼点类型为 **`cigi_wire::EyePose`**（`frame` 枚举替代 `isLla` 布尔）。本文正文已全部对齐。
 
@@ -274,7 +274,7 @@ void ViewHostDlg::onTick()
 
 命令面语义仍是：`HostDriver::setEntityPose` 写权威表 last pose，`sendEntity` 按表组 `CigiEntityPositionCtrlV4`（**Detach+LLA，`EntityID≠0`**）→ `outMsgWithIgCtrlTcp()` → **一次** `flushTcp()`。未知 id 失败且不发送。
 
-IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`（眼点 + 命令实体多播分流，§4.1），ownship（`EntityID==0`）翻译 HostEyePose 入队决策器、命令实体按 Detach→`updateEntityPose(id, lla, ypr, ELLIPSOID)` 更新实体位姿（状态同步设计初版.md §12）。
+IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`（眼点 + 命令实体多播分流，§4.1），ownship（`EntityID==0`）翻译为 `ChannelEye` 入队 CameraDriver、命令实体按 Detach→`updateEntityPose(id, lla, ypr)`（`vsg::dvec3`）更新实体位姿（状态同步设计初版.md §12）。
 
 - 命令面走 **TCP**（一次性、可靠送达，§8.5 链路选择），与数据面眼点（UDP 持续）解耦。
 - 与「眼点为何不用 ViewCtrl」同源：绝对 LLA 位姿只能用 `EntityPositionCtrlV4` Detach 表达（[cigi梳理.md](../notes/cigi梳理.md) 决策节）。

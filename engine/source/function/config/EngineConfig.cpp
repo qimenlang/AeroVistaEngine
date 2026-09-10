@@ -31,15 +31,6 @@ using aerovista::sync::sync_json::requireValue;
 
 namespace
 {
-    HostEyeStalePolicy parseStalePolicy(const std::string& text)
-    {
-        if (text == "ReuseLast")
-            return HostEyeStalePolicy::REUSE_LAST;
-        if (text == "Freeze")
-            return HostEyeStalePolicy::FREEZE;
-        throw std::runtime_error("invalid hostEyeStalePolicy: " + text);
-    }
-
     OffsetDeg parseOffsetDeg(const JsonObject& obj)
     {
         rejectUnknownKeys(obj, {"yaw", "pitch", "roll"});
@@ -269,13 +260,11 @@ namespace
 
     SyncSystemConfig parseSyncSystemConfig(const JsonObject& obj)
     {
-        rejectUnknownKeys(obj, {"channelId", "offsetDeg", "hostEyeStalePolicy", "requireConnectedIg"});
+        rejectUnknownKeys(obj, {"channelId", "offsetDeg", "requireConnectedIg"});
         SyncSystemConfig ss;
         ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
         if (const JsonValue* v = find(obj, "offsetDeg"))
             ss.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
-        if (find(obj, "hostEyeStalePolicy") != nullptr)
-            ss.hostEyeStalePolicy = parseStalePolicy(parseOptionalString(obj, "hostEyeStalePolicy", ""));
         if (find(obj, "requireConnectedIg") != nullptr)
             ss.requireConnectedIg = requireBool(obj, "requireConnectedIg");
         return ss;

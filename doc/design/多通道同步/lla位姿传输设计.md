@@ -288,39 +288,40 @@ M_inv   = computeWorldToLocalTransform(lla)
 
 **Host 无 offsetDeg（2026-08 拆进程）**：Host 为独立 viewhost 进程，不施加通道偏移，也不存在「权威窗 ⊕ offset 后采样再广播」的双重叠加问题（原约束源于 engine 同进程 Host+IG，已随拆进程移除）。各 IG 的 `offsetDeg` 只在各自 IG 进程施加。
 
-### 4.2 `HostEyePose`（只 LLA，无 frame 判别）
+### 4.2 眼点类型（只 LLA，无 frame 判别）
 
-**同步层只支持 LLA（2026-09 收敛）**：`HostEyePose` 不再需要 `frame` 判别字段，`position` 恒为 LLA（纬度°、经度°、海拔 米），`eulerYprDeg` 恒为当地 ENU YPR（§3.2）。
+**同步层只支持 LLA（2026-09 收敛）**：眼点恒为 LLA（纬度°、经度°、海拔 米）+ 当地 ENU YPR（§3.2），无 `frame` 判别字段。
 
-```text
-struct HostEyePose {
-  DVec3 position{};     // 纬度°、经度°、海拔 米（LLA）
-  DVec3 eulerYprDeg{};  // 当地 ENU YPR（度）
-};
-```
+分层（写死）：
 
-**实现现状（2026-09）**：`HostEyePose`（`SyncConfig.h`）已删除 `HostEyeCoordFrame frame` 枚举，只保留 `DVec3 position`（LLA）+ `DVec3 eulerYprDeg`（当地 ENU YPR）。业务侧回调（`CameraDriver::onOwnshipEyePose` / `Engine::onEntityPose`）各按 `EntityID` 卫语句过滤——ownship 眼点翻译为 LLA 入队 CameraDriver 眼点输入、命令实体摆放恒 `Detach`+LLA。原「本地 XYZ / 椭球 LLA 双语义 + variant」讨论随同步只 LLA 移除，不再需要编译期判别。
+| 层 | 类型 | 字段 |
+| --- | --- | --- |
+| 线格式 / viewhost 扇出 | `cigi_wire::EyePose` | `x/y/z` = LLA；`yawDeg/pitchDeg/rollDeg` |
+| Engine `CameraDriver` | `ChannelEye`（`vsg::dvec3 lla` + `vsg::dvec3 eulerYprDeg`） | compose 后是本通道位姿（Host ⊕ offset） |
+| sync 公开头 | 不持眼点结构 | `OffsetDeg` 仍在 `SyncConfig.h`；原 `HostEyePose` / `DVec3` / `SyncMath.h` 已删 |
+
+**实现现状（2026-09）**：业务侧回调（`CameraDriver::onOwnshipEyePose` / `Engine::onEntityPose`）各按 `EntityID` 卫语句过滤——ownship 眼点从 CCL 字段直接填 `ChannelEye`（`vsg::dvec3`），命令实体摆放恒 `Detach`+LLA → `updateEntityPose(id, vsg::dvec3, vsg::dvec3)`。原「本地 XYZ / 椭球 LLA 双语义 + variant」及 sync 侧 `HostEyePose`（`DVec3`）讨论随同步只 LLA、engine 改用 VSG 向量一并移除。
 
 ### 4.3 帧路径（IG 侧；Host 采样/扇出已随拆进程移除）
 
 ```text
 update:
   handleEvents
-  CameraDriver::update()          // 决策（2026-09 从 SynchronSystem 上移 Engine，再抽出为 CameraDriver）；applySyncCameraPose → setCameraPose / setCameraPoseLla
+  Engine::applyLastHostEye()      // 复用末次合成位姿 → setCameraPoseLla
 postFrame:
   无扇出（Host 眼点由 viewhost 独立扇出，见 viewhost设计.md §4）
 ```
 
-无新包 / Freeze / ReuseLast / 断线保末帧：逻辑不变，缓存带位置类型的 `HostEyePose`。
+无新包：`Engine::applyLastHostEye` 每帧复用末次**合成**位姿。改 `offsetDeg` 后需下一包 Host 眼点才会重新 compose。见 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.4。
 
-**stale vs 防回声（一句话）**：
+**无新包 vs 防回声（一句话）**：
 
 | 术语 | 含义 |
 | --- | --- |
-| **stale** | 本帧**没有**新的 Host 眼点包 → 按 `hostEyeStalePolicy`（`ReuseLast` / `Freeze`）决定是否仍用缓存写相机；细节沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.4 |
+| **无新包** | 本帧**没有**新的 Host 眼点包 → 每帧仍把末次合成位姿写回相机；细节见 [多通道同步模块设计.md](./多通道同步模块设计.md) §4.4 |
 | **防回声** | **已随拆进程移除**（2026-08）：engine 不再采样出站，原「权威窗回灌后相机未再动则不广播」只存在于同进程 Host+IG，viewhost 无回灌相机、无该问题 |
 
-二者正交：stale 管「没新包怎么办」；防回声已无宿主侧（§4.4 随拆进程移除）。
+二者正交：无新包管「没新包怎么办」；防回声已无宿主侧（§4.4 随拆进程移除）。
 
 #### 场景重建时的缓存
 
@@ -383,7 +384,7 @@ postFrame:
 | --- | --- |
 | **线格式** | 恒走 CIGI `EntityPositionCtrl` **Detach** + Lat/Lon/Alt |
 | **`CigiWire::EyePose`（解包后的内部 struct）** | 恒 LLA 语义（x=纬度、y=经度、z=海拔），无 frame 判别字段 |
-| **`HostEyePose`** | 应用层权威眼点，恒 LLA（§4.2） |
+| **`ChannelEye`** | Engine 侧通道眼点，恒 LLA（§4.2）；sync 公开头不再有眼点 POD |
 
 线格式无私有 frame 字段；`AttachState` 恒为 Detach（CIGI 字段布局，非业务坐标系选择）。
 
@@ -399,7 +400,7 @@ postFrame:
 
 | 概念 | 在本设计中的含义 | **不是** |
 | --- | --- | --- |
-| **线格式** | UDP 里真正发出的 CIGI 字节（`IGCtrl` + 可选 `EntityPositionCtrl`） | 配置里的 `injectEllipsoidIfMissing`；进程内 `HostEyePose` |
+| **线格式** | UDP 里真正发出的 CIGI 字节（`IGCtrl` + 可选 `EntityPositionCtrl`） | 配置里的 `injectEllipsoidIfMissing`；进程内 `ChannelEye` |
 | **`AttachState`** | CIGI 自带开关，恒为 `Detach`（同步只 LLA） | 场景节点是否 Attach 到父 Transform |
 | **`EntityID`** | CIGI **实体槽编号**（本项目眼点固定用 `0`） | VSG 节点指针 / scene 子节点下标 |
 | **`ParentID`** | `Detach` 下恒为 `0`（无父实体） | scene root；VSG 父节点 |
@@ -450,7 +451,7 @@ postFrame:
 | 权威 offset | **已移除**（2026-08 拆进程：Host 为 viewhost、无 `offsetDeg`；原「权威窗全 0」约束不再适用） |
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
 | 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
-| 防回声 / stale | 防回声**已移除**（2026-08 拆进程，§4.4）；stale 沿用既有 ReuseLast/Freeze 用例 |
+| 防回声 / 无新包 | 防回声**已移除**（2026-08 拆进程，§4.4）；无新包复用末次合成位姿 |
 | 场景重建清缓存 | 同进程重载场景：SynchronSystem 位姿缓存清空（`resetEyeCaches`；`_lastSent` 已随拆进程删除） |
 | `_lastSent` 换轨 | **已移除**（2026-08 拆进程：`_lastSent` 随 `HostPosePublisher` 删除，无 Host 重发路径） |
 | 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
@@ -477,7 +478,7 @@ postFrame:
 
 1. 按 §2 完成 `injectEllipsoidIfMissing` 解析、`loadScene` 后注入/保留 `EllipsoidModel`、默认 LLA 初始相机（均在相机创建前）
 2. `setCameraPoseLla` + LLA 本机往返（LookAt↔LLA/YPR 互逆；单测，无网络；方向用 3×3）
-3. `HostEyePose` 收敛为只 LLA（删 `frame` 枚举；`compose` / `apply` / `_lastApplied` 全部按 LLA 语义；本地路径随同步只 LLA 删除）
+3. 眼点收敛为只 LLA（删 `frame` 枚举；`compose` / `apply` / `_lastApplied` 全部按 LLA 语义；本地路径随同步只 LLA 删除）。随后 `HostEyePose`/`DVec3` 从 sync 公开头删除，engine 用 `ChannelEye`（`vsg::dvec3`）
 4. `CigiWire`：`EyePose` 收敛为只 LLA（删 `EyeFrame`；`appendEye` 恒 Detach+LLA）
 5. 椭球分支：`setCameraPoseLla`；Detach+double LLA；EntityID/ParentID 按 §5；参与同步场景自动注入椭球
 6. 场景重建清空同步位姿缓存（§4.3）

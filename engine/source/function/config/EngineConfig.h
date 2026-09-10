@@ -8,7 +8,6 @@
 
 // 具体 using 声明（非 using namespace，符合 cpp-vsg-style.mdc）。
 // hostConfig 已于 2026-08 拆 Host 进程时移出 engine schema（Host 配置归 sync 库 loadHostConfig）。
-using aerovista::sync::HostEyeStalePolicy;
 using aerovista::sync::IgConfig;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::parseIgConfig;
@@ -75,7 +74,7 @@ struct CameraConfig
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，设计 §3.1）。
 struct EngineChannelConfig
 {
-    // syncSystem 组：channelId / offsetDeg / hostEyeStalePolicy / requireConnectedIg。
+    // syncSystem 组：channelId / offsetDeg / requireConnectedIg。
     SyncSystemConfig syncSystem{};
 
     /// IG 传输配置；nullopt = 未启用同步（无 igConfig）。optional 承载「有/无」语义。
