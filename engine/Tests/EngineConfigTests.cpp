@@ -5,6 +5,7 @@
 #include "engine.h"
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/SyncConfig.h>
+#include <aerovista/sync/SynchronSystem.h>
 
 #include <cmath>
 #include <cstdint>
@@ -634,7 +635,7 @@ SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd]
             THEN("IG runs with addresses from the loaded config")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), *engine.config.igConfig));
+                REQUIRE(igConfigEquals(engine.synchronSystem().addressConfig(), *engine.config.igConfig));
             }
         }
     }
@@ -656,7 +657,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
             THEN("IG is started")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), *engine.config.igConfig));
+                REQUIRE(igConfigEquals(engine.synchronSystem().addressConfig(), *engine.config.igConfig));
             }
         }
     }

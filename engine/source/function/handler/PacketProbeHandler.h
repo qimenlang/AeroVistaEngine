@@ -7,14 +7,18 @@
 
 #include <string>
 
-/// 报文自检发送（IG 侧）：F9 → 随机发一条 TCP 上行报文（IG→Host，16 类响应/通知类）；
-/// F10 → 显式发 SOF（UDP 上行，IG→Host UDP 仅此一种，cigi梳理.md 链路矩阵）。
-/// 与 viewhost testtcp/testudp（Host→IG 下行）对称。发送类名写入 lastSentName，供 HUD「send:」行。
+/// 报文自检（IG 侧）：
+/// - 接收：`bindRecvProbes` 订阅 Host→IG 全量报文，只记类名供 HUD「recv:」行；
+/// - 发送：F9 → 随机一条 TCP 上行（IG→Host，16 类响应/通知）；F10 → SOF（UDP 上行）。
+/// 与 viewhost testtcp/testudp（Host→IG 下行）对称。
 class PacketProbeHandler : public vsg::Inherit<vsg::Visitor, PacketProbeHandler>
 {
 public:
     aerovista::sync::IgSync* ig = nullptr;
     std::string* lastSentName = nullptr;
+
+    /// 订阅全部 Host→IG 报文，仅记录类名。与业务回调多播并存，不替代显隐/眼点处理。
+    static void bindRecvProbes(aerovista::sync::IgSync& ig, std::string& lastReceivedName);
 
     void apply(vsg::KeyPressEvent& keyPress) override;
 };

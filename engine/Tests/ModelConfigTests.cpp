@@ -6,6 +6,10 @@
 
 #include <vsgXchange/all.h>
 
+#include "CigiBaseEntityCtrl.h"
+#include "CigiBaseEntityPositionCtrl.h"
+#include "CigiEntityCtrlV4.h"
+#include "CigiEntityPositionCtrlV4.h"
 #include "Common.h"
 #include <cmath>
 #include <cstdint>

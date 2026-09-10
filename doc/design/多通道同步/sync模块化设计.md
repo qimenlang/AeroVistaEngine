@@ -23,7 +23,7 @@ vsgEngine (exe)
             │           / SyncConfig / SyncProtocol
             ├─ Host 任务状态：HostDataManager（权威表门面，不持 socket）
             ├─ IG 收发端点：SynchronSystem（收包 + IgSync 帧维护 + 连接查询）
-            └─ 外部依赖：cigicl-static、ws2_32（vsg 仅作构建期依赖，见 §3.0）
+            └─ 外部依赖：cigicl-static、ws2_32
 ```
 
 - 库含传输层、**Host 任务状态**（`HostDataManager`）与 IG 收发端点；Host 扇出由宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager` 完成，不经 `SynchronSystem`。engine 仅 IG。
@@ -56,7 +56,7 @@ vsgEngine (exe)
 vsg 的分层：
 
 1. **公开边界零 vsg**：`OffsetDeg` 为自有 POD（`SyncConfig.h`），不暴露 `vsg::dvec3`；眼点不进 sync 公开头（engine `ChannelEye` 用 `vsg::dvec3`，viewhost 用 `cigi_wire::EyePose`）。`SynchronSystem` 工厂返回 `std::unique_ptr`。消费方（含无 vsg 的 viewhost）编译期零 vsg 头。
-2. **眼点数学在 engine**：`CameraDriver.cpp` 使用 `vsg::dvec3` / `dquat`。sync 库实现 TU **不** `#include <vsg/...>`。CMake 仍把 `vsg::vsg` 列为 `PRIVATE` 链接（无 TU 消费）。
+2. **眼点数学在 engine**：`CameraDriver.cpp` 使用 `vsg::dvec3` / `dquat`。sync 库实现 TU **不** `#include <vsg/...>`，CMake **不**链接 `vsg::vsg`。
 3. **同步只 LLA**：同步层只支持 LLA；`setEllipsoidMode` / `tryAcceptPendingEye` / `SyncMath.h` 已删除。`vsg::EllipsoidModel` 不进 sync 公开边界。
 
 **隔离要求**：新代码禁止在传输层或公开头引入 `<vsg/...>`。
@@ -70,6 +70,10 @@ SynchronSystem 是**IG 收发端点**，与宿主通过**数据流**交互，不
 
 void preFrame();                                       // 收包解包 + IgSync 帧维护
 bool igLinked() const;                                 // TCP+UDP 就绪（连接观测）
+std::uint32_t igCtrlReceivedCount() const;             // 生产路径观测（HUD）
+std::uint32_t lastIgCtrlFrameCntr() const;
+std::uint64_t simTimeUs() const;
+IgSync& igSync();                                      // 测试与上行探测
 
 // CameraDriver（Engine 值成员；不持 Engine / 相机）：
 void onOwnshipEyePose(const CigiEntityPositionCtrlV4& pose); // 眼点回调入口（Engine 转发）
@@ -97,7 +101,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ### 3.3 命令面桥
 
-命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().registerEventProcessor` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内上行报文自检 `PacketProbeHandler`（F9 随机 TCP 上行 / F10 发 SOF，IG→Host，与 viewhost testtcp/testudp 下行对称，2026-08）挂载于窗口事件；原 `CommandTriggerHandler`（F9/F10 实机命令触发）随拆 Host **已删除**（命令面发送归 Host 进程，viewhost 实体摆放命令 UI 已落地，其余命令 UI 属后期）。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除（2026-08）。
+命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().registerEventProcessor` / `addCallback` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 上行 / F10 发 SOF（IG→Host，与 viewhost testtcp/testudp 下行对称）。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除。
 
 ### 3.4 Host 任务状态（`HostDataManager`）
 

@@ -68,7 +68,54 @@ namespace
         std::uniform_int_distribution<std::size_t> dist(0, probeCount - 1);
         return probes[dist(rng)];
     }
+
+    template<typename PacketT>
+    void bindRecvName(aerovista::sync::IgSync& ig, std::string& out, const char* name)
+    {
+        ig.addCallback<PacketT>([&out, name](const PacketT&) { out = name; });
+    }
 } // namespace
+
+void PacketProbeHandler::bindRecvProbes(aerovista::sync::IgSync& ig, std::string& lastReceivedName)
+{
+    bindRecvName<CigiConfClampEntityCtrlV4>(ig, lastReceivedName, "CigiConfClampEntityCtrlV4");
+    bindRecvName<CigiVelocityCtrlV4>(ig, lastReceivedName, "CigiVelocityCtrlV4");
+    bindRecvName<CigiAccelerationCtrlV4>(ig, lastReceivedName, "CigiAccelerationCtrlV4");
+    bindRecvName<CigiViewCtrlV4>(ig, lastReceivedName, "CigiViewCtrlV4");
+    bindRecvName<CigiEntityCtrlV4>(ig, lastReceivedName, "CigiEntityCtrlV4");
+    bindRecvName<CigiArtPartCtrlV4>(ig, lastReceivedName, "CigiArtPartCtrlV4");
+    bindRecvName<CigiShortArtPartCtrlV4>(ig, lastReceivedName, "CigiShortArtPartCtrlV4");
+    bindRecvName<CigiCompCtrlV4>(ig, lastReceivedName, "CigiCompCtrlV4");
+    bindRecvName<CigiShortCompCtrlV4>(ig, lastReceivedName, "CigiShortCompCtrlV4");
+    bindRecvName<CigiAnimationCtrlV4>(ig, lastReceivedName, "CigiAnimationCtrlV4");
+    bindRecvName<CigiViewDefV4>(ig, lastReceivedName, "CigiViewDefV4");
+    bindRecvName<CigiSensorCtrlV4>(ig, lastReceivedName, "CigiSensorCtrlV4");
+    bindRecvName<CigiMotionTrackCtrlV4>(ig, lastReceivedName, "CigiMotionTrackCtrlV4");
+    bindRecvName<CigiAtmosCtrlV4>(ig, lastReceivedName, "CigiAtmosCtrlV4");
+    bindRecvName<CigiCelestialCtrlV4>(ig, lastReceivedName, "CigiCelestialCtrlV4");
+    bindRecvName<CigiEnvRgnCtrlV4>(ig, lastReceivedName, "CigiEnvRgnCtrlV4");
+    bindRecvName<CigiWeatherCtrlV4>(ig, lastReceivedName, "CigiWeatherCtrlV4");
+    bindRecvName<CigiMaritimeSurfaceCtrlV4>(ig, lastReceivedName, "CigiMaritimeSurfaceCtrlV4");
+    bindRecvName<CigiTerrestrialSurfaceCtrlV4>(ig, lastReceivedName, "CigiTerrestrialSurfaceCtrlV4");
+    bindRecvName<CigiWaveCtrlV4>(ig, lastReceivedName, "CigiWaveCtrlV4");
+    bindRecvName<CigiEarthModelDefV4>(ig, lastReceivedName, "CigiEarthModelDefV4");
+    bindRecvName<CigiCollDetSegDefV4>(ig, lastReceivedName, "CigiCollDetSegDefV4");
+    bindRecvName<CigiCollDetVolDefV4>(ig, lastReceivedName, "CigiCollDetVolDefV4");
+    bindRecvName<CigiHatHotReqV4>(ig, lastReceivedName, "CigiHatHotReqV4");
+    bindRecvName<CigiLosSegReqV4>(ig, lastReceivedName, "CigiLosSegReqV4");
+    bindRecvName<CigiLosVectReqV4>(ig, lastReceivedName, "CigiLosVectReqV4");
+    bindRecvName<CigiPositionReqV4>(ig, lastReceivedName, "CigiPositionReqV4");
+    bindRecvName<CigiEnvCondReqV4>(ig, lastReceivedName, "CigiEnvCondReqV4");
+    bindRecvName<CigiSymbolCtrlV4>(ig, lastReceivedName, "CigiSymbolCtrlV4");
+    bindRecvName<CigiShortSymbolCtrlV4>(ig, lastReceivedName, "CigiShortSymbolCtrlV4");
+    bindRecvName<CigiSymbolSurfaceDefV4>(ig, lastReceivedName, "CigiSymbolSurfaceDefV4");
+    bindRecvName<CigiSymbolTextDefV4>(ig, lastReceivedName, "CigiSymbolTextDefV4");
+    bindRecvName<CigiSymbolCircleDefV4>(ig, lastReceivedName, "CigiSymbolCircleDefV4");
+    bindRecvName<CigiSymbolPolygonDefV4>(ig, lastReceivedName, "CigiSymbolPolygonDefV4");
+    bindRecvName<CigiSymbolTexturedCircleDefV4>(ig, lastReceivedName, "CigiSymbolTexturedCircleDefV4");
+    bindRecvName<CigiSymbolTexturedPolygonDefV4>(ig, lastReceivedName, "CigiSymbolTexturedPolygonDefV4");
+    bindRecvName<CigiSymbolCloneV4>(ig, lastReceivedName, "CigiSymbolCloneV4");
+}
 
 void PacketProbeHandler::apply(vsg::KeyPressEvent& keyPress)
 {

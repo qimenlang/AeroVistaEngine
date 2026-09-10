@@ -8,6 +8,7 @@
 #include "engine.h"
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
+#include <aerovista/sync/SynchronSystem.h>
 
 #include <cstdint>
 #include <thread>

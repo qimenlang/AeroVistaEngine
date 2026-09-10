@@ -6,7 +6,6 @@
 #include "function/driver/CameraDriver.h"
 #include "vsg/core/ref_ptr.h"
 #include <aerovista/sync/SyncConfig.h>
-#include <aerovista/sync/SynchronSystem.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +13,14 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+
+class CigiEntityCtrlV4;
+class CigiEntityPositionCtrlV4;
+
+namespace aerovista::sync
+{
+    class SynchronSystem;
+}
 
 class Engine
 {
@@ -114,16 +121,16 @@ public:
     /// 更新指定实体的位姿（命令面 Host→IG 摆放，恒 LLA）。回调主线程解包时调用，直接写 entityMap（主线程安全，状态同步设计初版.md §6）。
     void updateEntityPose(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
-    /// 订阅回调：EntityPositionCtrlV4 命令实体摆放（EntityID≠0，实体与运动控制设计.md §4.2）——同步层只 LLA，
-    /// 走 updateEntityPose。addCallback 多播到 UDP/TCP 两条链路的通用捕获，眼点报文
-    /// （EntityID==0）由本回调卫语句过滤（眼点走 CameraDriver，经 registerIgCallbacks 转发）。
+    /// 应用 EntityPositionCtrlV4 命令实体摆放（EntityID≠0，实体与运动控制设计.md §4.2）。
+    /// CCL 订阅与测试注入共用；眼点（EntityID==0）由卫语句过滤（走 CameraDriver）。
     void onEntityPose(const CigiEntityPositionCtrlV4& pose);
-    /// 订阅回调：EntityCtrlV4 切显隐 + 套属性（实体与运动控制设计.md §9）；不建实例、不加载、不编译。
+    /// 应用 EntityCtrlV4 切显隐 + 套属性（实体与运动控制设计.md §9）；不建实例、不加载、不编译。
+    /// CCL 订阅与测试注入共用。
     void onEntityCtrl(const CigiEntityCtrlV4& ctrl);
 
 private:
     void applyConfigToEngine();
-    /// 注册 IG 回调（眼点/命令实体分流 + 全量 Host→IG 报文自检订阅）；hasIg 时调用。
+    /// 注册 IG 业务回调（眼点 / 命令实体）；报文自检订阅走 PacketProbeHandler::bindRecvProbes。
     void registerIgCallbacks();
     bool initSceneFromEntities(const std::vector<EntityConfig>& entities);
     void assembleEntity(vsg::Group& root, const EntityConfig& cfg, vsg::ref_ptr<vsg::Node> geometry,
