@@ -1,4 +1,4 @@
-# sync 模块化设计（设计基线）
+﻿# sync 模块化设计（设计基线）
 
 面向「将 sync 多通道同步模块做成一个库，单独编译，供本项目 vsgEngine 及其他项目使用」的设计基线。
 基础行为与协议见 [多通道同步模块设计.md](./多通道同步模块设计.md)；坐标/位姿语义见 [lla位姿传输设计.md](./lla位姿传输设计.md)。
@@ -51,7 +51,7 @@ vsgEngine (exe)
 **消除的是对 `Engine`（宿主引擎类）的依赖；公开接口零 vsg，内部复用 vsg header-only 数学（构建期依赖）。** 分两层：
 
 - **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
-- **IG 决策层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。场景模式（椭球变换）/channelId 由宿主注入，Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入，产出位姿由宿主应用——SynchronSystem 不触碰宿主的相机对象，也不承担 Host 采样/扇出（数据流，见 §3.1）。
+- **IG 收发层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。只负责收包解包 + IgSync 帧维护 + 连接状态查询（`igLinked()`）。眼点业务决策（offset 合成 / stale / 断线兜底）2026-09 上移 Engine 后再抽出为 `CameraDriver` 辅助组件（`engine/source/function/driver/`，`CameraDriver::compose` / `update`），SynchronSystem 不再触碰眼点决策，也不承担 Host 采样/扇出（数据流，见 §3.1）。
 
 vsg 的分层复用：
 
@@ -64,24 +64,30 @@ vsg 的分层复用：
 
 ### 3.1 相机交互：纯数据流
 
-SynchronSystem 是**IG 位姿决策器**，与宿主相机通过**数据流**交互，不持有宿主的任何相机对象。采用数据流而非接口回调的原因：宿主继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。
+SynchronSystem 是**IG 收发端点**（2026-09 眼点决策上移 Engine 后抽出 `CameraDriver`），与宿主通过**数据流**交互，不持有宿主的任何相机对象。眼点业务决策（offset 合成 / stale / 断线兜底）在 `CameraDriver`（Engine 辅助组件，`engine/source/function/driver/`）。采用数据流而非接口回调的原因：宿主继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。
 
 ```cpp
-// SynchronSystem（sync 库，IG 决策器）：
+// SynchronSystem（sync 库，IG 收发端点；2026-09 决策上移 Engine 后抽出 CameraDriver）：
 
-void update();                                                       // 收包 + 决策，产出本帧位姿
-std::optional<HostEyePose> takePendingCameraPose();                 // 取走本帧应写相机的位姿
+void preFrame();                                       // 收包解包 + IgSync 帧维护
+bool igLinked() const;                                 // TCP+UDP 就绪（CameraDriver 决策输入）
+
+// CameraDriver（Engine 辅助组件，眼点→相机业务策略；2026-09 从 Engine 抽出）：
+void onOwnshipEyePose(const CigiEntityPositionCtrlV4& pose); // 眼点回调入口（Engine 转发）
+void queueHostEyePose(const HostEyePose& pose);        // 眼点回调 / 测试注入入队
+static HostEyePose compose(const HostEyePose& host, const OffsetDeg& offset); // 通道偏移合成
+void update();                                         // 帧级决策（断线/stale/新输入）+ 应用相机
 
 // 宿主（IG 侧）每帧：
-//   preFrame() 收包 → update() 决策 → takePendingCameraPose() → 按 LLA 自己写相机（每帧一次）
+//   SynchronSystem::preFrame() 收包 → CameraDriver::update() 决策+应用（每帧一次）
 //   恒 LLA → setCameraPoseLla
 //
 // Host 采样/扇出不经过 SynchronSystem：Host 宿主进程（viewhost）自行持有 HostSync，
 //   每帧 HostDriver::update 扇出（键盘累积眼点，无采样/防回声）。
 ```
 
-- SynchronSystem 对相机的「读」全部变成**显式输入**：Host 眼点经 `preFrame()`（IG 收包）或 `queueHostEyePose()`（测试注入）喂入。
-- SynchronSystem 对相机的「写」变成**输出数据**：`takePendingCameraPose()` 返回 `HostEyePose`（恒 LLA），宿主自行应用。
+- 眼点对相机的「读」全部变成**显式输入**：Host 眼点经 `SynchronSystem::preFrame()`（IG 收包）触发业务回调（Engine::registerIgCallbacks 转发到 `CameraDriver::onOwnshipEyePose`），或 `CameraDriver::queueHostEyePose()`（测试注入）喂入。
+- 眼点对相机的「写」在 `CameraDriver`：`CameraDriver::update()` 经 `compose` 合成后 `applySyncCameraPose` 写相机（恒 LLA），SynchronSystem 不触碰相机。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
 - **Host 侧**：Host 宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager`，扇出（IGCtrl + 眼点）经 `HostDriver::update` 完成；实体等权威状态经 Manager 建表、Driver 意图 API 发送（[viewhost设计.md](../viewhost设计.md) §4.0）。`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
 
@@ -149,7 +155,7 @@ viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引�
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析只含 `hostConfig` 块的文件。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件。
-- viewhost（纯 Host）用法：直接持 `HostSync` 传输层（不经 IG 决策器 `SynchronSystem`），`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
+- viewhost（纯 Host）用法：直接持 `HostSync` 传输层（不经 IG 收发端点 `SynchronSystem`），`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
 
 ```cpp
 HostConfig host;

@@ -1,4 +1,4 @@
-# LLA 位姿传输设计
+﻿# LLA 位姿传输设计
 
 同步层只支持 LLA（2026-09 收敛）：Host→IG 相机同步恒传 **LLA + 当地姿态**（`Detach`+LLA）。  
 帧时序、连接态、无新包 / 断线沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5（防回声已随拆进程移除）；坐标系背景见 [坐标系统总结.md](../../notes/坐标系统总结.md)。  
@@ -227,7 +227,7 @@ R_ig   = R_host · Rz(δy) · Rx(δp) · Ry(δr)           // offset 右乘：�
 反解 R_ig 得 composed YPR（与写约定同一套）→ 写 LookAt（lla 不变）
 ```
 
-实现为 `SynchronSystem::compose`（本地 / 椭球同一套）。左 `+hFOV`、右 `−hFOV` 符号不变（§3.2）。
+实现为 `CameraDriver::compose`（本地 / 椭球同一套；2026-09 从 SynchronSystem 上移至 Engine，再抽出为 CameraDriver 辅助组件）。左 `+hFOV`、右 `−hFOV` 符号不变（§3.2）。
 
 #### 仅 yaw 偏移：`R_ig = R_host · Rz(δ)`，up 轴平行（严格成立）
 
@@ -299,14 +299,14 @@ struct HostEyePose {
 };
 ```
 
-**实现现状（2026-09）**：`HostEyePose`（`SyncConfig.h`）已删除 `HostEyeCoordFrame frame` 枚举，只保留 `DVec3 position`（LLA）+ `DVec3 eulerYprDeg`（当地 ENU YPR）。业务侧回调（`Engine::onEntityPositionCtrl`）按 `EntityID` 分流——ownship 眼点翻译为 LLA 入队决策器、命令实体摆放恒 `Detach`+LLA。原「本地 XYZ / 椭球 LLA 双语义 + variant」讨论随同步只 LLA 移除，不再需要编译期判别。
+**实现现状（2026-09）**：`HostEyePose`（`SyncConfig.h`）已删除 `HostEyeCoordFrame frame` 枚举，只保留 `DVec3 position`（LLA）+ `DVec3 eulerYprDeg`（当地 ENU YPR）。业务侧回调（`CameraDriver::onOwnshipEyePose` / `Engine::onEntityPose`）各按 `EntityID` 卫语句过滤——ownship 眼点翻译为 LLA 入队 CameraDriver 眼点输入、命令实体摆放恒 `Detach`+LLA。原「本地 XYZ / 椭球 LLA 双语义 + variant」讨论随同步只 LLA 移除，不再需要编译期判别。
 
 ### 4.3 帧路径（IG 侧；Host 采样/扇出已随拆进程移除）
 
 ```text
 update:
   handleEvents
-  SynchronSystem::update()      // 决策；宿主取 takePendingCameraPose → setCameraPose / setCameraPoseLla
+  CameraDriver::update()          // 决策（2026-09 从 SynchronSystem 上移 Engine，再抽出为 CameraDriver）；applySyncCameraPose → setCameraPose / setCameraPoseLla
 postFrame:
   无扇出（Host 眼点由 viewhost 独立扇出，见 viewhost设计.md §4）
 ```
@@ -329,7 +329,7 @@ postFrame:
 | 缓存 | 动作 |
 | --- | --- |
 | `_lastApplied` / `_cachedHostEye` / pending（`_lastSent` / `_frameSample` 随 `HostPosePublisher` 删除） | **全部清空** |
-| 触发点 | `initGraphics` 成功重建场景后（**不必**整网 `SynchronSystem::shutdown`）；或显式 `SynchronSystem::resetEyeCaches()`（名称实现定）与图形重建同调用链调用 |
+| 触发点 | `initGraphics` 成功重建场景后（**不必**整网 `SynchronSystem::shutdown`）；或显式 `CameraDriver::resetEyeCaches()`（2026-09 从 SynchronSystem 上移 Engine，再抽出为 CameraDriver）与图形重建同调用链调用 |
 
 当前仅 `shutdown()` 会清缓存不够：热重载 / 测试里只重建图形时必须走上述触发点，否则旧类型缓存残留。
 

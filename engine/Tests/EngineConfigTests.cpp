@@ -679,10 +679,10 @@ SCENARIO("channel offset and stale policy are applied to SynchronSystem after in
         {
             REQUIRE(engine.init());
 
-            THEN("SynchronSystem uses the channel offset and stale policy")
+            THEN("Engine uses the channel offset and stale policy")
             {
-                REQUIRE(offsetEquals(engine.synchronSystem().offsetDeg(), engine.config.syncSystem.offsetDeg));
-                REQUIRE(engine.synchronSystem().hostEyeStalePolicy() == engine.config.syncSystem.hostEyeStalePolicy);
+                REQUIRE(offsetEquals(engine.cameraDriver().offsetDeg(), engine.config.syncSystem.offsetDeg));
+                REQUIRE(engine.cameraDriver().hostEyeStalePolicy() == engine.config.syncSystem.hostEyeStalePolicy);
             }
         }
     }

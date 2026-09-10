@@ -368,7 +368,7 @@ BDD **能测代码**：跑的是真实生产代码，通过公共 API / 协议 /
 
 字面：**门 + 控制**——先过一道开关/条件，满足才放行后面的动作。
 
-例：`SynchronSystem::update` 前「已连接 Host 才允许用 Host 眼点改写相机；未连接则不改」。
+例：`CameraDriver::update` 前「已连接 Host 才允许用 Host 眼点改写相机；未连接则不改」（2026-09 决策从 SynchronSystem 上移 Engine 后抽出 CameraDriver）。
 
 测门控 = 分别断言开关两侧行为：
 
@@ -388,13 +388,13 @@ BDD **能测代码**：跑的是真实生产代码，通过公共 API / 协议 /
 
 |        | 端到端                                     | queue 注入                                             |
 | ------ | ------------------------------------------ | ------------------------------------------------------ |
-| 路径   | Host 打包 → UDP → 收包解析 → 入队 → update | 测试直接 `queueHostEyePose(...)`（或同类 API）→ update |
+| 路径   | Host 打包 → UDP → 收包解析 → 入队 → update | 测试直接 `engine.cameraDriver().queueHostEyePose(...)`（或同类 API）→ stepSync |
 | 测什么 | 协议 + 传输 + 应用整条链                   | **只测应用逻辑**（门控、offset、无新包策略等）         |
 | 优点   | 真                                         | 快、稳、不依赖端口/时序                                |
 | 缺点   | 慢、脆                                     | **测不到**打包/收包/乱序                               |
 
 
-「注入」= 测试像打针一样推进假数据，假装「已经收到」。本工程可用 `SynchronSystem::queueHostEyePose` 一类测试入口。  
+「注入」= 测试像打针一样推进假数据，假装「已经收到」。本工程可用 `engine.cameraDriver().queueHostEyePose` 一类测试入口（2026-09 决策从 SynchronSystem 上移 Engine 后抽出 CameraDriver）。  
 分层建议：**应用契约先用 queue 注入钉绿**；协议与乱序另开集成/端到端场景，勿混在同一 Scenario 里既要稳又要真。
 
 ---

@@ -886,7 +886,7 @@ SCENARIO("all Standby entities use the local camera fallback",
 
 // -----------------------------------------------------------------------------
 // 运行期 EntityCtrl（实体与运动控制设计.md §9 / §11 ③；验收码 ENT-03-*）
-// 测试直接调公开 onEntityCtrl / onEntityPositionCtrl（与既有位姿注入同层），不改 ENT-02。
+// 测试直接调公开 onEntityCtrl / onEntityPose（与既有位姿注入同层），不改 ENT-02。
 // -----------------------------------------------------------------------------
 
 SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
@@ -1124,7 +1124,7 @@ SCENARIO("hiding and showing does not restore the configured pose",
         WHEN("Host places a new pose then hides and shows the entity")
         {
             engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
-            engine.onEntityPositionCtrl(makeEntityPositionLla(1, kPlacedLla, kPlacedYpr));
+            engine.onEntityPose(makeEntityPositionLla(1, kPlacedLla, kPlacedYpr));
             engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Standby));
             engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
 
@@ -1184,7 +1184,7 @@ SCENARIO("Host EntityPositionCtrl places an Active entity",
         WHEN("Host activates then places the entity")
         {
             engine.onEntityCtrl(makeEntityCtrl(1, CigiBaseEntityCtrl::Active));
-            engine.onEntityPositionCtrl(makeEntityPositionLla(1, kPlacedLla, kPlacedYpr));
+            engine.onEntityPose(makeEntityPositionLla(1, kPlacedLla, kPlacedYpr));
 
             THEN("the sampled pose matches the placed LLA")
             {

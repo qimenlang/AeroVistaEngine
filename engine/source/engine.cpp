@@ -12,6 +12,7 @@
 #include "CigiEntityPositionCtrlV4.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -29,7 +30,6 @@ using aerovista::sync::SynchronSystem;
 
 namespace
 {
-
     struct FrameStatsHud
     {
         vsg::ref_ptr<vsg::Text> text;
@@ -521,6 +521,11 @@ SynchronSystem& Engine::synchronSystem()
     return *_synchronSystem;
 }
 
+CameraDriver& Engine::cameraDriver()
+{
+    return *_cameraDriver;
+}
+
 vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
 {
     return _window;
@@ -896,7 +901,14 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
     // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
     // Host 角色已拆出（2026-08）：engine 仅 IG，Host 由独立 viewhost 进程承担。
 
-    // IG：SynchronSystem（IG 决策器）；igConfig 为空时 initialize 仅清空旧 IG。
+    // 眼点相机驱动器装配（2026-09 从 Engine 抽出为 CameraDriver）：offsetDeg / stalePolicy 由
+    // CameraDriver 持有；SynchronSystem 只消费 channelId / requireConnectedIg。
+    // CameraDriver 在 SynchronSystem 之后创建（持有其引用，读 igLinked 做断线决策）。
+    _cameraDriver = std::make_unique<CameraDriver>(*this, *_synchronSystem);
+    _cameraDriver->setOffsetDeg(syncSystem.offsetDeg);
+    _cameraDriver->setHostEyeStalePolicy(syncSystem.hostEyeStalePolicy);
+
+    // IG：SynchronSystem（IG 收发端点）；igConfig 为空时 initialize 仅清空旧 IG。
     if (!_synchronSystem->initialize(igConfig, syncSystem))
         return false;
 
@@ -913,11 +925,14 @@ void Engine::registerIgCallbacks()
     auto& ig = _synchronSystem->igSync();
 
     // 命令实体位姿 + ownship 眼点：同一 PacketID（EntityPositionCtrlV4）跨链路多播投递（§4.1）。
-    // UDP 侧（ownship 眼点）+ TCP 侧（命令实体）各注册一个通用捕获，均经
-    // addCallback<CigiEntityPositionCtrlV4> 到达此回调，onEntityPositionCtrl 按 EntityID 分流。
-    // 回调主线程解包时同步调用，直接写 entityMap / 入队决策器（主线程安全，§6）。
+    // addCallback 把回调多播注册到 UDP 侧 _eyeProc + TCP 侧 _entityPoseProc 两条链路的通用捕获，
+    // 任一链路收到报文时两个回调均被调用，各自按 EntityID 卫语句过滤（眼点==0 / 命令实体≠0）。
+    // 眼点回调转发到 CameraDriver（决策 A 方案 1：Engine 管注册，CameraDriver 提供处理函数）；
+    // 命令实体走 Engine::onEntityPose。回调主线程解包时同步调用（主线程安全，§6）。
     ig.addCallback<CigiEntityPositionCtrlV4>(
-        [this](const CigiEntityPositionCtrlV4& pose) { onEntityPositionCtrl(pose); });
+        [this](const CigiEntityPositionCtrlV4& pose) { _cameraDriver->onOwnshipEyePose(pose); });
+    ig.addCallback<CigiEntityPositionCtrlV4>(
+        [this](const CigiEntityPositionCtrlV4& pose) { onEntityPose(pose); });
 
     // 报文自检订阅（viewhost testtcp/testudp 按钮）：收到即记录类名供 HUD 显示。
     // 覆盖 IgSync 已注册的全部 Host→IG 报文（cigi梳理.md 链路矩阵），数据面 + 命令面。
@@ -991,8 +1006,8 @@ bool Engine::initSceneMode(const vsg::Path& modelPath)
 void Engine::resetGraphicsResources()
 {
     // lla §4.3：图形重建时清空眼点缓存（不拆除同步）。
-    if (_synchronSystem)
-        _synchronSystem->resetEyeCaches();
+    if (_cameraDriver)
+        _cameraDriver->resetEyeCaches();
 
     _entityMap.clear();
     _currentExtent = extent;
@@ -1274,13 +1289,9 @@ bool Engine::update()
 
     _viewer->handleEvents();
 
-    // IG 决策器收包/决策，应用本帧位姿（Host 眼点由独立 viewhost 进程扇出，2026-08 拆 Host）。
-    if (_synchronSystem)
-    {
-        _synchronSystem->update();
-        if (auto pose = _synchronSystem->takePendingCameraPose())
-            applySyncCameraPose(*pose);
-    }
+    // IG 眼点帧级决策（2026-09 抽到 CameraDriver），应用本帧位姿（Host 眼点由独立 viewhost 进程扇出，2026-08 拆 Host）。
+    if (_cameraDriver)
+        _cameraDriver->update();
 
     if (_frameStatsSwitch)
         _frameStatsSwitch->setAllChildren(_reportFrameStats);
@@ -1338,21 +1349,8 @@ void Engine::postFrame()
 
 void Engine::stepSync()
 {
-    if (_synchronSystem)
-    {
-        _synchronSystem->update();
-        if (auto pose = _synchronSystem->takePendingCameraPose())
-            applySyncCameraPose(*pose);
-    }
-}
-
-void Engine::applySyncCameraPose(const HostEyePose& pose)
-{
-    if (!hasGraphics())
-        return;
-    const vsg::dvec3 lla(pose.position.x, pose.position.y, pose.position.z);
-    const vsg::dvec3 eulerYprDeg(pose.eulerYprDeg.x, pose.eulerYprDeg.y, pose.eulerYprDeg.z);
-    setCameraPoseLla(lla, eulerYprDeg);
+    if (_cameraDriver)
+        _cameraDriver->update();
 }
 
 void Engine::tickSync()
@@ -1463,20 +1461,10 @@ void Engine::onEntityCtrl(const CigiEntityCtrlV4& ctrl)
     entity.smoothingEn = ctrl.GetSmoothingEn();
 }
 
-void Engine::onEntityPositionCtrl(const CigiEntityPositionCtrlV4& pose)
+void Engine::onEntityPose(const CigiEntityPositionCtrlV4& pose)
 {
     if (pose.GetEntityID() == 0)
-    {
-        // ownship 眼点（§4.1）：翻译 CCL → HostEyePose（恒 LLA，2026-09 收敛）
-        // 入队 SynchronSystem 决策器；offset 合成 / stale 决策在 update() 路径。
-        HostEyePose eye;
-        eye.eulerYprDeg = {pose.GetYaw(), pose.GetPitch(), pose.GetRoll()};
-        eye.position = {pose.GetLat(), pose.GetLon(), pose.GetAlt()};
-        _synchronSystem->queueHostEyePose(eye);
         return;
-    }
-
-    // 命令实体摆放（EntityID≠0）：同步层只 LLA（§4.2）。
     updateEntityPose(pose.GetEntityID(), aerovista::sync::DVec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
                      aerovista::sync::DVec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()});
 }
