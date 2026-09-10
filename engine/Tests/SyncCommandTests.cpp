@@ -39,6 +39,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 using aerovista::sync::HostSync;
@@ -1642,6 +1643,78 @@ SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
             {
                 REQUIRE(ig.entityVisible(1));
                 REQUIRE(ig.entityAlpha(1) == std::uint8_t{128});
+            }
+        }
+    }
+}
+
+// 一次 TCP 消息打满权威表量级的 EntityCtrl（设计文档启动期全量广播的量级），
+// 验 IG 分帧解包把每条都投递到业务回调。不是 Catch BENCHMARK：固定 200 条、
+// 自建 Host+IG 场景，断言条数与 id，不钉耗时。
+SCENARIO("linked IG unpacks two hundred EntityCtrl from one Host TCP flush",
+         "[integration][stress][sync][cmd][e2e]")
+{
+    GIVEN("a linked Host and an IG with two hundred Standby catalog entities")
+    {
+        constexpr int kBase = 34000;
+        constexpr int kEntityCount = 200;
+
+        std::string entities = "[";
+        for (int id = 1; id <= kEntityCount; ++id)
+        {
+            if (id > 1)
+                entities += ",";
+            entities += R"({ "id": )" + std::to_string(id) +
+                        R"(, "model": "models/teapot.vsgt", "initialEntityState": "Standby" })";
+        }
+        entities += "]";
+
+        const EntitiesConfig igCfg(entities, {}, false, makeIgConfigExtra(kBase));
+
+        HostSync host;
+        REQUIRE(host.initialize(makeTestHostConfig(kBase)));
+        host.run();
+
+        Engine ig;
+        ig.extent = {640, 480};
+        ig.showWindow = false;
+        REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
+        REQUIRE(ig.init());
+        REQUIRE(host.readyIgCount() == 1);
+        REQUIRE(ig.entitySize() == kEntityCount);
+
+        int unpacked = 0;
+        std::unordered_set<Cigi_uint16> unpackedIds;
+        ig.synchronSystem().igSync().addCallback<CigiEntityCtrlV4>([&](const CigiEntityCtrlV4& ctrl) {
+            ++unpacked;
+            unpackedIds.insert(ctrl.GetEntityID());
+        });
+
+        WHEN("Host sends two hundred EntityCtrl Active in one TCP flush")
+        {
+            {
+                auto& tcp = host.outMsgWithIgCtrlTcp();
+                for (int id = 1; id <= kEntityCount; ++id)
+                {
+                    CigiEntityCtrlV4 ent;
+                    ent.SetEntityID(static_cast<Cigi_uint16>(id));
+                    ent.SetEntityState(CigiBaseEntityCtrl::Active);
+                    tcp << ent;
+                }
+                host.flushTcp();
+            }
+            const auto unpackStart = std::chrono::steady_clock::now();
+            for (int i = 0; i < 20 && unpacked < kEntityCount; ++i)
+                ig.tickSync();
+            const double unpackMs =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - unpackStart).count();
+            std::cout << "[INFO] EntityCtrl unpack: " << kEntityCount << " packets in " << unpackMs << " ms"
+                      << std::endl;
+
+            THEN("the IG unpacked every EntityCtrl and all entities are visible")
+            {
+                REQUIRE(unpacked == kEntityCount);
+                REQUIRE(unpackedIds.size() == static_cast<std::size_t>(kEntityCount));
             }
         }
     }
