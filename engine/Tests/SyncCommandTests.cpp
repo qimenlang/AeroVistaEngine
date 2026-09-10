@@ -1,6 +1,6 @@
 ﻿// 状态同步设计初版.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
 // 命令面全绿：线格式契约 + E2E（TCP/UDP 收发对等）+ 分帧单测。
-// §7 双 session 隔离（2026-08）：2 负向（flushUdp 不打包 TCP 缓冲 → 收不到）+ 2 正向（flushTcp 正常送达 → 绿）。
+// §7 双 session 隔离：2 负向（flushUdp 不打包 TCP 缓冲 → 收不到）+ 2 正向（flushTcp 正常送达）。
 
 #include <aerovista/sync/CigiIncludes.h>
 
@@ -47,7 +47,7 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 namespace
 {
     // 独立 Host 端点 + 两个 IG-only 引擎（自连产生 2 个 ready peer）。
-    // engine 拆 Host 后（2026-08）HostSync 独立持有，不再经 Engine::hostSync。
+    // HostSync 由测试直接持有，不经 Engine。
     void setupHostIgPair(HostSync& hostA, Engine& a, Engine& b, int base)
     {
         a.extent = b.extent = {640, 480};
@@ -1028,7 +1028,7 @@ SCENARIO("IG TCP-filled message is delivered via flushTcp",
 }
 
 // =============================================================================
-// 8. IGCtrl 自动填充（状态同步设计初版.md §7.1 / §10 验收，2026-08-25）：
+// 8. IGCtrl 自动填充（状态同步设计初版.md §7.1 / §10 验收）：
 //    outMsgWithIgCtrlUdp() 自动前置 IGCtrl（帧号=数据面、TimeStamp=自计时、TimeStampValid=true）；
 //    outMsgWithIgCtrlTcp() 自动前置 IGCtrl（帧号=命令面、TimeStampValid=false、帧号连续）。
 // =============================================================================
@@ -1137,7 +1137,7 @@ SCENARIO("Host TCP messages carry IGCtrl first packet with invalid timestamp and
 }
 
 // =============================================================================
-// 9. 帧头去重（状态同步设计初版.md §7.1，2026-08-25）：
+// 9. 帧头去重（状态同步设计初版.md §7.1）：
 //    outMsgWithIgCtrlTcp/beginWithIgCtrlUdp（IG：beginWithSof/beginWithSofUdp）单次 flush 周期内
 //    多次调用填充报文，帧头只填一次——接收端应恰好收到一个 IGCtrl（IG）或 SOF（Host）。
 // =============================================================================
@@ -1287,7 +1287,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 // 10. 全 9 类报文支持：通用捕获（PacketCaptureProc + addCallback<PacketT> 纯订阅投递）
 //     按发送源（IgSync/HostSync）与链路（UDP 持续 / TCP 一次性）注册（cigi梳理.md 链路矩阵）。
 //     各取一个代表性报文验证：TCP 一次性（EntityCtrl）、UDP 持续（ViewCtrl）、IG→Host 响应（IGMsg）。
-//     2026-08 起数据交付为纯订阅模式（拉取 takeReceived/CaptureProcBase 已删）。
+//     数据交付为纯订阅（拉取 takeReceived / CaptureProcBase 已删）。
 // =============================================================================
 
 SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
@@ -1465,7 +1465,7 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
 //     ownship 眼点（EntityID==0）与命令实体（EntityID≠0）同 PacketID（EntityPositionCtrlV4），
 //     UDP 链路（眼点）与 TCP 链路（命令实体）各注册通用捕获，经多播
 //     addCallback<CigiEntityPositionCtrlV4> 同回调按 EntityID 分流（§4.1 / cigi梳理.md 链路矩阵）。
-//     同步层只支持 LLA（2026-09 收敛）：命令实体摆放恒 Detach+LLA（见下方 Ellipsoid 用例）。
+//     同步层只支持 LLA：命令实体摆放恒 Detach+LLA（见下方 Ellipsoid 用例）。
 // =============================================================================
 
 // Ellipsoid 正向摆放回归保护（实体与运动控制设计.md §4.2 / lla位姿传输设计.md §2.1）。

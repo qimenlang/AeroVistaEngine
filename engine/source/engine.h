@@ -62,15 +62,15 @@ public:
     /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / requireConnectedIg）。
     bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig,
                   const aerovista::sync::SyncSystemConfig& syncSystem);
-    /// 加载/注入 EllipsoidModel 以做同步模式检查（不创建 Vulkan Device）。
+    /// 加载场景并按配置注入 EllipsoidModel（不创建 Vulkan Device）。
     bool initSceneMode(const vsg::Path& modelPath);
     bool initGraphics(const vsg::Path& modelPath);
-    /// 场景 EllipsoidModel（lla §2 / §4.5）；本地模式且模型无椭球时为空。
+    /// 场景 EllipsoidModel（lla位姿传输设计.md §2 / §4.5）；本地模式且模型无椭球时为空。
     vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel() const;
 
     /// 一帧：preFrame → update → render → postFrame。
     bool tickOnFrame();
-    /// preFrame + postFrame，不渲染（仅同步引擎）。
+    /// preFrame → stepSync → postFrame，不渲染（仅同步引擎）。
     void tickSync();
     /// 一步同步（不含采样/render）：把 CameraDriver 末次合成位姿应用到相机。
     /// 测试与 tickSync 使用；真实帧循环在 update() 内完成同样的应用。
@@ -111,10 +111,10 @@ public:
     CameraDriver& cameraDriver() { return _cameraDriver; }
     const CameraDriver& cameraDriver() const { return _cameraDriver; }
 
-    /// 更新指定实体的位姿（命令面 Host→IG 摆放，恒 LLA）。回调主线程解包时调用，直接写 entityMap（主线程安全，§6）。
+    /// 更新指定实体的位姿（命令面 Host→IG 摆放，恒 LLA）。回调主线程解包时调用，直接写 entityMap（主线程安全，状态同步设计初版.md §6）。
     void updateEntityPose(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
-    /// 订阅回调：EntityPositionCtrlV4 命令实体摆放（EntityID≠0，§4.2）——同步层只 LLA，
+    /// 订阅回调：EntityPositionCtrlV4 命令实体摆放（EntityID≠0，实体与运动控制设计.md §4.2）——同步层只 LLA，
     /// 走 updateEntityPose。addCallback 多播到 UDP/TCP 两条链路的通用捕获，眼点报文
     /// （EntityID==0）由本回调卫语句过滤（眼点走 CameraDriver，经 registerIgCallbacks 转发）。
     void onEntityPose(const CigiEntityPositionCtrlV4& pose);
@@ -189,6 +189,6 @@ private:
 
     std::unique_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
     CameraDriver _cameraDriver;
-    /// 实体表：id → Entity（命令面 LOAD/PLACE 与配置实体共用）。
+    /// 实体表：id → Entity（启动预建与运行期 EntityCtrl / EntityPositionCtrl 共用）。
     std::unordered_map<int, Entity> _entityMap;
 };

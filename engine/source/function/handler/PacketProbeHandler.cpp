@@ -1,6 +1,6 @@
 ﻿#include "PacketProbeHandler.h"
 
-// IG→Host 方向可达报文头（cigi梳理.md 链路矩阵；HostSync 侧对应注册，§8.1）。
+// IG→Host 方向可达报文头（cigi梳理.md 链路矩阵；HostSync 侧对应注册，状态同步设计初版.md §8.1）。
 #include "CigiAerosolRespV4.h"
 #include "CigiAnimationStopV4.h"
 #include "CigiCollDetSegRespV4.h"

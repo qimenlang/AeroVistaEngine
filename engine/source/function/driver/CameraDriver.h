@@ -34,7 +34,7 @@ public:
 
     void resetEyeCaches();
 
-    /// 刚性阵列通道偏移合成：R_ig = R_host · R_offset（lla设计 §3.4）。写入 `_lastApplied`。
+    /// 刚性阵列通道偏移合成：R_ig = R_host · R_offset（lla位姿传输设计.md §3.4）。写入 `_lastApplied`。
     ChannelEye compose(const ChannelEye& host);
 
 private:

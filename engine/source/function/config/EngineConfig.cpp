@@ -78,7 +78,7 @@ namespace
     {
         if (hasRequireConnectedIg && !cfg.igConfig)
             throw std::runtime_error("requireConnectedIg without igConfig is invalid");
-        // 同步只 LLA（2026-09 收敛）：本地笛卡尔场景参与同步的 fail-fast 无法在配置加载期判定
+        // 同步只 LLA：本地笛卡尔场景参与同步的 fail-fast 无法在配置加载期判定
         // （「场景有无 EllipsoidModel」要 loadScene 后才知道），移至 Engine::ensureEllipsoidModel。
     }
 
@@ -166,7 +166,7 @@ namespace
             hasEllipsoid = true;
             ellipsoid = parseEllipsoidPose(requireObjectValue(*v, "ellipsoid"));
         }
-        // 双轨自由解析；运行时按「场景有无 EllipsoidModel」选半（2026-09 收敛），不再加载期强制选半。
+        // 双轨自由解析；运行时按「场景有无 EllipsoidModel」选半，不在加载期强制选半。
     }
 
     EntityInitialState parseEntityInitialState(const JsonObject& obj)
@@ -272,7 +272,7 @@ namespace
 
     EngineChannelConfig parseConfig(const JsonObject& root)
     {
-        // hostConfig 已移出 engine schema（2026-08 拆 Host 进程）——engine 配置含 hostConfig 属未知键拒绝。
+        // engine 配置含 hostConfig 属未知键拒绝（Host 用 loadHostConfig）。
         rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
                                  "injectEllipsoidIfMissing", "entitiesFilePath", "camera"});
 

@@ -54,8 +54,7 @@ _host.flushUdp();                        // PackageMsg + 扇出
 
 依赖传递（[sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.0）：
 
-- `aerovistaSync` 公开链接 `cigicl-static` + `ws2_32`（`CigiWire` 打包 IGCtrl 用），PRIVATE 链接 `vsg::vsg`。
-- `vsg` 仅用于 `SynchronSystem.cpp` 内 header-only 数学，**不产生 `vsg::` 外部符号**，不传给消费方。
+- `aerovistaSync` 公开链接 `cigicl-static` + `ws2_32`（`CigiWire` 打包 IGCtrl 用）。CMake 仍 PRIVATE 链接 `vsg::vsg`，但实现 TU 不 `#include <vsg/...>`（眼点数学在 engine `CameraDriver`，见 [sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.0）。
 - 因此 MFC 程序链接 `aerovistaSync` 时自动带上 `cigicl-static` + `ws2_32`，**无需** `vsg` 库。
 
 ## 2. 需求澄清结论（多通道在 IG 侧）

@@ -23,14 +23,14 @@ using aerovista::sync::OffsetDeg;
 #    define RESOURCE_DIR "."
 #endif
 
-// 以下测试编码 doc/design/多通道同步模块设计.md §3.1 契约，以及
-// doc/design/lla位姿传输设计.md §2.1 / §6 / §7（coordFrame → EllipsoidModel 装配）。
+// 以下测试编码 doc/design/多通道同步/多通道同步模块设计.md §3.1 契约，以及
+// doc/design/多通道同步/lla位姿传输设计.md（EllipsoidModel 装配）。
 // 断言经 init 时可观测结果（角色、场景/相机语义、加载成功/失败）。
 
 namespace
 {
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
-    // 拆 Host 进程后 engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
+    // engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
         R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
@@ -159,14 +159,14 @@ SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfM
 }
 
 // 位姿配置设计.md §4：Ellipsoid 下默认初始相机由 AABB 计算，不写死北京。
-// 覆盖「注入在相机创建前」：lz 无自带椭球，靠 coordFrame 注入后才能建 EllipsoidPerspective。
+// 覆盖「注入在相机创建前」：lz 无自带椭球，靠 injectEllipsoidIfMissing 注入后才能建 EllipsoidPerspective。
 // 无 pose 实体默认摆在地心，会触发 fallback 到北京上空（见 §4.2 fallback 判据）。
-SCENARIO("coordFrame Ellipsoid injects before camera create with fallback LLA LookAt",
-         "[acceptance][bdd][config][coordFrame][initial-lla]")
+SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LLA LookAt",
+         "[acceptance][bdd][config][ellipsoid][initial-lla]")
 {
     // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
     //       待实现后移除 !hide 标签并验证 AABB 关系。
-    GIVEN("lz.vsgt with coordFrame Ellipsoid (inject WGS-84 EllipsoidModel)")
+    GIVEN("lz.vsgt with injectEllipsoidIfMissing (WGS-84 EllipsoidModel)")
     {
         Engine engine;
         engine.showWindow = false;
@@ -206,7 +206,7 @@ SCENARIO("coordFrame Ellipsoid injects before camera create with fallback LLA Lo
 }
 
 SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardcoded Beijing",
-         "[acceptance][bdd][config][coordFrame][initial-lla]")
+         "[acceptance][bdd][config][ellipsoid][initial-lla]")
 {
     // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
     //       待实现后移除 !hide 标签并验证 AABB 关系。
@@ -257,7 +257,7 @@ SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
          "[acceptance][bdd][config][initial-camera][aabb]")
 {
     // A1: Local：单实体无 pose，无 camera → eye = AABB centre - Y方向 3.5·radius
-    GIVEN("lz.vsgt in Local coordFrame without pose")
+    GIVEN("lz.vsgt in local cartesian without pose")
     {
         Engine engine;
         engine.showWindow = false;
@@ -375,7 +375,7 @@ SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
          "[acceptance][bdd][config][initial-camera][fallback]")
 {
     // A4 + B2: Ellipsoid：单实体无 pose（地心），无 camera → 触发 fallback
-    GIVEN("lz.vsgt without pose in Ellipsoid coordFrame (sits at origin)")
+    GIVEN("lz.vsgt without pose with injected ellipsoid (sits at origin)")
     {
         Engine engine;
         engine.showWindow = false;
@@ -474,7 +474,7 @@ SCENARIO("Local Perspective near far proportional to radius",
          "[acceptance][bdd][config][initial-camera][projection]")
 {
     // D1: Local：Perspective 的 near/far = 0.001·radius / 4.5·radius
-    GIVEN("lz.vsgt in Local coordFrame")
+    GIVEN("lz.vsgt in local cartesian")
     {
         Engine engine;
         engine.showWindow = false;
@@ -653,7 +653,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
         {
             REQUIRE(engine.init());
 
-            THEN("IG is started (engine has no Host role after 2026-08 split)")
+            THEN("IG is started")
             {
                 REQUIRE(engine.synchronSystem().hasIg());
                 REQUIRE(igConfigEquals(engine.synchronSystem().igSync().addressConfig(), *engine.config.igConfig));
@@ -685,8 +685,7 @@ SCENARIO("channel offset is applied to the camera driver after init",
     }
 }
 
-// hostConfig 已移出 engine schema（2026-08 拆 Host 进程）；Host 进程配置由 sync 库 loadHostConfig 消费，
-// 见下方「loadHostConfig」单元用例。此处不再有 engine-as-Host 的启停场景。
+// engine 配置不含 hostConfig；Host 进程由 sync 库 loadHostConfig 消费，见下方用例。
 
 SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance][bdd][config]")
 {
@@ -887,8 +886,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)",
 
 TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level key", "[unit][config][parse]")
 {
-    // hostConfig 已移出 engine schema（2026-08 拆 Host 进程）：engine 配置含 hostConfig 即未知键拒绝；
-    // Host 进程配置由 sync 库 loadHostConfig 消费（见下方 loadHostConfig 用例）。
+    // engine 配置含 hostConfig 即未知键拒绝；Host 进程用 loadHostConfig（见下方用例）。
     const TempConfigFile file(
         std::string(R"({ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 }, )") +
         kMinimalModel + ", " + kMinimalWindow + "}");

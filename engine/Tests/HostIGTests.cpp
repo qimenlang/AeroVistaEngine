@@ -37,7 +37,7 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 
 namespace
 {
-    // 默认端口见 doc/design/多通道同步模块设计.md
+    // 默认端口见 doc/design/多通道同步/多通道同步模块设计.md
     HostConfig makeHostLocal()
     {
         return HostConfig{8001, 8000, 8100};
@@ -63,7 +63,7 @@ namespace
         host.flushUdp();
     }
 
-    // 独立 Host 端点（engine 拆 Host 后测试用）：持 HostSync，RAII 生命周期。
+    // 独立 Host 端点（测试用）：持 HostSync，RAII 生命周期。
     // 端口语义 = makeTestHostConfig（Common.h），与 makeTestIgConfig 的 target 对齐。
     struct TestHost
     {
@@ -185,7 +185,7 @@ TEST_CASE("CIGI Host rejects a message whose first packet is not SOF",
     REQUIRE(stat != CIGI_SUCCESS);
 }
 
-// lla位姿传输设计.md §5 / §7 线契约：Detach+LLA、EntityID/ParentID（同步层只 LLA，2026-09 收敛）。
+// lla位姿传输设计.md §5 / §7 线契约：Detach+LLA、EntityID/ParentID（同步层只 LLA）。
 TEST_CASE("CIGI EntityPosition Detach+LLA maps to Lla with EntityID 0 ParentID 0",
           "[unit][cigi][wire-contract][lla]")
 {
@@ -227,7 +227,7 @@ namespace
     }
 } // namespace
 
-// lla位姿传输设计.md §5 / §7：Host 眼点恒为 Detach+LLA（同步层只 LLA，2026-09 收敛）。
+// lla位姿传输设计.md §5 / §7：Host 眼点恒为 Detach+LLA（同步层只 LLA）。
 TEST_CASE("ChannelEye selects Detach on wire",
           "[unit][cigi][wire-contract][lla][host-eye]")
 {
@@ -866,7 +866,7 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
     engine.extent = {1920, 1080};
     engine.showWindow = false;
 
-    // 模型内嵌 EllipsoidModel（此 API 标尺无需 coordFrame 注入）。
+    // 模型内嵌 EllipsoidModel（无需 injectEllipsoidIfMissing）。
     const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
     engine.config.injectEllipsoidIfMissing = true;
     REQUIRE(engine.init(modelPath));
@@ -987,7 +987,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
 }
 
 // -----------------------------------------------------------------------------
-// 4.3 位姿合成（offset 的椭球版本见下方 §6 椭球 E2E；同步层只 LLA，2026-09 收敛）
+// 4.3 位姿合成（offset 的椭球版本见下方椭球 E2E；同步层只 LLA）
 // -----------------------------------------------------------------------------
 
 SCENARIO("update re-applies last Host eye when no new eye arrives",
@@ -1070,8 +1070,7 @@ SCENARIO("after disconnect, camera keeps the last Host eye pose",
 
 namespace
 {
-    // 刚性阵列 E2E 的通道配置 JSON。coordFrame 显式声明坐标系（lla设计 §2.2）；
-    // 通道配置 JSON。engine 拆 Host 后（2026-08）所有 engine 配置均为纯 IG（不含 hostConfig）；
+    // 刚性阵列 E2E 的通道配置 JSON：纯 IG（不含 hostConfig）；
     // requireConnectedIg 按通道指定（A 连 host 强制，B/C 宽松）。
     // TempConfigFile 来自公共头 Common.h。
     std::string makeChannelConfigBody(int kBase, int channelId, int udpRecv, double yawOffset,
@@ -1119,7 +1118,7 @@ namespace
     }
 
     // 三通道刚性阵列 E2E 的公共装载：独立 HostSync（hostConfig 文件）+ A（IG，offset 0，graphics）
-    // + B/C（IG-only，yaw ±60）。全部经配置文件驱动，coordFrame 显式声明坐标系。B/C 走 sync + scene mode only。
+    // + B/C（IG-only，yaw ±60）。全部经配置文件驱动。B/C 走 sync + scene mode only。
     struct RigidArrayHarness
     {
         HostSync host;
@@ -1474,12 +1473,12 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
 
 // lla设计 §3.4 / 多通道同步设计 §4.5：ECEF/椭球下，真 CIGI 报文 + Host 非零 roll 时，
 // 各通道 up 轴与 Host up 平行（刚性阵列一起 roll、frustum 贴边），且 forward 满足
-// R_ig=R_host·Rz(δ)。本地刚性用例的 ECEF 对应物；同时经配置文件 `coordFrame: "Ellipsoid"`
-// 驱动坐标系选择（lla设计 §2.2 / §2.3：无椭球模型 + Ellipsoid → 注入 WGS-84）。
+// R_ig=R_host·Rz(δ)。本地刚性用例的 ECEF 对应物；无自带椭球时用 injectEllipsoidIfMissing 注入 WGS-84
+// （lla位姿传输设计.md §2）。
 SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls over live CIGI",
          "[acceptance][bdd][sync][lla][offset][e2e][multi-ig][cigi][rigid]")
 {
-    GIVEN("an independent Host and IG-only A/B/C all on coordFrame Ellipsoid (inject WGS-84), yaw offsets -60/+60")
+    GIVEN("an independent Host and IG-only A/B/C with injected WGS-84 ellipsoid, yaw offsets -60/+60")
     {
         RigidArrayHarness h(20120, true, "models/lz.vsgt");
 
@@ -1507,9 +1506,6 @@ SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls o
         }
     }
 }
-
-// lla设计 §4.4 防回声已随拆 Host 进程移除（2026-08）：engine 不再采样出站，
-// 原「ellipsoid anti-echo skips sampling」场景删除，见 doc/design/lla位姿传输设计.md §4.4。
 
 SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with matching radii",
          "[acceptance][bdd][sync][lla][smoke]")
@@ -1552,7 +1548,7 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
 SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow disagree",
          "[acceptance][bdd][sync][lla][radius-mismatch]")
 {
-    GIVEN("an independent HostSync and IG on lz with coordFrame Ellipsoid (inject WGS-84)")
+    GIVEN("an independent HostSync and IG on lz with injected WGS-84 ellipsoid")
     {
         constexpr int kBase = 19400;
         // 独立 Host 端点（hostConfig 文件，viewhost 形态）。
@@ -1626,7 +1622,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(vsg::length(hostEcef - igEcefSameLla) > 0.5);
 
         // requireConnectedIg=false 时握手失败会静默继续，而 `IgSync::connect` 内部重试
-        // （TCP×16、握手×8）在 Windows 下仍可能因 UDP_SYNC_ACK 偶发丢包耗尽（多通道同步模块设计.md P1）。
+        // （TCP×16、握手×8）在 Windows 下仍可能因 UDP_SYNC_ACK 偶发丢包耗尽（多通道同步模块设计.md §9 P1）。
         // 测试侧持续重连直到 A 与 B 全部 ready，用反复 connect 兜住单次重试耗尽的问题。
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
         while (std::chrono::steady_clock::now() < deadline)
@@ -1725,9 +1721,6 @@ TEST_CASE("CIGI LLA pack normalizes longitude into (-180,180]",
     REQUIRE(packAndReadLon(180.0) == Catch::Approx(180.0));
 }
 
-// lla §7「权威 offset 全 0」约束已随拆 Host 进程移除（2026-08）：Host 为 viewhost、无通道偏移，
-// 各 IG 的 offsetDeg 只在各自 IG 进程施加（见 doc/design/lla位姿传输设计.md §4.1）。
-
 SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown",
          "[acceptance][bdd][sync][lla][cache-reset]")
 {
@@ -1766,13 +1759,9 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
     }
 }
 
-// lla设计 §4.3 `_lastSent` 丢弃逻辑已随 HostPosePublisher 删除（2026-08 拆 Host 进程）——
-// 原「WorldLocal/Lla lastSent is discarded on scene switch」场景一并移除。
-// 同步层只支持 LLA（2026-09 收敛）：Local↔Ellipsoid 换轨场景随「本地场景不参与同步」移除。
-
 // =============================================================================
-// viewhost E2E：独立 Host 进程入口（loadHostConfig → SynchronSystem）与带 IG 的
-// Engine 真实 TCP/UDP/CIGI 收发（sync模块化设计.md §4.1）。
+// viewhost E2E：loadHostConfig → HostSync 与带 IG 的 Engine 真实 TCP/UDP/CIGI 收发
+// （sync模块化设计.md §4.1）。
 // =============================================================================
 
 SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",

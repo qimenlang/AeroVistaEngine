@@ -624,9 +624,8 @@ void Engine::ensureEntityTransform(Entity& entity)
     if (entity.node)
         mt->addChild(entity.node);
     entity.transform = mt;
-    // 主线程执行（drainIncoming）：与渲染遍历天然串行，无需锁。
-    // 运行期挂载的模型节点需编译 GPU pipeline：初始场景在 finishGraphicsAfterScene 编译，
-    // 新挂载节点的 GraphicsPipeline::_implementation 为空 → record 时 vk() 越界。
+    // 主线程（drainIncoming 回调）。启动装配已建 transform；此处仅兜底缺节点。
+    // 若 viewer 已 compile，新挂上的节点需再 compile，否则 pipeline 未就绪。
     if (auto group = _scene.cast<vsg::Group>())
     {
         group->addChild(mt);
@@ -686,10 +685,9 @@ bool Engine::ensureEllipsoidModel()
     const char* ellipsoidSource = "model";
     if (!ellipsoidModel)
     {
-        // 椭球注入只依赖配置，不依赖 sync 运行状态（2026-09 定案 / #1 B 方案）：
-        // 配置含 igConfig（toIgConfig() 非空）即同步场景——必须注入椭球，自动注入、无需用户配开关；
-        // 无 igConfig 的单机场景靠 config.injectEllipsoidIfMissing 决定是否注入椭球。
-        // 判据取「配置期静态事实」而非运行时 hasIg()，保证场景装配先于 sync 初始化时同样生效。
+        // 椭球注入只看配置，不看 sync 是否已 initialize：
+        // 有 igConfig 的同步场景必须有椭球（自动注入）；无 igConfig 的单机场景才看 injectEllipsoidIfMissing。
+        // 场景装配可早于 initSync，故用 config.igConfig 而非运行时 hasIg()。
         const bool needEllipsoidForSync = config.igConfig.has_value();
         if (config.injectEllipsoidIfMissing || needEllipsoidForSync)
         {
@@ -836,10 +834,8 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 
 bool Engine::init()
 {
-    // 初始化顺序（设计 §7.2 / §10 前提3）：applyConfig -> reset -> 场景构建 -> initSync -> Graphics。
-    // 场景构建（initSceneFromEntities / initSceneMode）只建 _scene（含椭球注入，判据纯配置 #1），
-    // 不依赖 GPU 与 sync 运行状态；sync 初始化在场景后（保证收 EntityCtrl 时 _entityMap 已建全，#23）；
-    // Graphics（Vulkan device + 离屏 + compile）依赖 _scene，必须最后。
+    // 顺序（实体与运动控制设计.md §7.2）：applyConfig → reset → 场景构建 → initSync → Graphics（compile）。
+    // 场景先于 sync，保证收 EntityCtrl 时 _entityMap 已建；Graphics 依赖 _scene，放最后。
     applyConfigToEngine();
     resetGraphicsResources();
 
@@ -888,16 +884,10 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, bool requireConne
 
 bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemConfig& syncSystem)
 {
-    // 同步进 config：椭球注入判据以 config.igConfig 为准（#1 B 方案）。
-    // 无论走 Engine::init(modelPath, igConfig) 还是直接 initSync，config 都感知 igConfig，
-    // 保证装配（ensureEllipsoidModel）在不依赖 sync 运行状态的前提下正确注入椭球。
+    // 写入 config.igConfig，供场景装配（ensureEllipsoidModel）按「有无 igConfig」注入椭球。
     config.igConfig = igConfig;
-    // 模拟时间由 HostSync 自计时（initialize 记录 _startTime，outMsgWithIgCtrlUdp 填 TimeStamp，§7.1）——
-    // 时钟同步方案.md §5 方案 B：从 HostSync 初始化时刻起 steady_clock 连续推进。
-    // Host 角色已拆出（2026-08）：engine 仅 IG，Host 由独立 viewhost 进程承担。
-
-    // 眼点相机驱动器：offset 由驱动器持有；写相机在 update/stepSync。
-    // SynchronSystem 只消费 channelId / requireConnectedIg。
+    // offset 由 CameraDriver 持有；写相机在 update / stepSync。
+    // SynchronSystem 用 requireConnectedIg 决定 connect 失败是否拒绝；channelId 仅存储。
     _cameraDriver.resetEyeCaches();
     _cameraDriver.setOffsetDeg(syncSystem.offsetDeg);
 
@@ -917,11 +907,9 @@ void Engine::registerIgCallbacks()
         return;
     auto& ig = _synchronSystem->igSync();
 
-    // 命令实体位姿 + ownship 眼点：同一 PacketID（EntityPositionCtrlV4）跨链路多播投递（§4.1）。
-    // addCallback 把回调多播注册到 UDP 侧 _eyeProc + TCP 侧 _entityPoseProc 两条链路的通用捕获，
-    // 任一链路收到报文时两个回调均被调用，各自按 EntityID 卫语句过滤（眼点==0 / 命令实体≠0）。
-    // 眼点回调转发到 CameraDriver（Engine 管注册，驱动器提供处理函数）；
-    // 命令实体走 Engine::onEntityPose。回调主线程解包时同步调用（主线程安全，§6）。
+    // 命令实体位姿 + ownship 眼点：同一 PacketID（EntityPositionCtrlV4）跨链路多播
+    // （状态同步设计初版.md §4.1）。两个回调按 EntityID 分流（眼点==0 / 命令实体≠0）。
+    // 眼点 → CameraDriver；命令实体 → Engine::onEntityPose。主线程解包时同步调用。
     ig.addCallback<CigiEntityPositionCtrlV4>(
         [this](const CigiEntityPositionCtrlV4& pose) { _cameraDriver.onOwnshipEyePose(pose); });
     ig.addCallback<CigiEntityPositionCtrlV4>(
@@ -998,7 +986,7 @@ bool Engine::initSceneMode(const vsg::Path& modelPath)
 
 void Engine::resetGraphicsResources()
 {
-    // lla §4.3：图形重建时清空眼点缓存（不拆除同步）。
+    // lla位姿传输设计.md §4.3：图形重建时清空 CameraDriver `_lastApplied`（不拆除同步）。
     _cameraDriver.resetEyeCaches();
 
     _entityMap.clear();
@@ -1269,7 +1257,7 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
 
 void Engine::preFrame()
 {
-    // 子系统：_scene 更新前收包 / 应用状态。
+    // _scene 更新前收包解包（不写相机；合成在订阅回调，写相机在 update）。
     if (_synchronSystem)
         _synchronSystem->preFrame();
 }
@@ -1315,8 +1303,7 @@ bool Engine::update()
 
 std::string Engine::frameStatsIgCtrlLine() const
 {
-    // 调用方已确认 linked（_synchronSystem && hasIg && igCtrlReceivedCount>0）。
-    // "IGCtrl: <帧号>：<s>,<ms>,<us>"（ms/us 补零 3 位）。
+    // 调用方已确认 hasIg 且 igCtrlReceivedCount>0。
     std::ostringstream oss;
     oss << "IGCtrl: " << _synchronSystem->igSync().lastIgCtrlFrameCntr() << ":"
         << formatSimTimeUsParts(_synchronSystem->igSync().simTimeUs()) << "\n";
@@ -1334,8 +1321,6 @@ void Engine::render()
 
 void Engine::postFrame()
 {
-    // 子系统：update+render 后读最终状态。engine 不再承担 Host（2026-08 拆进程），
-    // 无扇出——数据面帧节拍 / 眼点由独立 viewhost 进程经 HostDriver::update 发送。
 }
 
 void Engine::applyLastHostEye()

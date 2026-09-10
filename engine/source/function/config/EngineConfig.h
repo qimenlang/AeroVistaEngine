@@ -7,7 +7,7 @@
 #include <vector>
 
 // 具体 using 声明（非 using namespace，符合 cpp-vsg-style.mdc）。
-// hostConfig 已于 2026-08 拆 Host 进程时移出 engine schema（Host 配置归 sync 库 loadHostConfig）。
+// engine schema 不含 hostConfig；Host 进程用 sync 库 loadHostConfig。
 using aerovista::sync::IgConfig;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::parseIgConfig;
@@ -71,7 +71,7 @@ struct CameraConfig
     EllipsoidPoseConfig ellipsoidPose{};
 };
 
-/// 每进程 Engine 通道配置（见 engine/resources/config/*.json，设计 §3.1）。
+/// 每进程 Engine 通道配置（见 engine/resources/config/*.json，多通道同步模块设计.md §3.1）。
 struct EngineChannelConfig
 {
     // syncSystem 组：channelId / offsetDeg / requireConnectedIg。
@@ -87,7 +87,7 @@ struct EngineChannelConfig
     WindowConfig window{};
     /// 场景模型无自带 EllipsoidModel 时，是否注入一个 WGS-84 椭球（lla设计 §2）。
     /// 仅对「单机椭球渲染」（无 igConfig）生效；启用 IG 同步（有 igConfig）时引擎自动注入，无需此开关。
-    /// 运行时坐标系由「场景有无 EllipsoidModel」决定，与此开关解耦（2026-09 收敛）。
+    /// 运行时坐标系由「场景有无 EllipsoidModel」决定，与此开关解耦。
     bool injectEllipsoidIfMissing = false;
 
     /// 实体目录文件路径（entities.json）；空 = 不装实体（单模型）。

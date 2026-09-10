@@ -553,7 +553,7 @@ TEST_CASE("loadEngineChannelConfig rejects singular entity key",
 TEST_CASE("loadEntitiesFile accepts pose with only the non-selected half",
           "[unit][config][parse][pose][entities-catalog]")
 {
-    // 双轨自由解析（2026-09 收敛）：不再按 injectEllipsoidIfMissing 强制某半，两半均可解析。
+    // 双轨自由解析：不再按 injectEllipsoidIfMissing 强制某半，两半均可解析。
     const TempConfigFile file(
         std::string(R"({ "entities": [ )") +
         jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(vsg::dvec3{39.9, 116.4, 0}, vsg::dvec3{0, 0, 0})) + R"( ] })");
@@ -567,7 +567,7 @@ TEST_CASE("loadEntitiesFile accepts pose with only the non-selected half",
 
 TEST_CASE("loadEntitiesFile accepts pose with ellipsoid half absent", "[unit][config][parse][pose][entities-catalog]")
 {
-    // 双轨自由解析（2026-09 收敛）：不强制 pose 必须带某半。
+    // 双轨自由解析：不强制 pose 必须带某半。
     const TempConfigFile file(
         std::string(R"({ "entities": [ )") +
         jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{0, 0, 0}, vsg::dvec3{0, 0, 0})) + R"( ] })");
@@ -582,7 +582,7 @@ TEST_CASE("loadEntitiesFile accepts pose with ellipsoid half absent", "[unit][co
 TEST_CASE("loadEngineChannelConfig accepts camera pose with only the non-selected half",
           "[unit][config][parse][pose][camera]")
 {
-    // 双轨自由解析（2026-09 收敛）：不强制 camera pose 必须带「选中」半，运行时按场景有无椭球选半。
+    // 双轨自由解析：不强制 camera pose 必须带「选中」半，运行时按场景有无椭球选半。
     const TempConfigFile file(std::string("{ ") + kWindow +
                               R"(, "camera": { "pose": { "ellipsoid": { "lla": { "lat": 39.9, "lon": 116.4, "alt": 500 }, )"
                               R"("eulerYprDeg": [0, 0, 0] } } } })");

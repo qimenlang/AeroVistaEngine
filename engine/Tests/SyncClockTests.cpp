@@ -406,8 +406,8 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
 TEST_CASE("simTimeUs uses the monotonic clock internally and is not affected by wall-clock changes",
           "[unit][sync][clock][monotonic]")
 {
-    // 时钟同步方案.md §4.2：单调/实时时钟用 steady_clock（vsg::clock），禁止 system_clock。
-    // 测试 simTimeUs() 内部用 vsg::clock::now() 取 nowUs，系统时间不影响。
+    // 时钟同步方案.md §4.2：单调时钟用 steady_clock，禁止 system_clock。
+    // IgSync::simTimeUs() 内部用 std::chrono::steady_clock 取 nowUs，系统时间不影响。
     IgSync ig;
     ig.queueHostTimeStamp(HostTimeStamp{100, 1000, 0}); // lastSimTimeUs = 10000us
 

@@ -64,7 +64,7 @@ ChannelEye CameraDriver::compose(const ChannelEye& host)
 {
     // 刚性阵列通道偏移：R_ig = R_host · R_offset（Hamilton）。对纯 yaw 偏移，绕 Host 自身 up 轴
     // 旋转 Host 的 forward，每个通道 up 与 Host 保持平行——边缘对边缘 frustum 拼接在 Host roll
-    // 下仍成立。分量式 YPR 相加得 Rz(δ)·R_host，roll≠0 时各通道 up 轴分开（roll 撕裂 bug；lla设计 §3.4）。
+    // 下仍成立。分量式 YPR 相加得 Rz(δ)·R_host，roll≠0 时各通道 up 轴分开（roll 撕裂 bug；lla位姿传输设计.md §3.4）。
     const vsg::dquat qHost =
         vsg::dquat(vsg::radians(host.eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0)) *
         vsg::dquat(vsg::radians(host.eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0)) *

@@ -2,7 +2,7 @@
 
 同步层只支持 LLA（2026-09 收敛）：Host→IG 相机同步恒传 **LLA + 当地姿态**（`Detach`+LLA）。  
 帧时序、连接态、无新包 / 断线沿用 [多通道同步模块设计.md](./多通道同步模块设计.md) §4–§5（防回声已随拆进程移除）；坐标系背景见 [坐标系统总结.md](../../notes/坐标系统总结.md)。  
-本文取代「仅做场景 JSON 装配、暂不动同步」的前置草案方向（见 [坐标系统模块设计.md](./坐标系统模块设计.md)），把范围收束到 **能传、能采、能写** 的 LLA 同步闭环。
+本文取代「仅做场景 JSON 装配、暂不动同步」的前置草案方向（见 [坐标系统模块设计.md](./坐标系统模块设计.md)），把范围收束到 **能传、能写** 的 LLA 同步闭环。
 
 ---
 
@@ -329,32 +329,16 @@ postFrame:
 
 | 缓存 | 动作 |
 | --- | --- |
-| `_lastApplied` / `_cachedHostEye` / pending（`_lastSent` / `_frameSample` 随 `HostPosePublisher` 删除） | **全部清空** |
-| 触发点 | `initGraphics` 成功重建场景后（**不必**整网 `SynchronSystem::shutdown`）；或显式 `CameraDriver::resetEyeCaches()`（2026-09 从 SynchronSystem 上移 Engine，再抽出为 CameraDriver）与图形重建同调用链调用 |
+| `CameraDriver::_lastApplied` | **清空**（`resetEyeCaches()`） |
+| 触发点 | `Engine::initSync`；`resetGraphicsResources`（`initGraphics` 重建场景后走同一调用链）。**不必**整网 `SynchronSystem::shutdown` |
 
-当前仅 `shutdown()` 会清缓存不够：热重载 / 测试里只重建图形时必须走上述触发点，否则旧类型缓存残留。
+热重载 / 测试里只重建图形时必须走上述触发点，否则旧合成位姿会写回新相机。
 
-模式切换后第一帧：Host（viewhost）按当前累积眼点直接扇出；engine IG 侧经 `resetEyeCaches()` 清缓存。
+模式切换后第一帧：Host（viewhost）按当前累积眼点直接扇出；engine IG 侧经 `resetEyeCaches()` 清 `_lastApplied`。
 
-### 4.4 防回声（比较 LookAt，不反解 YPR）——已随拆进程移除
+### 4.4 防回声——已随拆进程移除
 
-> **（2026-08 拆进程）**：防回声依赖「Host 采样 mainCamera」，仅同进程 Host+IG（engine 权威窗）存在；engine 不再承担 Host 后整节删除。viewhost 眼点来自键盘累积、无回灌相机，无防回声需求。下列判据保留作历史参考，不再实现。
-
-```text
-若有 _lastApplied:
-  expected = lookAtFromPose(_lastApplied)   // 与 apply 同一套 setCameraPose / setCameraPoseLla
-  actual   = 当前 mainCamera 的 LookAt
-  若 eye、forward、up 均在 ε 内一致:
-    不更新 _frameSample → postFrame 重发 _lastSent
-  否则:
-    从 actual 解出 HostEyePose（本地 XYZ+YPR 或 LLA+当地YPR）写入 _frameSample
-```
-
-| 比较量 | 定义 | ε（第一版可调，测试钉死） |
-| --- | --- | --- |
-| `eye` | 位置（米） | 本地 ~`1e-4`；椭球 ECEF ~`1e-3`～`1e-2`（按实测选定） |
-| `forward` | `normalize(center - eye)` | 方向，如 `1 - dot < 1e-8` 或角 ~`1e-4` rad |
-| `up` | LookAt 的 `up`（可先与 forward 正交化再比） | 同上 |
+engine 不再采样出站；viewhost 眼点来自键盘累积、无回灌相机，无防回声需求。原「权威窗 LookAt 与 `_lastApplied` 比较后再决定是否重发」只存在于同进程 Host+IG，已随 `HostPosePublisher` 删除。
 
 ### 4.5 Host / IG 模式一致性（运行时无错配）
 
@@ -452,7 +436,7 @@ postFrame:
 | 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
 | 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
 | 防回声 / 无新包 | 防回声**已移除**（2026-08 拆进程，§4.4）；无新包复用末次合成位姿 |
-| 场景重建清缓存 | 同进程重载场景：SynchronSystem 位姿缓存清空（`resetEyeCaches`；`_lastSent` 已随拆进程删除） |
+| 场景重建清缓存 | 同进程重载场景：`CameraDriver::_lastApplied` 清空（`resetEyeCaches`） |
 | `_lastSent` 换轨 | **已移除**（2026-08 拆进程：`_lastSent` 随 `HostPosePublisher` 删除，无 Host 重发路径） |
 | 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
 
