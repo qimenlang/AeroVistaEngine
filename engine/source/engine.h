@@ -44,6 +44,8 @@ public:
         bool smoothingEn = false;
     };
 
+    // ===== 门面 =====
+
     Engine();
     ~Engine();
 
@@ -64,24 +66,12 @@ public:
     bool init(const vsg::Path& modelPath);
     bool init(const vsg::Path& modelPath, const std::optional<aerovista::sync::IgConfig>& igConfig);
 
-    /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。`igConfig` 空 = 不启 IG。
-    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig, bool requireConnectedIg = true);
-    /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / requireConnectedIg）。
-    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig,
-                  const aerovista::sync::SyncSystemConfig& syncSystem);
-    /// 加载场景并按配置注入 EllipsoidModel（不创建 Vulkan Device）。
-    bool initSceneMode(const vsg::Path& modelPath);
     bool initGraphics(const vsg::Path& modelPath);
     /// 场景 EllipsoidModel（lla位姿传输设计.md §2 / §4.5）；本地模式且模型无椭球时为空。
     vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel() const;
 
     /// 一帧：preFrame → update → render → postFrame。
     bool tickOnFrame();
-    /// preFrame → stepSync → postFrame，不渲染（仅同步引擎）。
-    void tickSync();
-    /// 一步同步（不含采样/render）：把 CameraDriver 末次合成位姿应用到相机。
-    /// 测试与 tickSync 使用；真实帧循环在 update() 内完成同样的应用。
-    void stepSync();
     bool captureToFile(const vsg::Path& outputPngPath);
     void run();
 
@@ -113,11 +103,6 @@ public:
     /// 实体几何 node（共享几何验收：同 model 两实体指针相同）。
     vsg::ref_ptr<vsg::Node> entityNode(int id) const;
 
-    /// 眼点相机驱动器（收包即合成，结果由 update/stepSync 写相机）。
-    /// Engine 值成员；眼点回调由 registerIgCallbacks 转发。
-    CameraDriver& cameraDriver() { return _cameraDriver; }
-    const CameraDriver& cameraDriver() const { return _cameraDriver; }
-
     /// 更新指定实体的位姿（命令面 Host→IG 摆放，恒 LLA）。回调主线程解包时调用，直接写 entityMap（主线程安全，状态同步设计初版.md §6）。
     void updateEntityPose(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
@@ -127,6 +112,26 @@ public:
     /// 应用 EntityCtrlV4 切显隐 + 套属性（实体与运动控制设计.md §9）；不建实例、不加载、不编译。
     /// CCL 订阅与测试注入共用。
     void onEntityCtrl(const CigiEntityCtrlV4& ctrl);
+
+    // ===== 测试接口 =====
+
+    /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。`igConfig` 空 = 不启 IG。
+    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig, bool requireConnectedIg = true);
+    /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / requireConnectedIg）。
+    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig,
+                  const aerovista::sync::SyncSystemConfig& syncSystem);
+    /// 加载场景并按配置注入 EllipsoidModel（不创建 Vulkan Device）。
+    bool initSceneMode(const vsg::Path& modelPath);
+    /// preFrame → stepSync → postFrame，不渲染（仅同步引擎）。
+    void tickSync();
+    /// 一步同步（不含采样/render）：把 CameraDriver 末次合成位姿应用到相机。
+    /// 测试与 tickSync 使用；真实帧循环在 update() 内完成同样的应用。
+    void stepSync();
+
+    /// 眼点相机驱动器（收包即合成，结果由 update/stepSync 写相机）。
+    /// Engine 值成员；眼点回调由 registerIgCallbacks 转发。
+    CameraDriver& cameraDriver() { return _cameraDriver; }
+    const CameraDriver& cameraDriver() const { return _cameraDriver; }
 
 private:
     void applyConfigToEngine();
