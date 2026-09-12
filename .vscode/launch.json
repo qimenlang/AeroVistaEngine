@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/vsgEngine.exe",
             "args": [
                 "-c",
-                "${workspaceFolder}/engine/resources/config/viewhost_ig_main.json"
+                "${workspaceFolder}/engine/resources/config/scene_local.json"
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
