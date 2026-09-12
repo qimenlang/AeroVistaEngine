@@ -19,16 +19,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Match cognitive-complexity scope: production code only (skip Catch2 Tests).
-# Covers engine/source + the extracted aerovistaSync library (thirdparty/sync/src).
+# Covers engine/source + first-party libs (aerovistaSync / AeroVistaConfig).
 DEFAULT_ROOTS = (
     ROOT / "engine" / "source",
     ROOT / "thirdparty" / "sync" / "src",
+    ROOT / "thirdparty" / "config" / "src",
 )
 
 # 任一生产根前缀命中即纳入。
 ALLOWED_PREFIXES = (
     "/engine/source/",
     "/thirdparty/sync/src/",
+    "/thirdparty/config/src/",
 )
 
 
@@ -62,7 +64,7 @@ def main() -> int:
     parser.add_argument(
         "--all-source",
         action="store_true",
-        help="Scan all engine/source + thirdparty/sync/src cpp files",
+        help="Scan all engine/source + thirdparty/sync/src + thirdparty/config/src cpp files",
     )
     parser.add_argument(
         "--ccn",

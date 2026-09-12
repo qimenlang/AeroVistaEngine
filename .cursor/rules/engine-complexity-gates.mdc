@@ -12,8 +12,8 @@ Authority: `doc/notes/代码质量指标.md` §6. Naming/VSG style stays in `cpp
 
 | Metric | Tool | Max | Scope |
 | ------ | ---- | --- | ----- |
-| Cognitive complexity | clang-tidy `readability-function-cognitive-complexity` | **20** | `engine/**` TUs (Tests **exempt**) |
-| Cyclomatic CCN | lizard (`scripts/lizard_engine.py`, `-C 15`) | **15** | `engine/source/**/*.cpp` only |
+| Cognitive complexity | clang-tidy `readability-function-cognitive-complexity` | **20** | `engine/**` TUs（Tests **exempt**）；一等库 `thirdparty/sync`、`thirdparty/config` |
+| Cyclomatic CCN | lizard (`scripts/lizard_engine.py`, `-C 15`) | **15** | `engine/source/**/*.cpp`；`thirdparty/sync/src`；`thirdparty/config/src` |
 
 Pre-commit / CI treat over-limit as **failure**. Do not “fix” by silencing the gate.
 

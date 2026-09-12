@@ -23,7 +23,6 @@
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/Tests/vsgEngineTests.exe",
             "args": [
-                "[integration][stress]",
                 "-s",
                 "-d yes"
             ],

@@ -10,7 +10,7 @@
 ### 1.1 目标
 
 1. sync 模块整体作为独立库 `aerovistaSync`（`thirdparty/sync` submodule，`add_subdirectory` 引用形态）单独编译。
-2. 依赖方向单向：`vsgEngine(vsgEngineLib) → aerovistaSync`；**库不反向依赖引擎**。
+2. 依赖方向单向：`vsgEngine(vsgEngineLib) → aerovistaSync`、`vsgEngineLib → AeroVistaConfig`；**库不反向依赖引擎**。
 3. 保留协议、线程模型、配置与测试行为。
 
 ### 1.2 库边界
@@ -18,17 +18,18 @@
 ```text
 vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
+       ├→ AeroVistaConfig   （JSON 契约辅助：thirdparty/config；语法走 nlohmann/json）
        └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + IG 收发端点）
             ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / HostSync / IgSync
             │           / SyncConfig / SyncProtocol
             ├─ Host 任务状态：HostDataManager（权威表门面，不持 socket）
             ├─ IG 收发端点：SynchronSystem（收包 + IgSync 帧维护 + 连接查询）
-            └─ 外部依赖：cigicl-static、nlohmann_json、ws2_32
+            └─ 外部依赖：cigicl-static、AeroVistaConfig、ws2_32
 ```
 
 - 库含传输层、**Host 任务状态**（`HostDataManager`）与 IG 收发端点；Host 扇出由宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager` 完成，不经 `SynchronSystem`。engine 仅 IG。
 - 库公开接口零 vsg；sync 实现 TU 不 `#include <vsg/...>`（眼点数学在 engine `CameraDriver`）。不依赖 `Engine`。vsg 依赖策略见 §3.0。
-- **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto`/`sync_json` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。
+- **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON 契约辅助在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。
 
 ### 1.3 非目标
 
@@ -107,7 +108,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **写死：权威表在 sync 库，不并入 `HostSync`；viewhost 只做 UI。**
 
-`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体），用 `SyncJson` 读 `entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`；`pose.local` 与完整双轨仍由 engine `loadEntitiesFile` 服务 IG 预建）。物理文件仍放 engine 资源目录（[实体与运动控制设计.md](./实体与运动控制设计.md) §5），**不把文件迁进 sync 库**。
+`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体），用 `AeroVistaConfig` 读 `entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`；`pose.local` 与完整双轨仍由 engine `loadEntitiesFile` 服务 IG 预建）。物理文件仍放 engine 资源目录（[实体与运动控制设计.md](./实体与运动控制设计.md) §5），**不把文件迁进 sync 库**。
 
 - **做**：建表、运行期更新、`snapshot()`、按当前行填 CIGI 报文对象。
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
@@ -153,7 +154,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引擎整体配置）分别从**独立配置文件**读取各自的传输参数初始化，不依赖引擎侧配置。
 
 **实现**：
-- `aerovistaSync` 用 nlohmann/json（`thirdparty/nlohmannJson`，v3.12.0）做 JSON **语法**解析；schema 辅助（`find`/`require*`/`rejectUnknownKeys`）仍在 `SyncJson.h`，零 vsg 零引擎依赖。
+- `aerovistaSync` 通过独立库 `AeroVistaConfig`（`thirdparty/config`）读 JSON：语法走 nlohmann/json v3.12.0，契约辅助（`find`/`require*`/`rejectUnknownKeys`）在 `aerovista::config`。零 vsg 零引擎依赖。
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析只含 `hostConfig` 块的文件。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件。
@@ -186,7 +187,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
                 "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
 ```
 
-**解析器单一事实源**：语法解析走 nlohmann/json（`sync_json::parseJsonText`）；`find`/`requireString`/`requireInt`/`rejectUnknownKeys` 等 schema 辅助全部归 sync 库，`loadHostConfig`/`loadIgConfig` 与引擎侧 `EngineConfig.cpp` **共用**。引擎不再自带 parser 和通用辅助，也不重复实现 `parseHostConfig`/`parseIgConfig`（直接调用 sync 库公开 API）。
+**解析器分层**：JSON **语法**走 nlohmann/json；**契约辅助**（`parseJsonText`/`find`/`requireInt`/`rejectUnknownKeys` 等）归独立库 `AeroVistaConfig`（`namespace aerovista::config`），engine 与 sync **共用**。`loadHostConfig`/`loadIgConfig`/`parseHostConfig`/`parseIgConfig` 仍归 sync（sync 自己的结构体）；引擎窗口/实体/相机 schema 仍在 `EngineConfig.cpp`。引擎不重复实现 `parseHostConfig`/`parseIgConfig`。
 
 **`requireInt` 严格整数**：整数字段（端口、窗口、实体 `id` 等）拒绝小数（`1.5`）；JSON 写成 `1.0` 仍视为整数。sync 侧与引擎侧行为一致。
 

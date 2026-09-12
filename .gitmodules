@@ -28,3 +28,6 @@
 [submodule "thirdparty/nlohmannJson"]
 	path = thirdparty/nlohmannJson
 	url = git@github.com:nlohmann/json.git
+[submodule "thirdparty/config"]
+	path = thirdparty/config
+	url = git@github.com:qimenlang/AeroVistaConfig.git

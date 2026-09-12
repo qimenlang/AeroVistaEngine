@@ -361,7 +361,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 
 > 组包实现在 `HostDataManager`，Driver 只编排写表与发送。脏判定按**报文族**（一张 `EntityCtrl` 的字段一起提交），不按字段拆同一张包。否决综合 `applyEntity`（把 Ctrl+Position 无条件一次发全）。否决 Apply 内对同一张 `EntityCtrl` 连 flush 两次。无加载结果上报订阅（首版实体加载失败不上报，§7.1）。
 
-**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `engine/Tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的可观察结果仍以 `[acceptance]` 覆盖（同 §11 的 `ENT-02-*` / `ENT-03-*` / `ENT-04-late-join` 等）。Host 侧 `entities.json` **子集**解析归 `HostDataManager`（`SyncJson`）；IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`（§5 文件不迁 sync 库）。
+**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `engine/Tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的可观察结果仍以 `[acceptance]` 覆盖（同 §11 的 `ENT-02-*` / `ENT-03-*` / `ENT-04-late-join` 等）。Host 侧 `entities.json` **子集**解析归 `HostDataManager`（契约辅助 `AeroVistaConfig`）；IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`（§5 文件不迁 sync 库）。
 
 ---
 

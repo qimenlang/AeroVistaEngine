@@ -36,6 +36,7 @@ target_link_libraries(vsgEngineLib
         vsg::vsg
         vsgXchange::vsgXchange
         aerovistaSync
+        AeroVistaConfig
 )
 
 add_executable(${TARGET_NAME}

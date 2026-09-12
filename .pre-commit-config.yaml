@@ -12,8 +12,8 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c++, c, cuda]
-        # 排除第三方，但保留 aerovistaSync（本项目独立库，需格式化）。
-        exclude: ^thirdparty/(?!sync/)
+        # 排除第三方，但保留 aerovistaSync / AeroVistaConfig（本项目独立库，需格式化）。
+        exclude: ^thirdparty/(?!(sync|config)/)
 
   - repo: local
     hooks:
@@ -30,8 +30,8 @@ repos:
         entry: python scripts/clang_tidy_engine.py
         language: system
         types_or: [c++, c]
-        files: ^(engine|thirdparty/sync)/.*\.(cpp|cc|cxx|h|hpp|hh|hxx)$
-        exclude: ^thirdparty/(?!sync/)
+        files: ^(engine|thirdparty/sync|thirdparty/config)/.*\.(cpp|cc|cxx|h|hpp|hh|hxx)$
+        exclude: ^thirdparty/(?!(sync|config)/)
         pass_filenames: true
         require_serial: true
 
@@ -40,6 +40,6 @@ repos:
         entry: python scripts/lizard_engine.py
         language: system
         types_or: [c++, c]
-        files: ^(engine/source|thirdparty/sync/src)/.*\.(cpp|cc|cxx)$
+        files: ^(engine/source|thirdparty/sync/src|thirdparty/config/src)/.*\.(cpp|cc|cxx)$
         pass_filenames: true
         require_serial: true

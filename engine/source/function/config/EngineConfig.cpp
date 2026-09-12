@@ -1,7 +1,7 @@
 ﻿#include "function/config/EngineConfig.h"
 
+#include <aerovista/config/ConfigJson.h>
 #include <aerovista/sync/SyncConfig.h>
-#include <aerovista/sync/SyncJson.h>
 
 #include <fstream>
 #include <sstream>
@@ -10,25 +10,22 @@
 #include <unordered_set>
 #include <vector>
 
-using aerovista::sync::sync_json::JsonArray;
-using aerovista::sync::sync_json::JsonObject;
-using aerovista::sync::sync_json::JsonValue;
+using Json = nlohmann::json;
 
-// 通用 JSON 辅助（find/require*/rejectUnknownKeys）与 hostConfig/igConfig 解析
-// 均来自 sync 库（SyncJson.h / SyncConfig.h），引擎侧不再重复实现。
-using aerovista::sync::sync_json::find;
-using aerovista::sync::sync_json::parseJsonText;
-using aerovista::sync::sync_json::rejectNull;
-using aerovista::sync::sync_json::rejectUnknownKeys;
-using aerovista::sync::sync_json::requireBool;
-using aerovista::sync::sync_json::requireInt;
-using aerovista::sync::sync_json::requireNumber;
-using aerovista::sync::sync_json::requireObject;
-using aerovista::sync::sync_json::requireString;
+// JSON 契约辅助来自 AeroVistaConfig；hostConfig/igConfig 结构体解析仍走 sync。
+using aerovista::config::find;
+using aerovista::config::parseJsonText;
+using aerovista::config::rejectNull;
+using aerovista::config::rejectUnknownKeys;
+using aerovista::config::requireBool;
+using aerovista::config::requireInt;
+using aerovista::config::requireNumber;
+using aerovista::config::requireObject;
+using aerovista::config::requireString;
 
 namespace
 {
-    OffsetDeg parseOffsetDeg(const JsonObject& obj)
+    OffsetDeg parseOffsetDeg(const Json& obj)
     {
         rejectUnknownKeys(obj, {"yaw", "pitch", "roll"});
         OffsetDeg offset;
@@ -38,7 +35,7 @@ namespace
         return offset;
     }
 
-    WindowConfig parseWindow(const JsonObject& obj)
+    WindowConfig parseWindow(const Json& obj)
     {
         rejectUnknownKeys(obj, {"x", "y", "width", "height"});
         WindowConfig window;
@@ -49,14 +46,14 @@ namespace
         return window;
     }
 
-    int parseOptionalInt(const JsonObject& obj, const char* key, int fallback)
+    int parseOptionalInt(const Json& obj, const char* key, int fallback)
     {
         if (find(obj, key) == nullptr)
             return fallback;
         return requireInt(obj, key);
     }
 
-    std::string parseOptionalString(const JsonObject& obj, const char* key, std::string fallback)
+    std::string parseOptionalString(const Json& obj, const char* key, std::string fallback)
     {
         if (find(obj, key) == nullptr)
             return fallback;
@@ -77,15 +74,15 @@ namespace
         return slash == std::string::npos ? modelPath : modelPath.substr(slash + 1);
     }
 
-    Vec3Config requireVec3Array(const JsonObject& obj, const char* key)
+    Vec3Config requireVec3Array(const Json& obj, const char* key)
     {
-        const JsonValue* v = find(obj, key);
+        const Json* v = find(obj, key);
         if (!v)
             throw std::runtime_error(std::string("missing/invalid array: ") + key);
         rejectNull(*v, key);
         if (!v->is_array())
             throw std::runtime_error(std::string("missing/invalid array: ") + key);
-        const JsonArray& arr = *v;
+        const Json& arr = *v;
         if (arr.size() != 3)
             throw std::runtime_error(std::string("array length must be 3: ") + key);
         Vec3Config out;
@@ -100,7 +97,7 @@ namespace
         return out;
     }
 
-    LocalPoseConfig parseLocalPose(const JsonObject& obj)
+    LocalPoseConfig parseLocalPose(const Json& obj)
     {
         rejectUnknownKeys(obj, {"position", "eulerYprDeg"});
         LocalPoseConfig pose;
@@ -109,13 +106,13 @@ namespace
         return pose;
     }
 
-    EllipsoidPoseConfig parseEllipsoidPose(const JsonObject& obj)
+    EllipsoidPoseConfig parseEllipsoidPose(const Json& obj)
     {
         rejectUnknownKeys(obj, {"lla", "eulerYprDeg"});
-        const JsonValue* llaValue = find(obj, "lla");
+        const Json* llaValue = find(obj, "lla");
         if (!llaValue)
             throw std::runtime_error("missing/invalid object: lla");
-        const JsonObject& llaObj = requireObject(*llaValue, "lla");
+        const Json& llaObj = requireObject(*llaValue, "lla");
         rejectUnknownKeys(llaObj, {"lat", "lon", "alt"});
         EllipsoidPoseConfig pose;
         pose.lla.x = requireNumber(llaObj, "lat");
@@ -125,18 +122,18 @@ namespace
         return pose;
     }
 
-    void parseDualPose(const JsonObject& poseObj, bool& hasLocal, LocalPoseConfig& local,
+    void parseDualPose(const Json& poseObj, bool& hasLocal, LocalPoseConfig& local,
                        bool& hasEllipsoid, EllipsoidPoseConfig& ellipsoid)
     {
         rejectUnknownKeys(poseObj, {"local", "ellipsoid"});
         hasLocal = false;
         hasEllipsoid = false;
-        if (const JsonValue* v = find(poseObj, "local"))
+        if (const Json* v = find(poseObj, "local"))
         {
             hasLocal = true;
             local = parseLocalPose(requireObject(*v, "local"));
         }
-        if (const JsonValue* v = find(poseObj, "ellipsoid"))
+        if (const Json* v = find(poseObj, "ellipsoid"))
         {
             hasEllipsoid = true;
             ellipsoid = parseEllipsoidPose(requireObject(*v, "ellipsoid"));
@@ -144,9 +141,9 @@ namespace
         // 双轨自由解析；运行时按「场景有无 EllipsoidModel」选半，不在加载期强制选半。
     }
 
-    EntityInitialState parseEntityInitialState(const JsonObject& obj)
+    EntityInitialState parseEntityInitialState(const Json& obj)
     {
-        const JsonValue* v = find(obj, "initialEntityState");
+        const Json* v = find(obj, "initialEntityState");
         if (!v)
             return EntityInitialState::ACTIVE;
         rejectNull(*v, "initialEntityState");
@@ -160,7 +157,7 @@ namespace
         throw std::runtime_error("invalid initialEntityState (only \"Active\" or \"Standby\"): " + s);
     }
 
-    EntityConfig parseEntityItem(const JsonObject& obj)
+    EntityConfig parseEntityItem(const Json& obj)
     {
         rejectUnknownKeys(obj, {"id", "name", "model", "initialEntityState", "pose"});
         EntityConfig entity;
@@ -172,7 +169,7 @@ namespace
             throw std::runtime_error("entities[].model must be non-empty");
         entity.name = parseOptionalString(obj, "name", basenameOfModel(entity.model));
         entity.initialEntityState = parseEntityInitialState(obj);
-        if (const JsonValue* poseValue = find(obj, "pose"))
+        if (const Json* poseValue = find(obj, "pose"))
         {
             entity.hasPose = true;
             parseDualPose(requireObject(*poseValue, "pose"), entity.hasPoseLocal, entity.localPose,
@@ -181,19 +178,19 @@ namespace
         return entity;
     }
 
-    std::vector<EntityConfig> parseEntitiesArray(const JsonValue& value)
+    std::vector<EntityConfig> parseEntitiesArray(const Json& value)
     {
         rejectNull(value, "entities");
         if (!value.is_array())
             throw std::runtime_error("entities must be an array");
-        const JsonArray& arr = value;
+        const Json& arr = value;
         if (arr.empty())
             throw std::runtime_error("entities must not be empty");
 
         std::vector<EntityConfig> entities;
         entities.reserve(arr.size());
         std::unordered_set<int> seenIds;
-        for (const JsonValue& item : arr)
+        for (const Json& item : arr)
         {
             const EntityConfig entity = parseEntityItem(requireObject(item, "entities[]"));
             if (!seenIds.insert(entity.id).second)
@@ -203,11 +200,11 @@ namespace
         return entities;
     }
 
-    CameraConfig parseCamera(const JsonObject& obj)
+    CameraConfig parseCamera(const Json& obj)
     {
         rejectUnknownKeys(obj, {"pose"});
         CameraConfig camera;
-        if (const JsonValue* poseValue = find(obj, "pose"))
+        if (const Json* poseValue = find(obj, "pose"))
         {
             camera.hasPose = true;
             parseDualPose(requireObject(*poseValue, "pose"), camera.hasPoseLocal, camera.localPose,
@@ -216,7 +213,7 @@ namespace
         return camera;
     }
 
-    void parseModelEntityMutex(const JsonObject& root, EngineChannelConfig& cfg)
+    void parseModelEntityMutex(const Json& root, EngineChannelConfig& cfg)
     {
         const bool hasModelKey = find(root, "model") != nullptr;
         const bool hasEntityKey = find(root, "entity") != nullptr;
@@ -224,7 +221,7 @@ namespace
             throw std::runtime_error("singular entity is not supported; use a separate entities file (entitiesFilePath)");
         if (hasModelKey)
             cfg.model = requireString(root, "model");
-        if (const JsonValue* v = find(root, "entitiesFilePath"))
+        if (const Json* v = find(root, "entitiesFilePath"))
         {
             rejectNull(*v, "entitiesFilePath");
             if (!v->is_string())
@@ -233,19 +230,19 @@ namespace
         }
     }
 
-    SyncSystemConfig parseSyncSystemConfig(const JsonObject& obj)
+    SyncSystemConfig parseSyncSystemConfig(const Json& obj)
     {
         rejectUnknownKeys(obj, {"channelId", "offsetDeg", "requireConnectedIg"});
         SyncSystemConfig ss;
         ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
-        if (const JsonValue* v = find(obj, "offsetDeg"))
+        if (const Json* v = find(obj, "offsetDeg"))
             ss.offsetDeg = parseOffsetDeg(requireObject(*v, "offsetDeg"));
         if (find(obj, "requireConnectedIg") != nullptr)
             ss.requireConnectedIg = requireBool(obj, "requireConnectedIg");
         return ss;
     }
 
-    EngineChannelConfig parseConfig(const JsonObject& root)
+    EngineChannelConfig parseConfig(const Json& root)
     {
         // engine 配置含 hostConfig 属未知键拒绝（Host 用 loadHostConfig）。
         rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
@@ -253,18 +250,18 @@ namespace
 
         EngineChannelConfig cfg;
 
-        if (const JsonValue* v = find(root, "syncSystem"))
+        if (const Json* v = find(root, "syncSystem"))
             cfg.syncSystem = parseSyncSystemConfig(requireObject(*v, "syncSystem"));
 
-        if (const JsonValue* v = find(root, "igConfig"))
+        if (const Json* v = find(root, "igConfig"))
         {
             cfg.igConfig = parseIgConfig(requireObject(*v, "igConfig"));
         }
 
-        if (const JsonValue* v = find(root, "window"))
+        if (const Json* v = find(root, "window"))
             cfg.window = parseWindow(requireObject(*v, "window"));
 
-        if (const JsonValue* v = find(root, "injectEllipsoidIfMissing"))
+        if (const Json* v = find(root, "injectEllipsoidIfMissing"))
         {
             rejectNull(*v, "injectEllipsoidIfMissing");
             if (!v->is_boolean())
@@ -274,7 +271,7 @@ namespace
 
         parseModelEntityMutex(root, cfg);
 
-        if (const JsonValue* v = find(root, "camera"))
+        if (const Json* v = find(root, "camera"))
         {
             cfg.camera = parseCamera(requireObject(*v, "camera"));
         }
@@ -298,7 +295,7 @@ bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, 
 
         std::ostringstream oss;
         oss << in.rdbuf();
-        const JsonValue rootValue = parseJsonText(oss.str());
+        const Json rootValue = parseJsonText(oss.str());
         if (!rootValue.is_object())
             throw std::runtime_error("root must be a JSON object");
 
@@ -327,13 +324,13 @@ bool loadEntitiesFile(const std::string& path, std::vector<EntityConfig>& out, s
 
         std::ostringstream oss;
         oss << in.rdbuf();
-        const JsonValue rootValue = parseJsonText(oss.str());
+        const Json rootValue = parseJsonText(oss.str());
         if (!rootValue.is_object())
             throw std::runtime_error("entities file root must be a JSON object");
 
-        const JsonObject& root = rootValue;
+        const Json& root = rootValue;
         rejectUnknownKeys(root, {"entities"});
-        const JsonValue* entitiesValue = find(root, "entities");
+        const Json* entitiesValue = find(root, "entities");
         if (!entitiesValue)
             throw std::runtime_error("missing key: entities");
         out = parseEntitiesArray(*entitiesValue);
