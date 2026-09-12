@@ -23,7 +23,7 @@ vsgEngine (exe)
             │           / SyncConfig / SyncProtocol
             ├─ Host 任务状态：HostDataManager（权威表门面，不持 socket）
             ├─ IG 收发端点：SynchronSystem（收包 + IgSync 帧维护 + 连接查询）
-            └─ 外部依赖：cigicl-static、ws2_32
+            └─ 外部依赖：cigicl-static、nlohmann_json、ws2_32
 ```
 
 - 库含传输层、**Host 任务状态**（`HostDataManager`）与 IG 收发端点；Host 扇出由宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager` 完成，不经 `SynchronSystem`。engine 仅 IG。
@@ -153,7 +153,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引擎整体配置）分别从**独立配置文件**读取各自的传输参数初始化，不依赖引擎侧配置。
 
 **实现**：
-- `aerovistaSync` 库内置 JSON 解析器（`SyncJson.h`，纯标准库，零 vsg 零引擎依赖）。
+- `aerovistaSync` 用 nlohmann/json（`thirdparty/nlohmannJson`，v3.12.0）做 JSON **语法**解析；schema 辅助（`find`/`require*`/`rejectUnknownKeys`）仍在 `SyncJson.h`，零 vsg 零引擎依赖。
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析只含 `hostConfig` 块的文件。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件。
@@ -186,9 +186,9 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
                 "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
 ```
 
-**解析器单一事实源**：`SyncJson.h` 的 `JsonParser` + 通用辅助（`find`/`requireString`/`requireInt`/`rejectUnknownKeys` 等）全部归 sync 库，`loadHostConfig`/`loadIgConfig` 与引擎侧 `EngineConfig.cpp` **共用**。引擎不再自带 parser 和通用辅助，也不重复实现 `parseHostConfig`/`parseIgConfig`（直接调用 sync 库公开 API）。
+**解析器单一事实源**：语法解析走 nlohmann/json（`sync_json::parseJsonText`）；`find`/`requireString`/`requireInt`/`rejectUnknownKeys` 等 schema 辅助全部归 sync 库，`loadHostConfig`/`loadIgConfig` 与引擎侧 `EngineConfig.cpp` **共用**。引擎不再自带 parser 和通用辅助，也不重复实现 `parseHostConfig`/`parseIgConfig`（直接调用 sync 库公开 API）。
 
-**`requireInt` 严格整数**：整数字段（端口等）拒绝小数，sync 侧与引擎侧行为一致。
+**`requireInt` 严格整数**：整数字段（端口、窗口、实体 `id` 等）拒绝小数（`1.5`）；JSON 写成 `1.0` 仍视为整数。sync 侧与引擎侧行为一致。
 
 **验收测试**：
 - `HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。

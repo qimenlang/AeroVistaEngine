@@ -1295,6 +1295,57 @@ TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][confi
     REQUIRE(entities.size() == 5);
 }
 
+TEST_CASE("loadEngineChannelConfig accepts integer-valued floats for window ints",
+          "[unit][config][parse][json-adapter]")
+{
+    const TempConfigFile file(R"({ "window": { "x": 0.0, "y": 0, "width": 640.0, "height": 480 } })");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.window.x == 0);
+    REQUIRE(cfg.window.width == 640);
+    REQUIRE(cfg.window.height == 480);
+}
+
+TEST_CASE("loadEngineChannelConfig rejects fractional window ints",
+          "[unit][config][parse][json-adapter][negative]")
+{
+    const TempConfigFile file(R"({ "window": { "x": 0, "y": 0, "width": 640.5, "height": 480 } })");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(error.find("integer") != std::string::npos);
+}
+
+TEST_CASE("loadEntitiesFile accepts integer-valued float id", "[unit][config][parse][json-adapter][entities-catalog]")
+{
+    const TempConfigFile file(R"({ "entities": [ { "id": 1.0, "model": "models/teapot.vsgt" } ] })");
+    std::vector<EntityConfig> entities;
+    std::string error;
+    REQUIRE(loadEntitiesFile(file.path(), entities, &error));
+    REQUIRE(entities.size() == 1);
+    REQUIRE(entities[0].id == 1);
+}
+
+TEST_CASE("loadEngineChannelConfig accepts UTF-8 BOM", "[unit][config][parse][json-adapter]")
+{
+    const std::string body = std::string("\xEF\xBB\xBF{") + kMinimalModel + ", " + kMinimalWindow + "}";
+    const TempConfigFile file(body);
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE(cfg.window.width == 640);
+}
+
+TEST_CASE("loadEngineChannelConfig rejects trailing comma", "[unit][config][parse][json-adapter][negative]")
+{
+    const TempConfigFile file(R"({ "window": { "x": 0, "y": 0, "width": 640, "height": 480 }, })");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
 // =============================================================================
 // 验收：窗口几何与通道配置一致
 // =============================================================================

@@ -21,8 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # clang-tidy needs clang's compile_commands.json: MSVC maps CMAKE_CXX_STANDARD 23
 # to /std:c++latest, which clang-tidy cannot resolve to a concrete version.
-# List clang-frontend build dirs only (clang-Ninja + ci-clang).
+# List clang-frontend build dirs only (CMakePresets: clang-Ninja-* / ci-clang).
+# Prefer Debug/Release names that actually exist; "clang-Ninja" is a doc alias.
 BUILD_CANDIDATES = (
+    ROOT / "out" / "build" / "clang-Ninja-Debug",
+    ROOT / "out" / "build" / "clang-Ninja-Release",
     ROOT / "out" / "build" / "clang-Ninja",
     ROOT / "out" / "build" / "ci-clang",
 )
@@ -133,7 +136,7 @@ def main() -> int:
     if build_dir is None:
         print("error: compile_commands.json not found.", file=sys.stderr)
         print("Configure a Ninja preset first, e.g.:", file=sys.stderr)
-        print("  cmake --preset clang-Ninja", file=sys.stderr)
+        print("  cmake --preset clang-Ninja-Debug", file=sys.stderr)
         print("Or set AEROVISTA_TIDY_BUILD_DIR to that build directory.", file=sys.stderr)
         return 1
 

@@ -3,9 +3,7 @@
 #include <aerovista/sync/SyncConfig.h>
 #include <aerovista/sync/SyncJson.h>
 
-#include <cmath>
 #include <fstream>
-#include <initializer_list>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -14,20 +12,19 @@
 
 using aerovista::sync::sync_json::JsonArray;
 using aerovista::sync::sync_json::JsonObject;
-using aerovista::sync::sync_json::JsonParser;
 using aerovista::sync::sync_json::JsonValue;
 
 // 通用 JSON 辅助（find/require*/rejectUnknownKeys）与 hostConfig/igConfig 解析
 // 均来自 sync 库（SyncJson.h / SyncConfig.h），引擎侧不再重复实现。
 using aerovista::sync::sync_json::find;
+using aerovista::sync::sync_json::parseJsonText;
 using aerovista::sync::sync_json::rejectNull;
 using aerovista::sync::sync_json::rejectUnknownKeys;
 using aerovista::sync::sync_json::requireBool;
 using aerovista::sync::sync_json::requireInt;
 using aerovista::sync::sync_json::requireNumber;
-using aerovista::sync::sync_json::requireObjectValue;
+using aerovista::sync::sync_json::requireObject;
 using aerovista::sync::sync_json::requireString;
-using aerovista::sync::sync_json::requireValue;
 
 namespace
 {
@@ -54,24 +51,16 @@ namespace
 
     int parseOptionalInt(const JsonObject& obj, const char* key, int fallback)
     {
-        const JsonValue* v = find(obj, key);
-        if (!v)
+        if (find(obj, key) == nullptr)
             return fallback;
-        rejectNull(*v, key);
-        if (!v->isNumber())
-            throw std::runtime_error(std::string("missing/invalid number: ") + key);
-        return static_cast<int>(v->asNumber());
+        return requireInt(obj, key);
     }
 
     std::string parseOptionalString(const JsonObject& obj, const char* key, std::string fallback)
     {
-        const JsonValue* v = find(obj, key);
-        if (!v)
+        if (find(obj, key) == nullptr)
             return fallback;
-        rejectNull(*v, key);
-        if (!v->isString())
-            throw std::runtime_error(std::string("missing/invalid string: ") + key);
-        return v->asString();
+        return requireString(obj, key);
     }
 
     void validateIgEndpointPairing(const EngineChannelConfig& cfg, bool hasRequireConnectedIg)
@@ -88,40 +77,26 @@ namespace
         return slash == std::string::npos ? modelPath : modelPath.substr(slash + 1);
     }
 
-    int requireStrictInt(const JsonObject& obj, const char* key)
-    {
-        const JsonValue* v = find(obj, key);
-        if (!v)
-            throw std::runtime_error(std::string("missing/invalid int: ") + key);
-        rejectNull(*v, key);
-        if (!v->isNumber())
-            throw std::runtime_error(std::string("missing/invalid int: ") + key);
-        const double n = v->asNumber();
-        if (n != std::floor(n))
-            throw std::runtime_error(std::string("missing/invalid int: ") + key);
-        return static_cast<int>(n);
-    }
-
     Vec3Config requireVec3Array(const JsonObject& obj, const char* key)
     {
         const JsonValue* v = find(obj, key);
         if (!v)
             throw std::runtime_error(std::string("missing/invalid array: ") + key);
         rejectNull(*v, key);
-        if (!v->isArray())
+        if (!v->is_array())
             throw std::runtime_error(std::string("missing/invalid array: ") + key);
-        const JsonArray& arr = v->asArray();
+        const JsonArray& arr = *v;
         if (arr.size() != 3)
             throw std::runtime_error(std::string("array length must be 3: ") + key);
         Vec3Config out;
         for (std::size_t i = 0; i < 3; ++i)
         {
-            if (!arr[i].isNumber())
+            if (!arr[i].is_number())
                 throw std::runtime_error(std::string("array elements must be numbers: ") + key);
         }
-        out.x = arr[0].asNumber();
-        out.y = arr[1].asNumber();
-        out.z = arr[2].asNumber();
+        out.x = arr[0].get<double>();
+        out.y = arr[1].get<double>();
+        out.z = arr[2].get<double>();
         return out;
     }
 
@@ -140,7 +115,7 @@ namespace
         const JsonValue* llaValue = find(obj, "lla");
         if (!llaValue)
             throw std::runtime_error("missing/invalid object: lla");
-        const JsonObject& llaObj = requireObjectValue(*llaValue, "lla");
+        const JsonObject& llaObj = requireObject(*llaValue, "lla");
         rejectUnknownKeys(llaObj, {"lat", "lon", "alt"});
         EllipsoidPoseConfig pose;
         pose.lla.x = requireNumber(llaObj, "lat");
@@ -159,12 +134,12 @@ namespace
         if (const JsonValue* v = find(poseObj, "local"))
         {
             hasLocal = true;
-            local = parseLocalPose(requireObjectValue(*v, "local"));
+            local = parseLocalPose(requireObject(*v, "local"));
         }
         if (const JsonValue* v = find(poseObj, "ellipsoid"))
         {
             hasEllipsoid = true;
-            ellipsoid = parseEllipsoidPose(requireObjectValue(*v, "ellipsoid"));
+            ellipsoid = parseEllipsoidPose(requireObject(*v, "ellipsoid"));
         }
         // 双轨自由解析；运行时按「场景有无 EllipsoidModel」选半，不在加载期强制选半。
     }
@@ -175,9 +150,9 @@ namespace
         if (!v)
             return EntityInitialState::ACTIVE;
         rejectNull(*v, "initialEntityState");
-        if (!v->isString())
+        if (!v->is_string())
             throw std::runtime_error("missing/invalid string: initialEntityState");
-        const std::string s = v->asString();
+        const std::string s = v->get<std::string>();
         if (s == "Active")
             return EntityInitialState::ACTIVE;
         if (s == "Standby")
@@ -189,7 +164,7 @@ namespace
     {
         rejectUnknownKeys(obj, {"id", "name", "model", "initialEntityState", "pose"});
         EntityConfig entity;
-        entity.id = requireStrictInt(obj, "id");
+        entity.id = requireInt(obj, "id");
         if (entity.id < 1 || entity.id > 65535)
             throw std::runtime_error("entity id out of range 1..65535");
         entity.model = requireString(obj, "model");
@@ -200,7 +175,7 @@ namespace
         if (const JsonValue* poseValue = find(obj, "pose"))
         {
             entity.hasPose = true;
-            parseDualPose(requireObjectValue(*poseValue, "pose"), entity.hasPoseLocal, entity.localPose,
+            parseDualPose(requireObject(*poseValue, "pose"), entity.hasPoseLocal, entity.localPose,
                           entity.hasPoseEllipsoid, entity.ellipsoidPose);
         }
         return entity;
@@ -209,9 +184,9 @@ namespace
     std::vector<EntityConfig> parseEntitiesArray(const JsonValue& value)
     {
         rejectNull(value, "entities");
-        if (!value.isArray())
+        if (!value.is_array())
             throw std::runtime_error("entities must be an array");
-        const JsonArray& arr = value.asArray();
+        const JsonArray& arr = value;
         if (arr.empty())
             throw std::runtime_error("entities must not be empty");
 
@@ -220,7 +195,7 @@ namespace
         std::unordered_set<int> seenIds;
         for (const JsonValue& item : arr)
         {
-            const EntityConfig entity = parseEntityItem(requireObjectValue(item, "entities[]"));
+            const EntityConfig entity = parseEntityItem(requireObject(item, "entities[]"));
             if (!seenIds.insert(entity.id).second)
                 throw std::runtime_error("duplicate entity id");
             entities.push_back(entity);
@@ -235,7 +210,7 @@ namespace
         if (const JsonValue* poseValue = find(obj, "pose"))
         {
             camera.hasPose = true;
-            parseDualPose(requireObjectValue(*poseValue, "pose"), camera.hasPoseLocal, camera.localPose,
+            parseDualPose(requireObject(*poseValue, "pose"), camera.hasPoseLocal, camera.localPose,
                           camera.hasPoseEllipsoid, camera.ellipsoidPose);
         }
         return camera;
@@ -252,9 +227,9 @@ namespace
         if (const JsonValue* v = find(root, "entitiesFilePath"))
         {
             rejectNull(*v, "entitiesFilePath");
-            if (!v->isString())
+            if (!v->is_string())
                 throw std::runtime_error("missing/invalid string: entitiesFilePath");
-            cfg.entitiesFilePath = v->asString();
+            cfg.entitiesFilePath = v->get<std::string>();
         }
     }
 
@@ -264,7 +239,7 @@ namespace
         SyncSystemConfig ss;
         ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
         if (const JsonValue* v = find(obj, "offsetDeg"))
-            ss.offsetDeg = parseOffsetDeg(requireObjectValue(*v, "offsetDeg"));
+            ss.offsetDeg = parseOffsetDeg(requireObject(*v, "offsetDeg"));
         if (find(obj, "requireConnectedIg") != nullptr)
             ss.requireConnectedIg = requireBool(obj, "requireConnectedIg");
         return ss;
@@ -279,29 +254,29 @@ namespace
         EngineChannelConfig cfg;
 
         if (const JsonValue* v = find(root, "syncSystem"))
-            cfg.syncSystem = parseSyncSystemConfig(requireObjectValue(*v, "syncSystem"));
+            cfg.syncSystem = parseSyncSystemConfig(requireObject(*v, "syncSystem"));
 
         if (const JsonValue* v = find(root, "igConfig"))
         {
-            cfg.igConfig = parseIgConfig(requireObjectValue(*v, "igConfig"));
+            cfg.igConfig = parseIgConfig(requireObject(*v, "igConfig"));
         }
 
         if (const JsonValue* v = find(root, "window"))
-            cfg.window = parseWindow(requireObjectValue(*v, "window"));
+            cfg.window = parseWindow(requireObject(*v, "window"));
 
         if (const JsonValue* v = find(root, "injectEllipsoidIfMissing"))
         {
             rejectNull(*v, "injectEllipsoidIfMissing");
-            if (!v->isBool())
+            if (!v->is_boolean())
                 throw std::runtime_error("missing/invalid bool: injectEllipsoidIfMissing");
-            cfg.injectEllipsoidIfMissing = v->asBool();
+            cfg.injectEllipsoidIfMissing = v->get<bool>();
         }
 
         parseModelEntityMutex(root, cfg);
 
         if (const JsonValue* v = find(root, "camera"))
         {
-            cfg.camera = parseCamera(requireObjectValue(*v, "camera"));
+            cfg.camera = parseCamera(requireObject(*v, "camera"));
         }
 
         validateIgEndpointPairing(cfg, cfg.syncSystem.requireConnectedIg);
@@ -323,22 +298,11 @@ bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, 
 
         std::ostringstream oss;
         oss << in.rdbuf();
-        std::string text = oss.str();
-        // windows上读取json文件时，去掉 UTF-8 文件开头的 BOM，避免解析失败
-        if (text.size() >= 3 &&
-            static_cast<unsigned char>(text[0]) == 0xEF &&
-            static_cast<unsigned char>(text[1]) == 0xBB &&
-            static_cast<unsigned char>(text[2]) == 0xBF)
-        {
-            text.erase(0, 3);
-        }
-
-        JsonParser parser(std::move(text));
-        const JsonValue rootValue = parser.parse();
-        if (!rootValue.isObject())
+        const JsonValue rootValue = parseJsonText(oss.str());
+        if (!rootValue.is_object())
             throw std::runtime_error("root must be a JSON object");
 
-        out = parseConfig(rootValue.asObject());
+        out = parseConfig(rootValue);
         return true;
     }
     catch (const std::exception& ex)
@@ -363,22 +327,11 @@ bool loadEntitiesFile(const std::string& path, std::vector<EntityConfig>& out, s
 
         std::ostringstream oss;
         oss << in.rdbuf();
-        std::string text = oss.str();
-        // 去掉 UTF-8 BOM（同 loadEngineChannelConfig）。
-        if (text.size() >= 3 &&
-            static_cast<unsigned char>(text[0]) == 0xEF &&
-            static_cast<unsigned char>(text[1]) == 0xBB &&
-            static_cast<unsigned char>(text[2]) == 0xBF)
-        {
-            text.erase(0, 3);
-        }
-
-        JsonParser parser(std::move(text));
-        const JsonValue rootValue = parser.parse();
-        if (!rootValue.isObject())
+        const JsonValue rootValue = parseJsonText(oss.str());
+        if (!rootValue.is_object())
             throw std::runtime_error("entities file root must be a JSON object");
 
-        const JsonObject& root = rootValue.asObject();
+        const JsonObject& root = rootValue;
         rejectUnknownKeys(root, {"entities"});
         const JsonValue* entitiesValue = find(root, "entities");
         if (!entitiesValue)
