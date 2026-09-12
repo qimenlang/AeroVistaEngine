@@ -1349,7 +1349,7 @@ SCENARIO("IG subscribes a per-frame Host→IG ViewCtrl over UDP",
         Engine engineB;
         setupHostIgPair(hostA, engineA, engineB, 33100);
 
-        WHEN("Host sends CigiViewCtrlV4 over UDP (per-frame)")
+        WHEN("Host streams CigiViewCtrlV4 over UDP each frame")
         {
             int sinkCount = 0;
             CigiViewCtrlV4 sinkValue;
@@ -1359,19 +1359,25 @@ SCENARIO("IG subscribes a per-frame Host→IG ViewCtrl over UDP",
                     sinkValue = view;
                 });
 
-            auto& udp = hostA.outMsgWithIgCtrlUdp();
-            CigiViewCtrlV4 view;
-            view.SetViewID(1);
-            view.SetYaw(30.0f);
-            view.SetPitch(10.0f);
-            udp << view;
-            hostA.flushUdp();
-            engineB.tickSync();
-            engineA.tickSync();
-
-            THEN("IG sink receives the ViewCtrl synchronously")
+            // UDP 数据面可丢：合同是周期覆盖，不是单报必达（对齐 HostIGTests slack=3 / 10 帧）。
+            constexpr int kFrames = 10;
+            constexpr int kSlack = 3;
+            for (int i = 0; i < kFrames; ++i)
             {
-                REQUIRE(sinkCount == 1);
+                auto& udp = hostA.outMsgWithIgCtrlUdp();
+                CigiViewCtrlV4 view;
+                view.SetViewID(1);
+                view.SetYaw(30.0f);
+                view.SetPitch(10.0f);
+                udp << view;
+                hostA.flushUdp();
+                engineB.tickSync();
+            }
+
+            THEN("IG sink receives ViewCtrl on most frames")
+            {
+                REQUIRE(sinkCount >= kFrames - kSlack);
+                REQUIRE(sinkCount <= kFrames);
                 REQUIRE(sinkValue.GetViewID() == 1);
                 REQUIRE(sinkValue.GetYaw() == Catch::Approx(30.0f));
             }
