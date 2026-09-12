@@ -300,7 +300,7 @@ M_inv   = computeWorldToLocalTransform(lla)
 | Engine `CameraDriver` | `ChannelEye`（`vsg::dvec3 lla` + `vsg::dvec3 eulerYprDeg`） | compose 后是本通道位姿（Host ⊕ offset） |
 | sync 公开头 | 不持眼点结构 | `OffsetDeg` 仍在 `SyncConfig.h`；原 `HostEyePose` / `DVec3` / `SyncMath.h` 已删 |
 
-**实现现状（2026-09）**：业务侧回调（`CameraDriver::onOwnshipEyePose` / `Engine::onEntityPose`）各按 `EntityID` 卫语句过滤——ownship 眼点从 CCL 字段直接填 `ChannelEye`（`vsg::dvec3`），命令实体摆放恒 `Detach`+LLA → `updateEntityPose(id, vsg::dvec3, vsg::dvec3)`。原「本地 XYZ / 椭球 LLA 双语义 + variant」及 sync 侧 `HostEyePose`（`DVec3`）讨论随同步只 LLA、engine 改用 VSG 向量一并移除。
+**实现现状（2026-09）**：业务侧回调（`CameraDriver::onOwnshipEyePose` / `Engine::onEntityPose`）各按 `EntityID` 卫语句过滤——ownship 眼点从 CCL 字段直接填 `ChannelEye`（`vsg::dvec3`），命令实体摆放恒 `Detach`+LLA → `findEntity` + `Entity::setPoseLla`。原「本地 XYZ / 椭球 LLA 双语义 + variant」及 sync 侧 `HostEyePose`（`DVec3`）讨论随同步只 LLA、engine 改用 VSG 向量一并移除。
 
 ### 4.3 帧路径（IG 侧；Host 采样/扇出已随拆进程移除）
 

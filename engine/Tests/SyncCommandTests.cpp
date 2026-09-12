@@ -62,6 +62,13 @@ namespace
         REQUIRE(a.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }
 
+    Entity& requireEntity(Engine& engine, int id)
+    {
+        Entity* entity = engine.findEntity(id);
+        REQUIRE(entity);
+        return *entity;
+    }
+
     // 独立 Host 端点 + 两个 IG-only 引擎 B/C（自连产生 3 个 ready peer）。
     void setupHostIgTriple(HostSync& hostA, Engine& a, Engine& b, Engine& c, int base)
     {
@@ -1463,7 +1470,7 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
 
 // =============================================================================
 // 11. 命令实体位姿：Host 下发 EntityPositionCtrlV4（EntityID≠0）→ IG engine
-//     订阅 → updateEntityPose 更新 entityMap 位姿 + transform 矩阵。
+//     订阅 → onEntityPose → findEntity + setPoseLla 更新位姿与 transform 矩阵。
 //     ownship 眼点（EntityID==0）与命令实体（EntityID≠0）同 PacketID（EntityPositionCtrlV4），
 //     UDP 链路（眼点）与 TCP 链路（命令实体）各注册通用捕获，经多播
 //     addCallback<CigiEntityPositionCtrlV4> 同回调按 EntityID 分流（§4.1 / cigi梳理.md 链路矩阵）。
@@ -1526,13 +1533,13 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
             THEN("engine entity 7 pose is read as LLA (ellipsoid semantic pose)")
             {
                 vsg::dvec3 pos, ypr;
-                REQUIRE(engineIg.sampleEntityPoseById(7, pos, ypr));
+                requireEntity(engineIg, 7).samplePose(pos, ypr);
                 REQUIRE(pos.x == Catch::Approx(39.9087));
                 REQUIRE(pos.y == Catch::Approx(116.3975));
                 REQUIRE(pos.z == Catch::Approx(100.0));
                 REQUIRE(ypr.x == Catch::Approx(15.0));
 
-                auto mt = engineIg.entityTransform(7);
+                auto mt = requireEntity(engineIg, 7).transform();
                 REQUIRE(mt);
             }
         }
@@ -1563,7 +1570,7 @@ SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",
         REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
         REQUIRE(ig.init());
         REQUIRE(host.readyIgCount() == 1);
-        REQUIRE_FALSE(ig.entityVisible(1));
+        REQUIRE_FALSE(requireEntity(ig, 1).visible());
 
         WHEN("Host sends EntityCtrl Active")
         {
@@ -1571,8 +1578,8 @@ SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",
 
             THEN("the IG entity is visible")
             {
-                REQUIRE(ig.hasEntityId(1));
-                REQUIRE(ig.entityVisible(1));
+                REQUIRE(ig.findEntity(1));
+                REQUIRE(requireEntity(ig, 1).visible());
             }
         }
     }
@@ -1597,7 +1604,7 @@ SCENARIO("linked IG hides an Active entity after Host EntityCtrl Standby",
         REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
         REQUIRE(ig.init());
         REQUIRE(host.readyIgCount() == 1);
-        REQUIRE(ig.entityVisible(1));
+        REQUIRE(requireEntity(ig, 1).visible());
 
         WHEN("Host sends EntityCtrl Standby")
         {
@@ -1605,8 +1612,8 @@ SCENARIO("linked IG hides an Active entity after Host EntityCtrl Standby",
 
             THEN("the IG entity is hidden and still registered")
             {
-                REQUIRE(ig.hasEntityId(1));
-                REQUIRE_FALSE(ig.entityVisible(1));
+                REQUIRE(ig.findEntity(1));
+                REQUIRE_FALSE(requireEntity(ig, 1).visible());
                 REQUIRE(ig.entitySize() == 1);
             }
         }
@@ -1632,8 +1639,8 @@ SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
         REQUIRE(ig.loadConfig(igCfg.cfgFile->path()));
         REQUIRE(ig.init());
         REQUIRE(host.readyIgCount() == 1);
-        REQUIRE(ig.entityVisible(1));
-        REQUIRE(ig.entityAlpha(1) == std::uint8_t{255});
+        REQUIRE(requireEntity(ig, 1).visible());
+        REQUIRE(requireEntity(ig, 1).alpha() == std::uint8_t{255});
 
         WHEN("Host sends EntityCtrl Active with Alpha 128")
         {
@@ -1641,8 +1648,8 @@ SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
 
             THEN("the IG entity stays visible and alpha is 128")
             {
-                REQUIRE(ig.entityVisible(1));
-                REQUIRE(ig.entityAlpha(1) == std::uint8_t{128});
+                REQUIRE(requireEntity(ig, 1).visible());
+                REQUIRE(requireEntity(ig, 1).alpha() == std::uint8_t{128});
             }
         }
     }

@@ -4,11 +4,11 @@
 
 #include "function/config/EngineConfig.h"
 #include "function/driver/CameraDriver.h"
+#include "function/entity/Entity.h"
 #include "vsg/core/ref_ptr.h"
 #include <aerovista/sync/SyncConfig.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,25 +25,6 @@ namespace aerovista::sync
 class Engine
 {
 public:
-    struct Entity
-    {
-        int id = 0;
-        std::string name;
-        std::string path;
-        /// true：`positionOrLla` 为 LLA、`eulerYprDeg` 为当地 ENU；false：本地笛卡尔。与场景有无椭球一致。
-        bool ellipsoid = false;
-        vsg::dvec3 positionOrLla{};
-        vsg::dvec3 eulerYprDeg{};
-        vsg::ref_ptr<vsg::Node> node;
-        vsg::ref_ptr<vsg::MatrixTransform> transform;
-        vsg::ref_ptr<vsg::Switch> visibility;
-        /// CIGI Alpha：0 透明 .. 255 不透明；缺省不透明（报文未到前）。
-        std::uint8_t alpha = 255;
-        bool inheritAlpha = false;
-        bool collisionDetectEn = false;
-        bool smoothingEn = false;
-    };
-
     // ===== 门面 =====
 
     Engine();
@@ -91,20 +72,11 @@ public:
     /// 从 LLA（纬度°、经度°、海拔 米）+ 当地 ENU YPR 度写 LookAt。要求场景 EllipsoidModel。
     bool setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
 
-    bool sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3& eulerYprDeg) const;
+    /// 已预建实体数（启动表大小）。
     std::size_t entitySize() const;
-    bool hasEntityId(int id) const;
-    bool entityName(int id, std::string& outName) const;
-    vsg::ref_ptr<vsg::MatrixTransform> entityTransform(int id) const;
-    /// 显隐（读 Switch mask）；不在表内或无 Switch 为 false。启动初值与运行期 `EntityCtrl` 共用。
-    bool entityVisible(int id) const;
-    /// 运行时透明度（0 透明..255 不透明）；不在表内为空。
-    std::optional<std::uint8_t> entityAlpha(int id) const;
-    /// 实体几何 node（共享几何验收：同 model 两实体指针相同）。
-    vsg::ref_ptr<vsg::Node> entityNode(int id) const;
-
-    /// 更新指定实体的位姿（命令面 Host→IG 摆放，恒 LLA）。回调主线程解包时调用，直接写 entityMap（主线程安全，状态同步设计初版.md §6）。
-    void updateEntityPose(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg);
+    /// 按 id 查表；不在表内为空。
+    Entity* findEntity(int id);
+    const Entity* findEntity(int id) const;
 
     /// 应用 EntityPositionCtrlV4 命令实体摆放（EntityID≠0，实体与运动控制设计.md §4.2）。
     /// CCL 订阅与测试注入共用；眼点（EntityID==0）由卫语句过滤（走 CameraDriver）。
@@ -138,18 +110,12 @@ private:
     /// 注册 IG 业务回调（眼点 / 命令实体）；报文自检订阅走 PacketProbeHandler::bindRecvProbes。
     void registerIgCallbacks();
     bool initSceneFromEntities(const std::vector<EntityConfig>& entities);
-    void assembleEntity(vsg::Group& root, const EntityConfig& cfg, vsg::ref_ptr<vsg::Node> geometry,
-                        vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid);
     bool ensureEllipsoidModel();
     void applyCameraPoseFromConfig();
-    vsg::dmat4 makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const;
     bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
 
     /// 有末次合成眼点且已建图形时写入主相机（恒 LLA）。
     void applyLastHostEye();
-    /// 实体无 transform 时创建（挂 node，scene 存在则 addChild）。
-    void ensureEntityTransform(Entity& entity);
-    void recomputeEntityTransform(Entity& entity);
 
     /// 帧相位：按固定顺序编排子系统与 viewer。
     void preFrame();

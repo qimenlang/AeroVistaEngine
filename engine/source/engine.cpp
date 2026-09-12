@@ -9,8 +9,6 @@
 #include <aerovista/sync/SynchronSystem.h>
 #include <vsgXchange/all.h>
 
-#include "CigiBaseEntityCtrl.h"
-#include "CigiBaseEntityPositionCtrl.h"
 #include "CigiEntityCtrlV4.h"
 #include "CigiEntityPositionCtrlV4.h"
 
@@ -351,43 +349,6 @@ namespace
         return vsg::dvec3{v.x, v.y, v.z};
     }
 
-    void fillActiveEntityPose(Engine::Entity& entity, const EntityConfig& cfg,
-                              vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel)
-    {
-        entity.ellipsoid = static_cast<bool>(ellipsoidModel);
-        if (entity.ellipsoid)
-        {
-            entity.positionOrLla = toDVec3(cfg.ellipsoidPose.lla);
-            entity.eulerYprDeg = toDVec3(cfg.ellipsoidPose.eulerYprDeg);
-            return;
-        }
-        entity.positionOrLla = toDVec3(cfg.localPose.position);
-        entity.eulerYprDeg = toDVec3(cfg.localPose.eulerYprDeg);
-    }
-
-    /// R = Rz(yaw)*Rx(pitch)*Ry(roll) 的 3×3（与 setCameraPose / ModelConfigTests 同一轴序）。
-    vsg::dmat4 rotationMatrixYpr(const vsg::dvec3& eulerYprDeg)
-    {
-        const vsg::dquat qRoll(vsg::radians(eulerYprDeg.z), vsg::dvec3(0.0, 1.0, 0.0));
-        const vsg::dquat qPitch(vsg::radians(eulerYprDeg.y), vsg::dvec3(1.0, 0.0, 0.0));
-        const vsg::dquat qYaw(vsg::radians(eulerYprDeg.x), vsg::dvec3(0.0, 0.0, 1.0));
-        const auto rotate = [&](const vsg::dvec3& v) { return qYaw * (qPitch * (qRoll * v)); };
-        const vsg::dvec3 x = rotate(vsg::dvec3(1.0, 0.0, 0.0));
-        const vsg::dvec3 y = rotate(vsg::dvec3(0.0, 1.0, 0.0));
-        const vsg::dvec3 z = rotate(vsg::dvec3(0.0, 0.0, 1.0));
-        vsg::dmat4 m = vsg::dmat4(1.0);
-        m(0, 0) = x.x;
-        m(0, 1) = x.y;
-        m(0, 2) = x.z;
-        m(1, 0) = y.x;
-        m(1, 1) = y.y;
-        m(1, 2) = y.z;
-        m(2, 0) = z.x;
-        m(2, 1) = z.y;
-        m(2, 2) = z.z;
-        return m;
-    }
-
     bool setupOptions(vsg::ref_ptr<vsg::Options>& options)
     {
         options = vsg::Options::create();
@@ -540,112 +501,25 @@ vsg::ref_ptr<vsg::EllipsoidModel> Engine::ellipsoidModel() const
     return _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
 }
 
-bool Engine::sampleEntityPoseById(int id, vsg::dvec3& positionOrLla, vsg::dvec3& eulerYprDeg) const
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return false;
-    const Entity& entity = it->second;
-    positionOrLla = entity.positionOrLla;
-    eulerYprDeg = entity.eulerYprDeg;
-    return true;
-}
-
 std::size_t Engine::entitySize() const
 {
     return _entityMap.size();
 }
 
-bool Engine::hasEntityId(int id) const
-{
-    return _entityMap.find(id) != _entityMap.end();
-}
-
-bool Engine::entityName(int id, std::string& outName) const
+const Entity* Engine::findEntity(int id) const
 {
     const auto it = _entityMap.find(id);
     if (it == _entityMap.end())
-        return false;
-    outName = it->second.name;
-    return true;
+        return nullptr;
+    return &it->second;
 }
 
-vsg::ref_ptr<vsg::MatrixTransform> Engine::entityTransform(int id) const
+Entity* Engine::findEntity(int id)
 {
     const auto it = _entityMap.find(id);
     if (it == _entityMap.end())
-        return {};
-    return it->second.transform;
-}
-
-bool Engine::entityVisible(int id) const
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end() || !it->second.visibility)
-        return false;
-    const auto& children = it->second.visibility->children;
-    if (children.empty())
-        return false;
-    return children.front().mask != vsg::MASK_OFF;
-}
-
-std::optional<std::uint8_t> Engine::entityAlpha(int id) const
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return std::nullopt;
-    return it->second.alpha;
-}
-
-vsg::ref_ptr<vsg::Node> Engine::entityNode(int id) const
-{
-    const auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
-        return {};
-    return it->second.node;
-}
-
-vsg::dmat4 Engine::makeEntityMatrix(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid) const
-{
-    if (ellipsoid)
-    {
-        const vsg::dvec3 lla = toDVec3(cfg.ellipsoidPose.lla);
-        const vsg::dvec3 ypr = toDVec3(cfg.ellipsoidPose.eulerYprDeg);
-        return ellipsoid->computeLocalToWorldTransform(lla) * rotationMatrixYpr(ypr);
-    }
-    const vsg::dvec3 position = toDVec3(cfg.localPose.position);
-    const vsg::dvec3 ypr = toDVec3(cfg.localPose.eulerYprDeg);
-    return vsg::translate(position) * rotationMatrixYpr(ypr);
-}
-
-void Engine::ensureEntityTransform(Entity& entity)
-{
-    if (entity.transform)
-        return;
-    auto mt = vsg::MatrixTransform::create();
-    if (entity.node)
-        mt->addChild(entity.node);
-    entity.transform = mt;
-    // 主线程（drainIncoming 回调）。启动装配已建 transform；此处仅兜底缺节点。
-    // 若 viewer 已 compile，新挂上的节点需再 compile，否则 pipeline 未就绪。
-    if (auto group = _scene.cast<vsg::Group>())
-    {
-        group->addChild(mt);
-        if (_viewer)
-            _viewer->compile();
-    }
-}
-
-void Engine::recomputeEntityTransform(Entity& entity)
-{
-    if (!entity.transform)
-        return;
-    const auto ellipsoid = ellipsoidModel();
-    if (entity.ellipsoid && ellipsoid)
-        entity.transform->matrix =
-            ellipsoid->computeLocalToWorldTransform(entity.positionOrLla) * rotationMatrixYpr(entity.eulerYprDeg);
-    else
-        entity.transform->matrix = vsg::translate(entity.positionOrLla) * rotationMatrixYpr(entity.eulerYprDeg);
+        return nullptr;
+    return &it->second;
 }
 
 void Engine::applyCameraPoseFromConfig()
@@ -707,30 +581,6 @@ bool Engine::ensureEllipsoidModel()
     return true;
 }
 
-void Engine::assembleEntity(vsg::Group& root, const EntityConfig& cfg, vsg::ref_ptr<vsg::Node> geometry,
-                            vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid)
-{
-    Entity entity;
-    entity.id = cfg.id;
-    entity.name = cfg.name;
-    entity.path = cfg.model;
-    fillActiveEntityPose(entity, cfg, ellipsoid);
-    entity.node = geometry;
-
-    auto transform = vsg::MatrixTransform::create();
-    transform->matrix = makeEntityMatrix(cfg, ellipsoid);
-    transform->addChild(geometry);
-    entity.transform = transform;
-
-    const bool visible = cfg.initialEntityState != EntityInitialState::STANDBY;
-    auto visibility = vsg::Switch::create();
-    visibility->addChild(visible, transform);
-    entity.visibility = visibility;
-    root.addChild(visibility);
-
-    _entityMap.emplace(entity.id, std::move(entity));
-}
-
 bool Engine::initSceneFromEntities(const std::vector<EntityConfig>& entities)
 {
     _entityMap.clear();
@@ -752,7 +602,8 @@ bool Engine::initSceneFromEntities(const std::vector<EntityConfig>& entities)
             std::cerr << "[WARN] skip entity id=" << cfg.id << " model load failed: " << cfg.model << std::endl;
             continue;
         }
-        assembleEntity(*root, cfg, geometry, ellipsoid);
+        auto entity = Entity::assemble(cfg, geometry, ellipsoid, *root);
+        _entityMap.emplace(entity.id(), std::move(entity));
     }
     return true;
 }
@@ -1387,43 +1238,24 @@ bool Engine::captureToFile(const vsg::Path& outputPngPath)
 
 void Engine::onEntityCtrl(const CigiEntityCtrlV4& ctrl)
 {
-    auto it = _entityMap.find(ctrl.GetEntityID());
-    if (it == _entityMap.end())
+    Entity* entity = findEntity(ctrl.GetEntityID());
+    if (!entity)
     {
         std::cerr << "[WARN] EntityCtrl for unknown entity id=" << ctrl.GetEntityID() << std::endl;
         return;
     }
-
-    Entity& entity = it->second;
-    if (entity.visibility)
-        entity.visibility->setAllChildren(ctrl.GetEntityState() == CigiBaseEntityCtrl::Active);
-
-    entity.alpha = ctrl.GetAlpha();
-    entity.inheritAlpha = ctrl.GetInheritAlpha() == CigiBaseEntityCtrl::Inherit;
-    entity.collisionDetectEn = ctrl.GetCollisionDetectEn() == CigiBaseEntityCtrl::Enable;
-    entity.smoothingEn = ctrl.GetSmoothingEn();
+    entity->applyCtrl(ctrl);
 }
 
 void Engine::onEntityPose(const CigiEntityPositionCtrlV4& pose)
 {
     if (pose.GetEntityID() == 0)
         return;
-    updateEntityPose(pose.GetEntityID(), vsg::dvec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
-                     vsg::dvec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()});
-}
-
-void Engine::updateEntityPose(int id, const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg)
-{
-    auto it = _entityMap.find(id);
-    if (it == _entityMap.end())
+    Entity* entity = findEntity(pose.GetEntityID());
+    if (!entity)
         return;
-    Entity& entity = it->second;
-
-    entity.ellipsoid = true;
-    entity.positionOrLla = lla;
-    entity.eulerYprDeg = eulerYprDeg;
-    ensureEntityTransform(entity);
-    recomputeEntityTransform(entity);
+    entity->setPoseLla(vsg::dvec3{pose.GetLat(), pose.GetLon(), pose.GetAlt()},
+                       vsg::dvec3{pose.GetYaw(), pose.GetPitch(), pose.GetRoll()});
 }
 
 void Engine::run()

@@ -86,6 +86,13 @@ namespace
         return pose;
     }
 
+    Entity& requireEntity(Engine& engine, int id)
+    {
+        Entity* entity = engine.findEntity(id);
+        REQUIRE(entity);
+        return *entity;
+    }
+
     std::string jsonEntity(int id, const std::string& model, const std::string& poseObject = {},
                            const std::string& name = {}, const std::string& initialEntityState = {})
     {
@@ -260,7 +267,7 @@ namespace
     void requireEntityLocalTransform(Engine& engine, int id, const vsg::dvec3& position, const vsg::dvec3& ypr,
                                      double eps = 1e-5)
     {
-        auto mt = engine.entityTransform(id);
+        auto mt = requireEntity(engine, id).transform();
         REQUIRE(mt);
         requireMatrixNear(mt->matrix, expectedLocalEntityMatrix(position, ypr), eps);
     }
@@ -380,7 +387,7 @@ SCENARIO("local entity pose from config matches sampled engine pose",
         {
             vsg::dvec3 position{};
             vsg::dvec3 eulerYprDeg{};
-            REQUIRE(engine.sampleEntityPoseById(1, position, eulerYprDeg));
+            requireEntity(engine, 1).samplePose(position, eulerYprDeg);
             THEN("sampled pose matches the configured local position and YPR")
             {
                 requireDVec3Near(position, kPos);
@@ -410,7 +417,7 @@ SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
         {
             vsg::dvec3 llaOrPos{};
             vsg::dvec3 ypr{};
-            REQUIRE(engine.sampleEntityPoseById(1, llaOrPos, ypr));
+            requireEntity(engine, 1).samplePose(llaOrPos, ypr);
             THEN("sample matches ellipsoid LLA/YPR and differs from local half")
             {
                 requireDVec3Near(llaOrPos, kLla, 1e-4);
@@ -435,7 +442,7 @@ SCENARIO("loaded entity is parented under a MatrixTransform",
         {
             THEN("the entity parent is a MatrixTransform")
             {
-                REQUIRE(engine.entityTransform(1));
+                REQUIRE(requireEntity(engine, 1).transform());
             }
         }
     }
@@ -465,15 +472,15 @@ SCENARIO("multiple entities: catalog entries are registered and hung on the scen
             }
             THEN("each configured id resolves; unknown id does not")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE(engine.hasEntityId(2));
-                REQUIRE_FALSE(engine.hasEntityId(99));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE(engine.findEntity(2));
+                REQUIRE_FALSE(engine.findEntity(99));
             }
             THEN("hung scene instances equal the catalog size and each transform is on the tree")
             {
                 REQUIRE(hungEntityInstanceCount(engine.mainScene()) == engine.entitySize());
-                REQUIRE(sceneHangsEntityTransform(engine.mainScene(), engine.entityTransform(1)));
-                REQUIRE(sceneHangsEntityTransform(engine.mainScene(), engine.entityTransform(2)));
+                REQUIRE(sceneHangsEntityTransform(engine.mainScene(), requireEntity(engine, 1).transform()));
+                REQUIRE(sceneHangsEntityTransform(engine.mainScene(), requireEntity(engine, 2).transform()));
             }
         }
     }
@@ -530,8 +537,8 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
 
         WHEN("each entity MatrixTransform is read by id")
         {
-            auto mtA = engine.entityTransform(1);
-            auto mtB = engine.entityTransform(2);
+            auto mtA = requireEntity(engine, 1).transform();
+            auto mtB = requireEntity(engine, 2).transform();
             REQUIRE(mtA);
             REQUIRE(mtB);
             THEN("transform matrices match LocalToWorld(lla)*R_enu(ypr), not the local half")
@@ -622,14 +629,10 @@ SCENARIO("entity name defaults to model basename and explicit name is kept",
 
         WHEN("names are read by id")
         {
-            std::string nameDefaulted;
-            std::string nameExplicit;
-            REQUIRE(engine.entityName(1, nameDefaulted));
-            REQUIRE(engine.entityName(2, nameExplicit));
             THEN("omitted name is basename(model); explicit name is preserved")
             {
-                REQUIRE(nameDefaulted == "lz.vsgt");
-                REQUIRE(nameExplicit == "tower");
+                REQUIRE(requireEntity(engine, 1).name() == "lz.vsgt");
+                REQUIRE(requireEntity(engine, 2).name() == "tower");
             }
         }
     }
@@ -644,7 +647,7 @@ SCENARIO("entity without pose uses an origin MatrixTransform",
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
         REQUIRE(engine.entitySize() == 1);
-        REQUIRE(engine.hasEntityId(1));
+        REQUIRE(engine.findEntity(1));
 
         WHEN("transform and pose are queried by id")
         {
@@ -652,8 +655,8 @@ SCENARIO("entity without pose uses an origin MatrixTransform",
             vsg::dvec3 ypr{};
             THEN("a MatrixTransform exists and sampled pose is the origin")
             {
-                REQUIRE(engine.entityTransform(1));
-                REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
+                REQUIRE(requireEntity(engine, 1).transform());
+                requireEntity(engine, 1).samplePose(position, ypr);
                 requireDVec3Near(position, vsg::dvec3{0.0, 0.0, 0.0});
                 requireDVec3Near(ypr, vsg::dvec3{0.0, 0.0, 0.0});
             }
@@ -677,14 +680,14 @@ SCENARIO("single entities entry still registers in the id map",
             THEN("size is 1, id resolves, and transform matches pose.local")
             {
                 REQUIRE(engine.entitySize() == 1);
-                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.findEntity(1));
                 requireEntityLocalTransform(engine, 1, kPos, kYpr);
             }
         }
     }
 }
 
-SCENARIO("sampleEntityPoseById matches MatrixTransform for local pose",
+SCENARIO("sampled entity pose matches MatrixTransform for local pose",
          "[acceptance][bdd][config][pose][entities][local][sample]")
 {
     GIVEN("a Local entity with pose.local")
@@ -699,7 +702,7 @@ SCENARIO("sampleEntityPoseById matches MatrixTransform for local pose",
         {
             vsg::dvec3 position{};
             vsg::dvec3 ypr{};
-            REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
+            requireEntity(engine, 1).samplePose(position, ypr);
             THEN("sample matches config and is consistent with the transform matrix")
             {
                 requireDVec3Near(position, kPos);
@@ -723,18 +726,14 @@ SCENARIO("duplicate entity names are allowed; lookup is by id only",
 
         WHEN("entities are resolved by id and name strings are read")
         {
-            std::string nameLeft;
-            std::string nameRight;
             REQUIRE(engine.entitySize() == 2);
-            REQUIRE(engine.hasEntityId(1));
-            REQUIRE(engine.hasEntityId(2));
-            REQUIRE_FALSE(engine.hasEntityId(99));
-            REQUIRE(engine.entityName(1, nameLeft));
-            REQUIRE(engine.entityName(2, nameRight));
+            REQUIRE(engine.findEntity(1));
+            REQUIRE(engine.findEntity(2));
+            REQUIRE_FALSE(engine.findEntity(99));
             THEN("both keep name twin; name is not a map key")
             {
-                REQUIRE(nameLeft == "twin");
-                REQUIRE(nameRight == "twin");
+                REQUIRE(requireEntity(engine, 1).name() == "twin");
+                REQUIRE(requireEntity(engine, 2).name() == "twin");
             }
         }
     }
@@ -757,8 +756,8 @@ SCENARIO("Standby entity is hidden at startup without a Host",
         {
             THEN("the entity is in the map and not visible")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE_FALSE(requireEntity(engine, 1).visible());
             }
         }
     }
@@ -777,8 +776,8 @@ SCENARIO("Active entity is visible at startup without a Host",
         {
             THEN("the entity is visible")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE(requireEntity(engine, 1).visible());
             }
         }
     }
@@ -800,14 +799,14 @@ SCENARIO("two entities with the same model share one geometry node",
         {
             THEN("the nodes are the same instance and the transforms differ")
             {
-                auto nodeA = engine.entityNode(1);
-                auto nodeB = engine.entityNode(2);
+                auto nodeA = requireEntity(engine, 1).node();
+                auto nodeB = requireEntity(engine, 2).node();
                 REQUIRE(nodeA);
                 REQUIRE(nodeB);
                 REQUIRE(nodeA == nodeB);
-                REQUIRE(engine.entityTransform(1));
-                REQUIRE(engine.entityTransform(2));
-                REQUIRE(engine.entityTransform(1) != engine.entityTransform(2));
+                REQUIRE(requireEntity(engine, 1).transform());
+                REQUIRE(requireEntity(engine, 2).transform());
+                REQUIRE(requireEntity(engine, 1).transform() != requireEntity(engine, 2).transform());
             }
         }
     }
@@ -856,8 +855,8 @@ SCENARIO("init continues when one entity model fails to load",
             THEN("init succeeds and only the valid id is registered")
             {
                 REQUIRE(engine.init());
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE_FALSE(engine.hasEntityId(2));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE_FALSE(engine.findEntity(2));
                 REQUIRE(engine.entitySize() == 1);
             }
         }
@@ -901,7 +900,7 @@ SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot, {}, {}, "Standby") + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE_FALSE(engine.entityVisible(1));
+        REQUIRE_FALSE(requireEntity(engine, 1).visible());
 
         WHEN("Host sends EntityCtrl Active")
         {
@@ -909,8 +908,8 @@ SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
 
             THEN("the entity is visible without a position packet")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE(requireEntity(engine, 1).visible());
             }
         }
     }
@@ -924,8 +923,8 @@ SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance"
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.entityVisible(1));
-        const auto geometry = engine.entityNode(1);
+        REQUIRE(requireEntity(engine, 1).visible());
+        const auto geometry = requireEntity(engine, 1).node();
 
         WHEN("Host sends EntityCtrl Standby")
         {
@@ -933,10 +932,10 @@ SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance"
 
             THEN("the entity is hidden and still registered")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE_FALSE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
-                REQUIRE(engine.entityNode(1) == geometry);
+                REQUIRE(requireEntity(engine, 1).node() == geometry);
             }
         }
     }
@@ -950,7 +949,7 @@ SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.entityVisible(1));
+        REQUIRE(requireEntity(engine, 1).visible());
 
         WHEN("Host sends EntityCtrl Destroyed")
         {
@@ -958,8 +957,8 @@ SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again
 
             THEN("the entity is hidden and the instance is kept")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE_FALSE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
             }
 
@@ -969,8 +968,8 @@ SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again
 
                 THEN("the entity is visible again")
                 {
-                    REQUIRE(engine.hasEntityId(1));
-                    REQUIRE(engine.entityVisible(1));
+                    REQUIRE(engine.findEntity(1));
+                    REQUIRE(requireEntity(engine, 1).visible());
                 }
             }
         }
@@ -985,7 +984,7 @@ SCENARIO("Host EntityCtrl Remove hides like Destroyed",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.entityVisible(1));
+        REQUIRE(requireEntity(engine, 1).visible());
 
         WHEN("Host sends EntityCtrl Remove")
         {
@@ -993,8 +992,8 @@ SCENARIO("Host EntityCtrl Remove hides like Destroyed",
 
             THEN("the entity is hidden and the instance is kept")
             {
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE_FALSE(engine.entityVisible(1));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE_FALSE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
             }
         }
@@ -1009,8 +1008,8 @@ SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        const auto geometry = engine.entityNode(1);
-        REQUIRE(engine.entityVisible(1));
+        const auto geometry = requireEntity(engine, 1).node();
+        REQUIRE(requireEntity(engine, 1).visible());
         REQUIRE(engine.entitySize() == 1);
 
         WHEN("Host sends EntityCtrl Active again")
@@ -1019,9 +1018,9 @@ SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
 
             THEN("visibility and catalog size are unchanged")
             {
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
-                REQUIRE(engine.entityNode(1) == geometry);
+                REQUIRE(requireEntity(engine, 1).node() == geometry);
             }
         }
     }
@@ -1035,7 +1034,7 @@ SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.entityVisible(1));
+        REQUIRE(requireEntity(engine, 1).visible());
 
         WHEN("Host sends EntityCtrl for an id not in the catalog")
         {
@@ -1043,9 +1042,9 @@ SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
 
             THEN("no instance is created and the catalog entity is unchanged")
             {
-                REQUIRE_FALSE(engine.hasEntityId(99));
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE_FALSE(engine.findEntity(99));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
             }
         }
@@ -1062,9 +1061,9 @@ SCENARIO("EntityCtrl for a skipped load id has no effect",
         EntitiesConfig cfg(entities);
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.hasEntityId(1));
-        REQUIRE_FALSE(engine.hasEntityId(2));
-        REQUIRE(engine.entityVisible(1));
+        REQUIRE(engine.findEntity(1));
+        REQUIRE_FALSE(engine.findEntity(2));
+        REQUIRE(requireEntity(engine, 1).visible());
 
         WHEN("Host sends EntityCtrl Active for the skipped id")
         {
@@ -1072,10 +1071,9 @@ SCENARIO("EntityCtrl for a skipped load id has no effect",
 
             THEN("the skipped id stays absent and the valid entity is unchanged")
             {
-                REQUIRE_FALSE(engine.hasEntityId(2));
-                REQUIRE_FALSE(engine.entityVisible(2));
-                REQUIRE(engine.hasEntityId(1));
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE_FALSE(engine.findEntity(2));
+                REQUIRE(engine.findEntity(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
             }
         }
@@ -1092,7 +1090,7 @@ SCENARIO("activating a Standby entity keeps the configured pose",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot, jsonPoseLocalOnly(kPos, kYpr), {}, "Standby") + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE_FALSE(engine.entityVisible(1));
+        REQUIRE_FALSE(requireEntity(engine, 1).visible());
 
         WHEN("Host sends EntityCtrl Active without a position packet")
         {
@@ -1100,10 +1098,10 @@ SCENARIO("activating a Standby entity keeps the configured pose",
 
             THEN("the entity is visible at the configured pose")
             {
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 vsg::dvec3 position{};
                 vsg::dvec3 ypr{};
-                REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
+                requireEntity(engine, 1).samplePose(position, ypr);
                 requireDVec3Near(position, kPos);
                 requireDVec3Near(ypr, kYpr);
             }
@@ -1123,7 +1121,7 @@ SCENARIO("hiding and showing does not restore the configured pose",
                            {}, true);
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.entityVisible(1));
+        REQUIRE(requireEntity(engine, 1).visible());
 
         WHEN("Host places a new pose then hides and shows the entity")
         {
@@ -1134,10 +1132,10 @@ SCENARIO("hiding and showing does not restore the configured pose",
 
             THEN("the sampled pose stays at the placed LLA")
             {
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 vsg::dvec3 lla{};
                 vsg::dvec3 ypr{};
-                REQUIRE(engine.sampleEntityPoseById(1, lla, ypr));
+                requireEntity(engine, 1).samplePose(lla, ypr);
                 requireDVec3Near(lla, kPlacedLla, 1e-4);
                 requireDVec3Near(ypr, kPlacedYpr, 1e-4);
             }
@@ -1153,7 +1151,7 @@ SCENARIO("hiding and showing reuses the prebuilt geometry",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        const auto geometry = engine.entityNode(1);
+        const auto geometry = requireEntity(engine, 1).node();
         REQUIRE(geometry);
 
         WHEN("Host hides then shows the entity")
@@ -1163,9 +1161,9 @@ SCENARIO("hiding and showing reuses the prebuilt geometry",
 
             THEN("the entity is visible on the same geometry node")
             {
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 REQUIRE(engine.entitySize() == 1);
-                REQUIRE(engine.entityNode(1) == geometry);
+                REQUIRE(requireEntity(engine, 1).node() == geometry);
             }
         }
     }
@@ -1192,10 +1190,10 @@ SCENARIO("Host EntityPositionCtrl places an Active entity",
 
             THEN("the sampled pose matches the placed LLA")
             {
-                REQUIRE(engine.entityVisible(1));
+                REQUIRE(requireEntity(engine, 1).visible());
                 vsg::dvec3 lla{};
                 vsg::dvec3 ypr{};
-                REQUIRE(engine.sampleEntityPoseById(1, lla, ypr));
+                requireEntity(engine, 1).samplePose(lla, ypr);
                 requireDVec3Near(lla, kPlacedLla, 1e-4);
                 requireDVec3Near(ypr, kPlacedYpr, 1e-4);
             }
@@ -1211,8 +1209,8 @@ SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
         EntitiesConfig cfg("[" + jsonEntity(1, kTeapot) + "]");
         Engine engine;
         initOffscreen(engine, cfg.cfgFile->path());
-        REQUIRE(engine.entityVisible(1));
-        REQUIRE(engine.entityAlpha(1) == std::uint8_t{255});
+        REQUIRE(requireEntity(engine, 1).visible());
+        REQUIRE(requireEntity(engine, 1).alpha() == std::uint8_t{255});
 
         WHEN("Host sends EntityCtrl Active with Alpha 128")
         {
@@ -1220,8 +1218,8 @@ SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
 
             THEN("the entity stays visible and alpha is 128")
             {
-                REQUIRE(engine.entityVisible(1));
-                REQUIRE(engine.entityAlpha(1) == std::uint8_t{128});
+                REQUIRE(requireEntity(engine, 1).visible());
+                REQUIRE(requireEntity(engine, 1).alpha() == std::uint8_t{128});
             }
         }
     }
@@ -1364,16 +1362,16 @@ SCENARIO("system loads scene_local config with one local entity and camera",
             {
                 REQUIRE_FALSE(engine.ellipsoidModel());
                 REQUIRE(engine.entitySize() == 1);
-                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.findEntity(1));
             }
             THEN("entity 1 pose and MatrixTransform match the config local placement")
             {
                 vsg::dvec3 position{};
                 vsg::dvec3 ypr{};
-                REQUIRE(engine.sampleEntityPoseById(1, position, ypr));
+                requireEntity(engine, 1).samplePose(position, ypr);
                 requireDVec3Near(position, vsg::dvec3{10.0, 0.0, -2.0});
                 requireDVec3Near(ypr, vsg::dvec3{90.0, 0.0, 0.0});
-                REQUIRE(engine.entityTransform(1));
+                REQUIRE(requireEntity(engine, 1).transform());
             }
             THEN("main camera LookAt matches the config local camera pose")
             {
@@ -1406,16 +1404,16 @@ SCENARIO("system loads scene_ecef config with one ECEF entity and camera",
             {
                 REQUIRE(engine.ellipsoidModel());
                 REQUIRE(engine.entitySize() == 1);
-                REQUIRE(engine.hasEntityId(1));
+                REQUIRE(engine.findEntity(1));
             }
             THEN("entity 1 pose and MatrixTransform match the Tiananmen ground placement")
             {
                 vsg::dvec3 lla{};
                 vsg::dvec3 ypr{};
-                REQUIRE(engine.sampleEntityPoseById(1, lla, ypr));
+                requireEntity(engine, 1).samplePose(lla, ypr);
                 requireDVec3Near(lla, vsg::dvec3{39.9087, 116.3975, 0.0}, 1e-4);
                 requireDVec3Near(ypr, vsg::dvec3{0.0, 0.0, 0.0}, 1e-4);
-                REQUIRE(engine.entityTransform(1));
+                REQUIRE(requireEntity(engine, 1).transform());
             }
             THEN("main camera uses EllipsoidPerspective and LookAt matches south-side view")
             {
