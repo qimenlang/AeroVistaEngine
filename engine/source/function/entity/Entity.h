@@ -45,8 +45,7 @@ private:
     int _id = 0;
     std::string _name;
     std::string _path;
-    /// true：`_positionOrLla` 为 LLA、`_eulerYprDeg` 为当地 ENU；false：本地笛卡尔。
-    bool _ellipsoid = false;
+    /// 非空：`_positionOrLla` 为 LLA、`_eulerYprDeg` 为当地 ENU；空：本地笛卡尔。
     vsg::ref_ptr<vsg::EllipsoidModel> _ellipsoidModel;
     vsg::dvec3 _positionOrLla{};
     vsg::dvec3 _eulerYprDeg{};

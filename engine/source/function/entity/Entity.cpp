@@ -88,7 +88,6 @@ void Entity::applyCtrl(const CigiEntityCtrlV4& ctrl)
 
 void Entity::setPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg)
 {
-    _ellipsoid = true;
     _positionOrLla = lla;
     _eulerYprDeg = eulerYprDeg;
     recomputeTransform();
@@ -97,8 +96,7 @@ void Entity::setPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg)
 void Entity::fillPoseFromConfig(const EntityConfig& cfg, vsg::ref_ptr<vsg::EllipsoidModel> ellipsoid)
 {
     _ellipsoidModel = ellipsoid;
-    _ellipsoid = static_cast<bool>(ellipsoid);
-    if (_ellipsoid)
+    if (_ellipsoidModel)
     {
         _positionOrLla = toDVec3(cfg.ellipsoidPose.lla);
         _eulerYprDeg = toDVec3(cfg.ellipsoidPose.eulerYprDeg);
@@ -112,7 +110,7 @@ void Entity::recomputeTransform()
 {
     if (!_transform)
         return;
-    if (_ellipsoid && _ellipsoidModel)
+    if (_ellipsoidModel)
         _transform->matrix =
             _ellipsoidModel->computeLocalToWorldTransform(_positionOrLla) * rotationMatrixYpr(_eulerYprDeg);
     else
