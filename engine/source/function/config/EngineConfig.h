@@ -40,7 +40,7 @@ struct EllipsoidPoseConfig
     Vec3Config eulerYprDeg{};
 };
 
-/// 实体初始显隐状态（entities.json `initialEntityState`，字面值契约见 实体与运动控制设计.md §5）。
+/// 实体初始显隐状态（entities.json `initialEntityState`，字面值契约见 实体管理设计.md §4）。
 /// 仅 Active/Standby 两值（缺省 Active）；Destroyed/Remove 及非法值在解析期 fail-fast。
 enum class EntityInitialState
 {
@@ -48,7 +48,7 @@ enum class EntityInitialState
     ACTIVE = 1
 };
 
-/// One `entities[]` item (位姿配置设计.md)。
+/// One `entities[]` item（目录字段见 实体管理设计.md §4；pose 双轨见 位姿配置设计.md）。
 struct EntityConfig
 {
     int id = 0;
@@ -91,13 +91,13 @@ struct EngineChannelConfig
     bool injectEllipsoidIfMissing = false;
 
     /// 实体目录文件路径（entities.json）；空 = 不装实体（单模型）。
-    /// engine 通道配置不再内嵌 entities；配置指向独立文件（实体与运动控制设计.md §5/§13）。
+    /// engine 通道配置不再内嵌 entities；配置指向独立文件（实体管理设计.md §4）。
     std::string entitiesFilePath;
 };
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error = nullptr);
 
 /// 从独立实体目录文件 `entities.json` 解析 EntityConfig 列表（顶层 `{ "entities": [...] }`）。
-/// 契约：实体与运动控制设计.md §5（id 1..65535 唯一 / model 必填 / name 缺省 basename /
+/// 契约：实体管理设计.md §4（id 1..65535 唯一 / model 必填 / name 缺省 basename /
 /// initialEntityState 仅 "Active"|"Standby" / pose 双轨可选 / 空表与未知键 fail-fast）。
 bool loadEntitiesFile(const std::string& path, std::vector<EntityConfig>& out, std::string* error = nullptr);

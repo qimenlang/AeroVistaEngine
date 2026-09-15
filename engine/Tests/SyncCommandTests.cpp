@@ -1653,6 +1653,7 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
 // =============================================================================
 // EntityCtrl 业务生效（真 Host↔IG TCP）：现有「IG subscribes … EntityCtrl over TCP」
 // 只验 sink 送达，不改。此处钉 IG 预建实体后 Switch / Alpha 是否随报文变化。
+// 验收码 ENT-03-* 见 实体管理设计.md §10。
 // =============================================================================
 
 SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",

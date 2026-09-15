@@ -1101,7 +1101,7 @@ TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][
 
 // =============================================================================
 // 实体目录解析（loadEntitiesFile）：独立 entities.json -> EntityConfig 列表。
-// 契约：实体与运动控制设计.md §5（顶层 {entities:[...]}）+ 位姿配置设计.md §1
+// 契约：实体管理设计.md §4（顶层 {entities:[...]}）+ 位姿配置设计.md §1
 // （条目 schema：id 1..65535 唯一 / model 必填 / name 缺省 basename /
 //   initialEntityState 仅 "Active"|"Standby" / pose 双轨可选 / 空表与未知键拒绝）。
 // =============================================================================

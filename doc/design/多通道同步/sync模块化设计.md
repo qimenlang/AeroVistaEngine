@@ -108,11 +108,11 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **写死：权威表在 sync 库，不并入 `HostSync`；viewhost 只做 UI。**
 
-`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体），用 `AeroVistaConfig` 读 `entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`；`pose.local` 与完整双轨仍由 engine `loadEntitiesFile` 服务 IG 预建）。物理文件仍放 engine 资源目录（[实体与运动控制设计.md](./实体与运动控制设计.md) §5），**不把文件迁进 sync 库**。
+`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体），用 `AeroVistaConfig` 读 `entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`；`pose.local` 与完整双轨仍由 engine `loadEntitiesFile` 服务 IG 预建）。物理文件仍放 engine 资源目录（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4），**不把文件迁进 sync 库**。
 
 - **做**：建表、运行期更新、`snapshot()`、按当前行填 CIGI 报文对象。
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
-- **消费方**：viewhost `HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）；`engine/Tests` 直接测 Manager（不启网络）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。
+- **消费方**：viewhost `HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）；`engine/Tests` 直接测 Manager（不启网络）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
 
 与 IG 侧对称关系：`IgSync`（传输）+ `SynchronSystem`（决策）；Host 侧为 `HostSync`（传输）+ `HostDataManager`（状态）+ 示例层 `HostDriver`（编排）。`HostDataManager` 不是第二个 `SynchronSystem`（不做眼点合成），只承担 CIGI 任务状态的 last-value。
 

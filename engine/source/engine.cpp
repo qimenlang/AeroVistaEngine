@@ -687,7 +687,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 
 bool Engine::init()
 {
-    // 顺序（实体与运动控制设计.md §7.2）：applyConfig → reset → 场景构建 → initSync → Graphics（compile）。
+    // 顺序（实体管理设计.md §8）：applyConfig → reset → 场景构建 → initSync → Graphics（compile）。
     // 场景先于 sync，保证收 EntityCtrl 时 _entityMap 已建；Graphics 依赖 _scene，放最后。
     applyConfigToEngine();
     resetGraphicsResources();

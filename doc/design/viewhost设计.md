@@ -127,7 +127,7 @@ ViewHostDlg  只报意图 / 按 snapshot 刷新树
 5. 报文自检（§4.7）仍经 Driver 直发随机包，**不写入**权威表。
 6. Dlg **不**把控件双向绑到表字段。属性面板初值来自 `snapshot()`；编辑框是草稿；**Apply**（意图 API）才写表。一次性 TCP 仍是「填参 → Apply」（§4.8）。
 
-库边界与否决「表并入 `HostSync`」见 [sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.4。实体表字段与广播时机见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §3 / §7。
+库边界与否决「表并入 `HostSync`」见 [sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.4。实体表字段与广播时机见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §3 / §7。IG 实例与目录见 [实体管理设计.md](./引擎基础功能/实体管理设计.md)。
 
 ### 4.1 启动流程
 
@@ -315,17 +315,17 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 
 ### 4.8 实体控制 UI（平级树 + 双击属性面板）
 
-**目标**：把 §4.5 的「手输 `Entity ID` + 单一摆放表单」升级为完整的实体控制界面。实体显隐 / 位姿的协议语义见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md)（Host 权威、`EntityCtrlV4` 只切显隐——IG 侧实例已启动全量预建、`EntityPositionCtrlV4` 摆放）。动画为首版之外。
+**目标**：把 §4.5 的「手输 `Entity ID` + 单一摆放表单」升级为完整的实体控制界面。协议语义见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md)（Host 权威、组包与广播）。IG 侧实例启动全量预建、`EntityCtrl` 只切 Switch，见 [实体管理设计.md](./引擎基础功能/实体管理设计.md)。动画为首版之外。
 
-**数据来源（写死：Host 读独立实体目录文件，非网络获取）**：实体目录为**独立 `entities.json`**（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §5 方案 B——**文件暂放** `engine/resources/config/entities.json`，Host 与各 IG 读到一致内容、人工确保）。树与属性面板初值来自 `HostDataManager` 对该文件的**子集**解析（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`），不通过网络从 IG 拉取。IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`。**路径（落地）**：不进 `viewhost.json` / `hostConfig`（避免改 sync 配置 schema）。与 `viewhost.json` 相同，从**工作目录**读 `entities.json`；构建时 POST_BUILD 把 `engine/resources/config/entities.json` 拷到 exe 旁。加载失败弹出提示、实体树为空，Host 眼点仍可用。
+**数据来源（写死：Host 读独立实体目录文件，非网络获取）**：实体目录为独立 `entities.json`（契约见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §4——**文件暂放** `engine/resources/config/entities.json`，Host 与各 IG 读到一致内容、人工确保）。树与属性面板初值来自 `HostDataManager` 对该文件的**子集**解析（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`），不通过网络从 IG 拉取。IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`。**路径（落地）**：不进 `viewhost.json` / `hostConfig`（避免改 sync 配置 schema）。与 `viewhost.json` 相同，从**工作目录**读 `entities.json`；构建时 POST_BUILD 把 `engine/resources/config/entities.json` 拷到 exe 旁。加载失败弹出提示、实体树为空，Host 眼点仍可用。
 
 **数据流（写死，分层见 §4.0）**：`HostDataManager` 从 `entities.json` 子集初始化实体权威表（含 last pose 初值，运行期不回写文件）；Dlg 按 `HostDriver` 提供的 snapshot 刷新树；双击打开属性面板时初值来自表，编辑为草稿，**Apply** 才调 Driver 意图 API（先写表再组包 `flushTcp`）。一次性 TCP「填参 → Apply」，持续 UDP「toggle 持续模式」；ownship 眼点走每帧循环、不进表。其它报文族以后仍进同一 `HostDataManager`、同一 Driver 编排（[多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §9 P2）。
 
-**初始广播（写死：自动全量 + 按 `initialEntityState` / `pose.ellipsoid` 初始化权威表）**：`HostDriver` 在检测到 **新增** ready IG 后调用 `broadcastEntityAuthority()`——从表当前值组 `EntityCtrl` 与 `EntityPositionCtrl` 全量 `flushTcp`（表由 `initialEntityState` + `pose.ellipsoid` 初始化，见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7）。不经按钮。IG 侧实例启动已全量预建，`Standby` 项只是初始隐藏。后续控制走树 + 双击属性面板，**不提供销毁按钮**。
+**初始广播（写死：自动全量 + 按 `initialEntityState` / `pose.ellipsoid` 初始化权威表）**：`HostDriver` 在检测到 **新增** ready IG 后调用 `broadcastEntityAuthority()`——从表当前值组 `EntityCtrl` 与 `EntityPositionCtrl` 全量 `flushTcp`（表由 `initialEntityState` + `pose.ellipsoid` 初始化，见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7）。不经按钮。IG 侧实例启动已全量预建（[实体管理设计.md](./引擎基础功能/实体管理设计.md)），`Standby` 项只是初始隐藏。后续控制走树 + 双击属性面板，**不提供销毁按钮**。
 
 **交互（写死：平级树 + 双击属性面板）**：
 
-- **树**：根节点 `entities`（只作折叠容器，可展开 / 收缩，**不是**实体，双击不弹面板、只展开/折叠）。子节点**全部平级**（首版无父子挂载，[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §12）。每项显示 `name`（缺省 `basename(model)`）。数据来自 `entitySnapshot()`，不是再读 JSON。id 不手输（对比 §4.5 现状手输 id）。
+- **树**：根节点 `entities`（只作折叠容器，可展开 / 收缩，**不是**实体，双击不弹面板、只展开/折叠）。子节点**全部平级**（首版无父子挂载，[实体管理设计.md](./引擎基础功能/实体管理设计.md) §11）。每项显示 `name`（缺省 `basename(model)`）。数据来自 `entitySnapshot()`，不是再读 JSON。id 不手输（对比 §4.5 现状手输 id）。
 - **双击弹出属性面板**：在某个 entity 节点上左键双击，弹出该实体的属性面板（非常驻右侧 inspector）。不经右键、不经上下文菜单。标题栏关闭 / ESC 不提交。
 - **面板字段**：`id` / `name` **只读**；`state`（Standby / Active）、`alpha`、pose（lat/lon/alt + yaw/pitch/roll）可编辑。打开时初值来自表。编辑框是草稿。**无销毁控件**。无「关闭」按钮（关窗走标题栏）。
 - **Apply（写死）**：先把脏**报文族**对应的 UI 当前值写入表，再从表组包，**一次** `flushTcp()`（一个 TCP 数据报可含多张业务包）。Dlg 不直接组 CCL。按报文族提交，不按字段拆同一张包；否决 `applyEntity` 把 Ctrl+Position 无条件全发。
@@ -345,7 +345,7 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 
 - **交互语义分两类（写死）**：一次性 TCP（显隐 / 摆放 / 日后动画与部件）用属性面板「填参 → Apply」；持续 UDP（实时位姿 / 速度 / 加速度 / 钳制）用「选中实体 → toggle 持续模式」，**不适合 Apply**（是控制回路，非表单）。首版只做一次性 state / alpha / pose；持续类留扩展点。
 
-**实体加载结果（写死：首版不上报不处理）**：见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7.1——实体加载失败首版**不上报、Host 不感知**（IG 侧日志暴露，实体静默缺失）。viewhost 实体树因此**不显示**「加载中 / 成功 / 失败」或「业务 ready」，只反映连接层 ready（现状 `readyIgCount`）与树上用户操作后的状态。
+**实体加载结果（写死：首版不上报不处理）**：见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §7.1——实体加载失败首版**不上报、Host 不感知**（IG 侧日志暴露，实体静默缺失）。viewhost 实体树因此**不显示**「加载中 / 成功 / 失败」或「业务 ready」，只反映连接层 ready（现状 `readyIgCount`）与树上用户操作后的状态。
 
 **`HostDriver` 意图 API（Dlg 只调这些）**：
 
@@ -359,9 +359,9 @@ void sendAnimationCtrl(...);                     // 先写表（若跟踪动画�
 void broadcastEntityAuthority();                 // ready 路径：按表当前值全量 EntityCtrl + EntityPositionCtrl（§7）；仍待
 ```
 
-> 组包实现在 `HostDataManager`，Driver 只编排写表与发送。脏判定按**报文族**（一张 `EntityCtrl` 的字段一起提交），不按字段拆同一张包。否决综合 `applyEntity`（把 Ctrl+Position 无条件一次发全）。否决 Apply 内对同一张 `EntityCtrl` 连 flush 两次。无加载结果上报订阅（首版实体加载失败不上报，§7.1）。
+> 组包实现在 `HostDataManager`，Driver 只编排写表与发送。脏判定按**报文族**（一张 `EntityCtrl` 的字段一起提交），不按字段拆同一张包。否决综合 `applyEntity`（把 Ctrl+Position 无条件一次发全）。否决 Apply 内对同一张 `EntityCtrl` 连 flush 两次。无加载结果上报订阅（首版实体加载失败不上报，[实体管理设计.md](./引擎基础功能/实体管理设计.md) §7.1）。
 
-**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `engine/Tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的可观察结果仍以 `[acceptance]` 覆盖（同 §11 的 `ENT-02-*` / `ENT-03-*` / `ENT-04-late-join` 等）。Host 侧 `entities.json` **子集**解析归 `HostDataManager`（契约辅助 `AeroVistaConfig`）；IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`（§5 文件不迁 sync 库）。
+**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `engine/Tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的 IG 可观察结果以 `[acceptance]` 覆盖（[实体管理设计.md](./引擎基础功能/实体管理设计.md) §10 的 `ENT-02-*` / `ENT-03-*`；多 IG 广播 `ENT-04-late-join` 仍在控制面 §11）。Host 侧 `entities.json` **子集**解析归 `HostDataManager`（契约辅助 `AeroVistaConfig`）；IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`（文件不迁 sync 库，[实体管理设计.md](./引擎基础功能/实体管理设计.md) §4）。
 
 ---
 
@@ -397,7 +397,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 1. [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §1.1：补「独立 Host 进程示例已落地」（指向本文档）。
 2. [sync模块化设计.md](./多通道同步/sync模块化设计.md) §1.3 非目标：改为「不做 Host 独立进程的协议 / 上行改造（viewhost 示例已落地）」。
 3. [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §10 状态表 / §9 P2 / §0 表格 / §5 权威源：标注「Host 本地输入已有 viewhost 示例」，「指定输入 IG 上报」仍属后期；§9 P2 其它报文族进同一 `HostDataManager`。
-4. [sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.4：`HostDataManager` 归 sync 库、不并入 `HostSync`；[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §3.2：实体表内容与广播仍由其规定。
+4. [sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.4：`HostDataManager` 归 sync 库、不并入 `HostSync`；[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §3.2：实体表内容与广播仍由其规定。IG 实例见 [实体管理设计.md](./引擎基础功能/实体管理设计.md)。
 
 ## 8. 否决与决策记录
 
@@ -415,9 +415,9 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 - **唯一 Host 数据源（2026-08 拆进程）**：engine 不再承担 Host（`HostPosePublisher` 及其采样/防回声逻辑删除，见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §5），viewhost 成为项目内唯一 Host 端数据源；配套 IG 配置走椭球模式（`viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。命令面发送（`outMsgWithIgCtrlTcp`）归属 Host 进程；**实体摆放命令 UI 已落地（2026-08，§4.5）**，其余命令 UI 留后期。
 - **报文自检按钮（2026-08，§4.7）**：`testtcp` / `testudp` 随机发对应链路测试报文（TCP 34 种 + UDP 4 种），engine 侧全量订阅并 HUD 显示类名，用于验证各报文「发送→链路→解包→投递」全链路支持；纯调试工具，不改变协议语义。
 - **上行报文自检（2026-08，§4.7）**：engine `PacketProbeHandler`（原废弃 `CommandTriggerHandler` 改造重命名）F9 随机 TCP 上行（16 类）/ F10 发 SOF（UDP 上行仅此一种）；viewhost 侧 `HostDriver::pollIncoming`（转发 `drainIncoming`）+ 16 类 TCP 订阅刷新「最近接收」；HUD 显示「send」。IG→Host UDP 无随机多样性，F10 固定发 SOF 验证链路。
-- **实体控制 UI 演进（2026-09，§4.8）**：从「手输 Entity ID + 单一摆放表单」（§4.5）升级为**平级树 + 双击属性面板 + Apply / 重置**。Host 读**独立 `entities.json`** 填树（不网络拉取）。否决左侧点选 + 右侧常驻意图分组；否决综合 `applyEntity`；否决右键出面板；否决把重填草稿叫「清空」；否决 Apply 对同一张 `EntityCtrl` 按字段拆开发送。一次性 TCP「填参 → Apply」、持续 UDP「toggle 持续模式」分离。实体加载失败**首版不上报不处理**（无业务层 ready、无重试，见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7.1）。
-- **初始状态配置 + Standby↔Active 双向切换（2026-09，§4.8）**：实体目录新增 `initialEntityState`（默认 `Active`，可设 `Standby`）；Host 权威表按此与 `pose.ellipsoid` 初始化，广播 `EntityCtrl` 与 `EntityPositionCtrl`；属性面板在 `Standby↔Active` 间改 `state`（Apply → `setEntityCtrl` + `sendEntity`）——IG 侧实例已启动全量预建挂 Switch，切换只是 **Switch 显隐**（ON/OFF，零加载零编译、不释放模型）。**不做** `load` 文本指令——调试临时加载需求由「配置 `Standby` + 手动激活」承载，模型路径须预先写进实体目录（见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7）。
-- **销毁 UI 首版禁用（2026-09，§4.8）**：实体平时在 `Standby↔Active` 间切换，不提供「销毁」按钮——`Destroyed` 是释放资源的破坏性操作（值 2，`Remove`=同值历史别名），UI 误触代价高。**协议层 `Destroyed` 首版降级为 `Standby`**（Switch OFF、保留实例与资源，`_entityMap` 不 erase），完整销毁/重建为后续项（见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7/§11/#19）。
+- **实体控制 UI 演进（2026-09，§4.8）**：从「手输 Entity ID + 单一摆放表单」（§4.5）升级为**平级树 + 双击属性面板 + Apply / 重置**。Host 读**独立 `entities.json`** 填树（不网络拉取，目录契约见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §4）。否决左侧点选 + 右侧常驻意图分组；否决综合 `applyEntity`；否决右键出面板；否决把重填草稿叫「清空」；否决 Apply 对同一张 `EntityCtrl` 按字段拆开发送。一次性 TCP「填参 → Apply」、持续 UDP「toggle 持续模式」分离。实体加载失败**首版不上报不处理**（无业务层 ready、无重试，见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §7.1）。
+- **初始状态配置 + Standby↔Active 双向切换（2026-09，§4.8）**：实体目录新增 `initialEntityState`（默认 `Active`，可设 `Standby`）；Host 权威表按此与 `pose.ellipsoid` 初始化，广播 `EntityCtrl` 与 `EntityPositionCtrl`；属性面板在 `Standby↔Active` 间改 `state`（Apply → `setEntityCtrl` + `sendEntity`）——IG 侧实例已启动全量预建挂 Switch，切换只是 **Switch 显隐**（[实体管理设计.md](./引擎基础功能/实体管理设计.md) §7）。**不做** `load` 文本指令——调试临时加载需求由「配置 `Standby` + 手动激活」承载，模型路径须预先写进实体目录。
+- **销毁 UI 首版禁用（2026-09，§4.8）**：实体平时在 `Standby↔Active` 间切换，不提供「销毁」按钮——`Destroyed` 是释放资源的破坏性操作（值 2，`Remove`=同值历史别名），UI 误触代价高。**协议层 `Destroyed` 首版降级为 `Standby`**（Switch OFF、保留实例与资源），完整销毁/重建为后续项（见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §7 / §11）。
 
 ## 9. 与实现关系
 
@@ -432,4 +432,4 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 | **报文自检（2026-08，§4.7）** | `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket`（随机报文工厂表）+ 对话框「报文自检」区（testtcp/testudp 按钮 + 状态显示）；engine 侧全量 addCallback 探测 + HUD「recv: <类名>」；engine 全量测试通过 + 双构建（clang / MSVC）通过 |
 | **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::addCallback<T>` 模板转发；`OnInitDialog` 订阅 16 类 IG→Host TCP 报文 + UI 定时器每帧 pollIncoming + 「最近接收」显示；engine `PacketProbeHandler`（F9 随机 TCP 16 类 / F10 发 SOF）+ HUD「send」行；双构建（clang / MSVC）通过 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |
-| **实体控制 UI 演进（2026-09，§4.8 / §4.0）** | 已实现：Driver 持有 Manager；平级树 + 双击属性面板；Apply 按报文族 `setEntityCtrl` / `setEntityPose` 后一次 `sendEntity`（一次 flushTcp）。重置从表重填草稿。`entities.json` 与 `viewhost.json` 同目录。`broadcastEntityAuthority` 仍待（§15 #3） |
+| **实体控制 UI 演进（2026-09，§4.8 / §4.0）** | 已实现：Driver 持有 Manager；平级树 + 双击属性面板；Apply 按报文族 `setEntityCtrl` / `setEntityPose` 后一次 `sendEntity`（一次 flushTcp）。重置从表重填草稿。`entities.json` 与 `viewhost.json` 同目录。`broadcastEntityAuthority` 仍待（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §15 #3） |

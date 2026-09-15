@@ -78,10 +78,10 @@ public:
     Entity* findEntity(int id);
     const Entity* findEntity(int id) const;
 
-    /// 应用 EntityPositionCtrlV4 命令实体摆放（EntityID≠0，实体与运动控制设计.md §4.2）。
+    /// 应用 EntityPositionCtrlV4 命令实体摆放（EntityID≠0；报文 实体与运动控制设计.md §4.2，落地 实体管理设计.md §9）。
     /// CCL 订阅与测试注入共用；眼点（EntityID==0）由卫语句过滤（走 CameraDriver）。
     void onEntityPose(const CigiEntityPositionCtrlV4& pose);
-    /// 应用 EntityCtrlV4 切显隐 + 套属性（实体与运动控制设计.md §9）；不建实例、不加载、不编译。
+    /// 应用 EntityCtrlV4 切显隐 + 套属性（实体管理设计.md §9）；不建实例、不加载、不编译。
     /// CCL 订阅与测试注入共用。
     void onEntityCtrl(const CigiEntityCtrlV4& ctrl);
 
@@ -167,6 +167,6 @@ private:
 
     std::unique_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
     CameraDriver _cameraDriver;
-    /// 实体表：id → Entity（启动预建与运行期 EntityCtrl / EntityPositionCtrl 共用）。
+    /// 实体表：id → Entity（启动预建与运行期 EntityCtrl / EntityPositionCtrl 共用，实体管理设计.md）。
     std::unordered_map<int, Entity> _entityMap;
 };

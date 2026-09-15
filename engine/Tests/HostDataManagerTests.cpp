@@ -1,6 +1,7 @@
-// HostDataManager 实体权威表单元测试。
+﻿// HostDataManager 实体权威表单元测试。
 //
-// 编码 viewhost设计.md §4.0 / sync模块化设计.md §3.4 / 实体与运动控制设计.md §3.2 / §5 / §11：
+// 编码 viewhost设计.md §4.0 / sync模块化设计.md §3.4 / 实体与运动控制设计.md §3.2 / §5 / §11
+// （目录完整 schema 见 实体管理设计.md §4）：
 //   建表 ENT-04-table-*；运行期更新 ENT-04-update-*；按行组包 ENT-04-pack-*。
 // 不测 flush / UI。
 

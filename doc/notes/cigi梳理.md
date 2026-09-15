@@ -52,6 +52,8 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 
 ## 2. 实体与运动控制类
 
+本表为 CIGI 报文选型依据。Host 控制面（权威表、组包、广播）见 [实体与运动控制设计.md](../design/多通道同步/实体与运动控制设计.md)；IG 侧实例/目录/显隐落地见 [实体管理设计.md](../design/引擎基础功能/实体管理设计.md)。
+
 | 报文 | 方向 | 链路 | 频率 | 功能语义 |
 | --- | --- | --- | --- | --- |
 | `CigiEntityCtrlV4` | Host → IG | TCP | 一次性 | 实体控制：设置实体位姿、状态码、可见性等 |
@@ -194,5 +196,5 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 ## 状态数据权威
 
-Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（通常只问一台），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver` 编排、UI 只调 Driver（[viewhost设计.md](../design/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。
+Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（通常只问一台），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver` 编排、UI 只调 Driver（[viewhost设计.md](../design/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。IG 几何与实例见 [实体管理设计.md](../design/引擎基础功能/实体管理设计.md)。
 
