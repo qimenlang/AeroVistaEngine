@@ -286,3 +286,20 @@ Authority: `.cursor/rules/review-problem-confirmation.mdc`。
 - 拼写 / 明显 typo。
 - 用户明确说「直接改 / 你决定就好」。
 
+---
+
+## 8. 代码与文档分 commit
+
+Authority: `.cursor/rules/split-doc-code-commits.mdc`。不靠 git hook；约束 AI 被要求提交时如何切 commit。
+
+同一 commit 不得同时包含 `doc/` 与**非注释**源码改动。判定看 diff 是否改了可执行行为，不是看是不是 `.cpp`。两次提交可进同一 PR。
+
+| 这次实际改了什么 | commit |
+| ---------------- | ------ |
+| 只改 `doc/` | 1 |
+| 改 `doc/`，并改源码/测试里的注释、章节引用（无逻辑） | **1**（算文档提交） |
+| 改引擎行为 / API / 协议，再同步设计文档 | **2**（代码一次，文档一次） |
+| 行为改了，注释也改了，文档也改了 | **2**（注释跟代码走；`doc/` 单独） |
+
+例外：用户明确说「就一个 commit / 不用拆」；只动一边则不拆。顺序：先代码 commit，再文档 commit。
+
