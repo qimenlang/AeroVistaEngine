@@ -1339,6 +1339,104 @@ SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
     }
 }
 
+// 现有「一次 TCP 消息多包」只验过 Position+SymbolText / 多条同类 EntityCtrl；
+// viewhost Apply 两族都脏、以及手动 Host 同一次 flush 会把 Position 与 EntityCtrl
+// 打进同一条 TCP 消息。此处钉 engine 侧 addCallback 两条订阅都要被调用。
+SCENARIO("IG callbacks fire for EntityPositionCtrl and EntityCtrl in one Host TCP flush",
+         "[acceptance][bdd][sync][cmd][e2e][mixed-tcp]")
+{
+    GIVEN("independent Host and two IG-only engines linked over real sockets")
+    {
+        HostSync hostA;
+        Engine engineA;
+        Engine engineB;
+        setupHostIgPair(hostA, engineA, engineB, 34100);
+
+        int poseCount = 0;
+        int ctrlCount = 0;
+        CigiEntityPositionCtrlV4 poseValue;
+        CigiEntityCtrlV4 ctrlValue;
+        engineB.synchronSystem().igSync().addCallback<CigiEntityPositionCtrlV4>(
+            [&](const CigiEntityPositionCtrlV4& pose) {
+                ++poseCount;
+                poseValue = pose;
+            });
+        engineB.synchronSystem().igSync().addCallback<CigiEntityCtrlV4>([&](const CigiEntityCtrlV4& ent) {
+            ++ctrlCount;
+            ctrlValue = ent;
+        });
+
+        auto tickUntilBoth = [&]() {
+            for (int i = 0; i < 20 && (poseCount == 0 || ctrlCount == 0); ++i)
+                engineB.tickSync();
+        };
+
+        WHEN("Host fills EntityPositionCtrl then EntityCtrl and flushes TCP once")
+        {
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityPositionCtrlV4 pose;
+                pose.SetEntityID(7);
+                pose.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+                pose.SetLat(31.23);
+                pose.SetLon(121.47);
+                pose.SetAlt(500.0);
+                tcp << pose;
+                CigiEntityCtrlV4 ent;
+                ent.SetEntityID(7);
+                ent.SetEntityType(2);
+                ent.SetEntityState(CigiBaseEntityCtrl::Active);
+                tcp << ent;
+                hostA.flushTcp();
+            }
+            tickUntilBoth();
+
+            THEN("both IG sinks receive their packets")
+            {
+                REQUIRE(poseCount == 1);
+                REQUIRE(poseValue.GetEntityID() == 7);
+                REQUIRE(poseValue.GetLat() == Catch::Approx(31.23));
+                REQUIRE(ctrlCount == 1);
+                REQUIRE(ctrlValue.GetEntityID() == 7);
+                REQUIRE(ctrlValue.GetEntityType() == 2);
+            }
+        }
+
+        WHEN("Host fills EntityCtrl then EntityPositionCtrl and flushes TCP once")
+        {
+            poseCount = 0;
+            ctrlCount = 0;
+
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiEntityCtrlV4 ent;
+                ent.SetEntityID(7);
+                ent.SetEntityType(3);
+                ent.SetEntityState(CigiBaseEntityCtrl::Active);
+                CigiEntityPositionCtrlV4 pose;
+                pose.SetEntityID(7);
+                pose.SetAttachState(CigiBaseEntityPositionCtrl::Detach);
+                pose.SetLat(39.9);
+                pose.SetLon(116.4);
+                pose.SetAlt(100.0);
+                tcp << ent << pose;
+                hostA.flushTcp();
+            }
+            tickUntilBoth();
+
+            THEN("both IG sinks still receive their packets")
+            {
+                REQUIRE(ctrlCount == 1);
+                REQUIRE(ctrlValue.GetEntityID() == 7);
+                REQUIRE(ctrlValue.GetEntityType() == 3);
+                REQUIRE(poseCount == 1);
+                REQUIRE(poseValue.GetEntityID() == 7);
+                REQUIRE(poseValue.GetLat() == Catch::Approx(39.9));
+            }
+        }
+    }
+}
+
 SCENARIO("IG subscribes a per-frame Host→IG ViewCtrl over UDP",
          "[acceptance][bdd][sync][cmd][e2e][all-packets]")
 {
