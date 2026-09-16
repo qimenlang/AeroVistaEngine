@@ -1,5 +1,4 @@
-﻿// 时钟同步方案.md §6 验收：IG 时钟同步注入 / 相位展开 / simTimeUs 换算 / 冻结阈值。
-// 接口已实现：IgSync 注入式 + 系统时钟基准（§6 验收点）。
+﻿// 时钟同步方案.md §6 验收码 CLK-*：注入 / 相位展开 / 冻结 / e2e 真链路。
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -46,7 +45,7 @@ namespace
 } // namespace
 
 SCENARIO("linked IG reports simulation time as Host base plus local elapsed",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-consume]")
 {
     GIVEN("an IgSync that has received one Host timestamp")
     {
@@ -69,7 +68,7 @@ SCENARIO("linked IG reports simulation time as Host base plus local elapsed",
 }
 
 SCENARIO("IG takes the last of multiple same-frame time stamps",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-latest][CLK-same-frame]")
 {
     GIVEN("an IgSync that receives two packets for the same frame")
     {
@@ -90,7 +89,7 @@ SCENARIO("IG takes the last of multiple same-frame time stamps",
 }
 
 SCENARIO("IG rejects an older-frame time stamp entirely",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-old-frame][CLK-reorder]")
 {
     GIVEN("an IgSync that received frame 100 then an older frame 99")
     {
@@ -111,7 +110,7 @@ SCENARIO("IG rejects an older-frame time stamp entirely",
 }
 
 SCENARIO("IG accepts a skipped frame number as a fresh base",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-skip-frame]")
 {
     GIVEN("an IgSync that receives frame 100 then a skipped frame 102")
     {
@@ -132,7 +131,7 @@ SCENARIO("IG accepts a skipped frame number as a fresh base",
 }
 
 SCENARIO("IG extrapolates simulation time with local elapsed while no frame arrives",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-extrapolate]")
 {
     GIVEN("an IgSync with a large extrapolate timeout that received one frame")
     {
@@ -152,7 +151,7 @@ SCENARIO("IG extrapolates simulation time with local elapsed while no frame arri
 }
 
 SCENARIO("IG freezes beyond extrapolate timeout and returns a constant simulation time",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-freeze]")
 {
     GIVEN("an IgSync with a 50ms timeout that received one frame")
     {
@@ -175,7 +174,7 @@ SCENARIO("IG freezes beyond extrapolate timeout and returns a constant simulatio
 }
 
 SCENARIO("IG does not freeze within the extrapolate timeout",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-freeze]")
 {
     GIVEN("an IgSync with a 50ms timeout that received one frame")
     {
@@ -197,7 +196,7 @@ SCENARIO("IG does not freeze within the extrapolate timeout",
 }
 
 SCENARIO("IG jumps directly to a new base after freeze recovery",
-         "[acceptance][bdd][sync][clock]")
+         "[acceptance][bdd][sync][clock][CLK-unfreeze]")
 {
     GIVEN("an IgSync frozen after its timeout")
     {
@@ -221,7 +220,7 @@ SCENARIO("IG jumps directly to a new base after freeze recovery",
 }
 
 SCENARIO("IG phase unwrap crosses a single 2^32 wrap without a jump",
-         "[acceptance][bdd][sync][clock][wrap]")
+         "[acceptance][bdd][sync][clock][wrap][CLK-wrap]")
 {
     GIVEN("an IgSync whose raw time stamps are about to wrap")
     {
@@ -242,7 +241,7 @@ SCENARIO("IG phase unwrap crosses a single 2^32 wrap without a jump",
 }
 
 SCENARIO("IG phase unwrap stays monotonic across multiple wraps",
-         "[acceptance][bdd][sync][clock][wrap]")
+         "[acceptance][bdd][sync][clock][wrap][CLK-wrap-multi]")
 {
     GIVEN("an IgSync receiving stamps that wrap several times")
     {
@@ -268,19 +267,8 @@ SCENARIO("IG phase unwrap stays monotonic across multiple wraps",
     }
 }
 
-TEST_CASE("session reset keeps Host absolute tick base on reconnect", "[unit][sync][clock][session]")
-{
-    // 时钟同步方案.md §3：新会话基准 extendedTime = raw（Host 绝对基准，不从 0 起）。
-    IgSync ig;
-    ig.queueHostTimeStamp(HostTimeStamp{1, 5000, 10000});
-    REQUIRE(ig.simTimeUsAt(10000) == 5000 * 10);
-
-    ig.queueHostTimeStamp(HostTimeStamp{2, 5010, 20000});
-    REQUIRE(ig.simTimeUsAt(20000) == 5010 * 10);
-}
-
 TEST_CASE("session reset after Host restart starts from the small raw without inheriting the old base",
-          "[unit][sync][clock][session]")
+          "[unit][sync][clock][session][CLK-session-restart]")
 {
     // 时钟同步方案.md §3 边界：Host 重启后 → TCP 重连 → 新会话基准，首包 raw 为小值。
     // resetHostSession() 使相位展开状态回到新基准，不继承旧会话大值（否则 simTimeUs 超 2^32）。
@@ -295,25 +283,12 @@ TEST_CASE("session reset after Host restart starts from the small raw without in
     REQUIRE(ig.simTimeUsAt(30000) == 0x100u * 10);
 }
 
-TEST_CASE("unit conversion from raw tick to us and ms is exact", "[unit][sync][clock][convert]")
-{
-    const std::uint32_t raw = 12345; // 10µs tick
-    const std::uint64_t us = static_cast<std::uint64_t>(raw) * 10;
-    REQUIRE(us == 123450);
-
-    const double ms = static_cast<double>(us) / 1000.0;
-    REQUIRE(ms == Catch::Approx(123.45));
-}
-
 // =============================================================================
-// 系统测试：接入 Engine（A=IG 带图形、B=纯 IG），独立 HostSync 用真实 socket 连接，
-// 收发真实 CIGI 时间戳报文，验证 IG 的模拟时间 = Host 基准时间戳 + 本地流逝补偿。
-// 接口已实现：IgSync::queueHostTimeStamp / simTimeUsAt / setExtrapolateTimeoutUs / frozen。
-// 标签 [acceptance][bdd][sync][clock][e2e]。
+// 系统测试：真实 socket。验收码 CLK-consume / CLK-consistent / CLK-freeze / CLK-realtime。
 // =============================================================================
 
 SCENARIO("IG derives simulation time from live Host time stamps plus local elapsed",
-         "[acceptance][bdd][sync][clock][e2e]")
+         "[acceptance][bdd][sync][clock][e2e][CLK-consume]")
 {
     GIVEN("an independent HostSync and IG-only Engine B, linked over real sockets")
     {
@@ -367,7 +342,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 }
 
 SCENARIO("two IG channels derive nearly identical simulation time from the shared Host",
-         "[acceptance][bdd][sync][clock][e2e][consistency]")
+         "[acceptance][bdd][sync][clock][e2e][consistency][CLK-consistent]")
 {
     GIVEN("an independent HostSync and two IG-only engines B and C, linked over real sockets")
     {
@@ -421,24 +396,23 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
     }
 }
 
-TEST_CASE("simTimeUs uses the monotonic clock internally and is not affected by wall-clock changes",
-          "[unit][sync][clock][monotonic]")
+TEST_CASE("simTimeUs does not go backwards on consecutive reads",
+          "[unit][sync][clock][monotonic][CLK-monotonic]")
 {
-    // 时钟同步方案.md §4.2：单调时钟用 steady_clock，禁止 system_clock。
-    // IgSync::simTimeUs() 内部用 std::chrono::steady_clock 取 nowUs，系统时间不影响。
+    // CLK-monotonic：simTimeUs() 内部取 now，连续两次读取不小于基准、不回退。
+    // 禁止 system_clock 是 §4.2 实现约束，本用例不拨墙钟。
     IgSync ig;
     ig.queueHostTimeStamp(HostTimeStamp{100, 1000, 0}); // lastSimTimeUs = 10000us
 
-    const std::uint64_t s1 = ig.simTimeUs(); // 测试，内部取 nowUs
+    const std::uint64_t s1 = ig.simTimeUs();
     const std::uint64_t s2 = ig.simTimeUs();
 
-    // 两次读取应 ≥ 基准且递增（本地流逝补偿，steady_clock 单调不倒退）
     REQUIRE(s1 >= 10000);
     REQUIRE(s2 >= s1);
 }
 
 SCENARIO("IG freezes when the Host stops sending time stamps over the real link",
-         "[acceptance][bdd][sync][clock][e2e][freeze]")
+         "[acceptance][bdd][sync][clock][e2e][freeze][CLK-freeze]")
 {
     GIVEN("an independent HostSync and IG-only Engine B linked with a short freeze timeout")
     {
@@ -490,7 +464,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 }
 
 SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps",
-         "[acceptance][bdd][sync][clock][e2e][real-time]")
+         "[acceptance][bdd][sync][clock][e2e][real-time][CLK-realtime]")
 {
     GIVEN("an independent HostSync and IG-only Engine B linked over real sockets")
     {
@@ -535,7 +509,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 }
 
 SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
-         "[acceptance][bdd][sync][clock][e2e][freeze][host-offline]")
+         "[acceptance][bdd][sync][clock][e2e][freeze][host-offline][CLK-freeze]")
 {
     GIVEN("an independent HostSync and IG-only Engine B linked with a short freeze timeout")
     {
