@@ -21,7 +21,7 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 
 > CIGI 是数据打包协议、**不绑定传输协议**，标准行文默认假设 UDP（SISO-STD-013 §4）——链路矩阵「一次性/配置走 TCP」为本项目自选判据，非标准要求。
 
-**掉线感知 = SOF 帧流心跳（CIGI 无「连接/断开」概念，无显式 disconnect 报文）**：IG 每帧发 `SOF`（携 IG 帧号 / IG Mode）、Host 每帧回 `IGCtrl`（携 Host 帧号 / Last IG Frame Number），帧号互回显兼作存活与丢包检测（§4.2 / §4.3）。掉线由 SOF 流中断推断：Host 按对端维护 last-seen，超时未收 SOF 即判掉线。
+**掉线感知 = SOF 帧流心跳（CIGI 无「连接/断开」概念，无显式 disconnect 报文）**：ICD §4.2 是 Host↔IG **报文节拍**（异步 / 同步），不是状态同步、也不是 Present 帧同步。本项目数据面**缺省** Host FreeRun（**§4.2.1**）；可选 SofGated（§4.2.2）由 `hostConfig` 初始化选定、不运行时热切（[帧同步设计.md](../design/多通道同步/帧同步设计.md) §4）。IG 每条 IGCtrl 回一条 `SOF`；FreeRun 下不门控 Host，SofGated 只认 master。帧号互回显兼作存活与丢包检测（§4.3）。掉线由 SOF 流中断推断：Host 按对端维护 last-seen，超时未收 SOF 即判掉线。Timestamp 消费见 [时钟同步方案.md](../design/多通道同步/时钟同步方案.md)。Present 帧同步见 [帧同步总结.md](./帧同步总结.md) / [帧同步设计.md](../design/多通道同步/帧同步设计.md)。
 
 **纯 UDP 恢复 = 无状态、无需握手重连**：
 

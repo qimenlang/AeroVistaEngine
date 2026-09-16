@@ -180,7 +180,7 @@ alt += dUp
 ### 4.3 帧节拍与线程模型
 
 - **HostSync 内部已有线程**：`_acceptThread`（TCP accept）、`_udpThread`（UDP 收 SOF / 握手）、`_clientThreads`（每 client 一个）。viewhost **不额外造网络线程**。
-- **扇出驱动**：`HostDriver::update`（内部 `outMsgWithIgCtrlUdp() << IGCtrl << 眼点 → flushUdp()`）是 UDP 非阻塞扇出（FreeRun，不等 SOF），不会长时间占用调用线程。**初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**，对齐示例的「主循环 + sleep」模式，实现最简。
+- **扇出驱动**：缺省 FreeRun 下，`HostDriver::update`（内部 `outMsgWithIgCtrlUdp() << IGCtrl << 眼点 → flushUdp()`）是 UDP 非阻塞扇出（不等 SOF），不会长时间占用调用线程。**FreeRun 初版写死：用 MFC `SetTimer`（约 60fps）在 UI 线程驱动 `update()`**。`messageSync=sofGated` 时改为等 master SOF 再扇出，**禁止**与 `SetTimer` 双驱动（[帧同步设计.md](./多通道同步/帧同步设计.md) §4.3）；该路径待实现。
 - 若未来需要更高节拍稳定性，再迁移到专用工作线程 + `PostMessage` 回传状态（本版不做）。
 
 **本地时钟与帧增量（写死）**：
@@ -374,7 +374,9 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 { "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } }
 ```
 
-- **坐标系字段**：viewhost（Host 进程）**不配置任何坐标系字段**——同步只 LLA（2026-09 收敛），Host 恒发 LLA，与 IG 侧坐标系**靠人工部署保持一致**（IG 侧由「场景有无 `EllipsoidModel`」决定，见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2.5）。`viewhost.json` 仅含 `hostConfig` 端口块。
+缺省 FreeRun（不写 `messageSync`）。可选 `messageSync` / `masterChannelId` 见 [帧同步设计.md](./多通道同步/帧同步设计.md) §4；改节拍须重启 Host，不运行时热切。**实现前**这两键属未知键，`loadHostConfig` 会拒绝。
+
+- **坐标系字段**：viewhost（Host 进程）**不配置任何坐标系字段**——同步只 LLA（2026-09 收敛），Host 恒发 LLA，与 IG 侧坐标系**靠人工部署保持一致**（IG 侧由「场景有无 `EllipsoidModel`」决定，见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2.5）。`viewhost.json` 至少含 `hostConfig` 端口块。
 
 ## 6. 测试策略
 
@@ -404,7 +406,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 ## 8. 否决与决策记录
 
 - **多通道在 IG 侧（澄清）**：viewhost 不感知通道数与 `offsetDeg`，只持一个 `HostSync` 扇出同一眼点。
-- **扇出驱动走 UI 定时器（初版写死）**：`HostDriver::update`（`outMsgWithIgCtrlUdp+appendEye+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。
+- **扇出驱动走 UI 定时器（FreeRun 初版写死）**：`HostDriver::update`（`outMsgWithIgCtrlUdp+appendEye+flushUdp`）非阻塞，UI 定时器驱动最简；高节拍稳定性需求留待工作线程方案。SofGated 循环见 [帧同步设计.md](./多通道同步/帧同步设计.md) §4.3。
 - **触发方式选 toggle 按钮（否决左键开始 / 右键结束）**：右键在 Windows 惯例为上下文菜单语义，且按钮控件对右键不产生点击通知，需在对话框层额外处理 `WM_RBUTTON*`；左/右键还缺状态可见性。改为单一 toggle 按钮（文字+颜色反映状态）承载「开始控制 ↔ 停止控制」。
 - **键盘读取用 `GetAsyncKeyState` 轮询（否决 `OnKeyDown`）**：对话框焦点在子控件上时 `WM_KEYDOWN` 不路由到对话框，且按下有重复延迟；物理键状态轮询与焦点无关、连续输入跟手，但需 toggle 开关避免与文字输入冲突（§4.4）。
 - **恒 LLA 眼点（非 ECEF，2026-09 收敛）**：viewhost 发 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。

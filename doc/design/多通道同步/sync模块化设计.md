@@ -148,7 +148,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`udpPortSend`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
-**C++ 类型**：`IgConfig`（4 字段）/ `HostConfig`（2 字段）。
+**C++ 类型**：`IgConfig`（4 字段）/ `HostConfig`（现状 2 字段：`udpPortRecv` / `tcpPort`）。`messageSync` / `masterChannelId` 见 [帧同步设计.md](./帧同步设计.md) §4，**尚未入结构体**；写入 JSON 会因未知键拒绝。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
@@ -187,6 +187,8 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 { "igConfig": { "udpPortRecv": 8005,
                 "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
 ```
+
+`hostConfig` 可选 `messageSync` / `masterChannelId`（缺省 FreeRun；会话中途不切）见 [帧同步设计.md](./帧同步设计.md) §4。实现前 JSON 多写这两键会因未知键拒绝。
 
 **解析器分层**：JSON **语法**走 nlohmann/json；**契约辅助**（`parseJsonText`/`find`/`requireInt`/`rejectUnknownKeys` 等）归独立库 `AeroVistaConfig`（`namespace aerovista::config`），engine 与 sync **共用**。`loadHostConfig`/`loadIgConfig`/`parseHostConfig`/`parseIgConfig` 仍归 sync（sync 自己的结构体）；引擎窗口/实体/相机 schema 仍在 `EngineConfig.cpp`。引擎不重复实现 `parseHostConfig`/`parseIgConfig`。
 
@@ -261,7 +263,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 
 | 码 | 场景 | 验收 | Catch2 |
 | --- | --- | --- | --- |
-| `CFG-host-parse-ok` | 解析 host-only | `loadHostConfig` 读出 `udpPortRecv` / `tcpPort`（§4.0） | `[unit][config][sync][host][CFG-host-parse-ok]` |
+| `CFG-host-parse-ok` | 解析 host-only | `loadHostConfig` 读出 `udpPortRecv` / `tcpPort`（§4.0）；节拍键落地后由 `MSYNC-*`（[帧同步设计.md](./帧同步设计.md) §6）覆盖，不扩写本行 | `[unit][config][sync][host][CFG-host-parse-ok]` |
 | `CFG-host-reject-unknown` | Host 未知顶层键 | 拒绝 | `[unit][config][sync][host][CFG-host-reject-unknown]` |
 | `CFG-host-reject-partial` | 半填 hostConfig | 方案 A：对象出现则子字段全必填 | `[unit][config][sync][host][CFG-host-reject-partial]` |
 | `CFG-ig-parse-ok` | 解析 ig-only | `loadIgConfig` 读出本地 recv + target（§4.0） | `[unit][config][sync][ig][CFG-ig-parse-ok]` |
