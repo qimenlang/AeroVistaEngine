@@ -1891,8 +1891,13 @@ SCENARIO("IG sink callback fires once per EntityPositionCtrlV4 over both TCP and
             pose.SetZoff(6.0);
             udp << pose;
             hostA.flushUdp();
-            engineB.tickSync();
-            engineA.tickSync();
+            // 不能「发完立刻 tick 再钉死收包数」：CI 上回环 UDP 经常晚一拍到达。
+            // 合同仍是「到了就恰好一次」，不是「丢包也算过」。
+            for (int i = 0; i < 5 && sinkCount == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineB.tickSync();
+            }
 
             THEN("IG sink receives the packet exactly once over UDP too")
             {
