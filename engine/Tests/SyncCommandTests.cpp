@@ -307,7 +307,7 @@ namespace
 // 1. 线格式契约（单元，直接测 CCL，绿，锚定 §4.1）
 // =============================================================================
 
-TEST_CASE("CigiEntityPositionCtrlV4 packs to fixed 48B", "[unit][sync][cmd][wire-contract]")
+TEST_CASE("CigiEntityPositionCtrlV4 packs to fixed 48B", "[unit][sync][cmd][wire-contract][CMD-posctrl-48b]")
 {
     CigiEntityPositionCtrlV4 place;
     place.SetEntityID(7);
@@ -326,7 +326,7 @@ TEST_CASE("CigiEntityPositionCtrlV4 packs to fixed 48B", "[unit][sync][cmd][wire
     REQUIRE(packetId == CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4);
 }
 
-TEST_CASE("CigiSymbolTextDefV4 packs variable-length Text", "[unit][sync][cmd][wire-contract]")
+TEST_CASE("CigiSymbolTextDefV4 packs variable-length Text", "[unit][sync][cmd][wire-contract][CMD-symbol-text]")
 {
     CigiSymbolTextDefV4 cmd("place 7 121.47 31.23 500");
     Cigi_uint8 buf[128] = {};
@@ -344,7 +344,7 @@ TEST_CASE("CigiSymbolTextDefV4 packs variable-length Text", "[unit][sync][cmd][w
 // =============================================================================
 
 SCENARIO("Host places an entity pose over TCP via outMsgWithIgCtrlTcp/flushTcp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-place-tcp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -383,7 +383,7 @@ SCENARIO("Host places an entity pose over TCP via outMsgWithIgCtrlTcp/flushTcp",
 }
 
 SCENARIO("Host sends a text command over TCP via SymbolTextDefV4",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-text-tcp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -413,7 +413,7 @@ SCENARIO("Host sends a text command over TCP via SymbolTextDefV4",
 }
 
 SCENARIO("Host fans out a command to multiple IGs via flushTcp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-fanout-tcp]")
 {
     GIVEN("independent Host and two IG-only engines B and C linked over real sockets")
     {
@@ -455,7 +455,7 @@ SCENARIO("Host fans out a command to multiple IGs via flushTcp",
 // =============================================================================
 
 SCENARIO("IG dispatches different text commands by first token",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-text-dispatch]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -495,7 +495,7 @@ SCENARIO("IG dispatches different text commands by first token",
 }
 
 SCENARIO("Host sends multiple packets in one message and IG dispatches each by PacketID",
-         "[integration][sync][cmd][e2e]")
+         "[integration][sync][cmd][e2e][CMD-multi-packet]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -533,7 +533,7 @@ SCENARIO("Host sends multiple packets in one message and IG dispatches each by P
 }
 
 SCENARIO("Host streams real-time entity pose over UDP via outMsgWithIgCtrlUdp/flushUdp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-pose-udp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -572,7 +572,7 @@ SCENARIO("Host streams real-time entity pose over UDP via outMsgWithIgCtrlUdp/fl
 // =============================================================================
 
 TEST_CASE("CigiFrameAssembler emits one complete message as one frame",
-          "[unit][sync][cmd][framing]")
+          "[unit][sync][cmd][framing][FRM-one-message]")
 {
     cigi_wire::CigiFrameAssembler assembler;
     const auto msg = packPoseMessage(7);
@@ -588,7 +588,7 @@ TEST_CASE("CigiFrameAssembler emits one complete message as one frame",
 }
 
 TEST_CASE("CigiFrameAssembler splits sticky messages (two messages in one feed)",
-          "[unit][sync][cmd][framing]")
+          "[unit][sync][cmd][framing][FRM-sticky]")
 {
     cigi_wire::CigiFrameAssembler assembler;
     const auto a = packPoseMessage(7);
@@ -610,7 +610,7 @@ TEST_CASE("CigiFrameAssembler splits sticky messages (two messages in one feed)"
 }
 
 TEST_CASE("CigiFrameAssembler buffers a split message across feeds",
-          "[unit][sync][cmd][framing]")
+          "[unit][sync][cmd][framing][FRM-split-buffer]")
 {
     cigi_wire::CigiFrameAssembler assembler;
     const auto msg = packPoseMessage(7);
@@ -631,7 +631,7 @@ TEST_CASE("CigiFrameAssembler buffers a split message across feeds",
 }
 
 TEST_CASE("CigiFrameAssembler keeps a multi-packet message as one frame",
-          "[unit][sync][cmd][framing]")
+          "[unit][sync][cmd][framing][FRM-multi-packet]")
 {
     cigi_wire::CigiFrameAssembler assembler;
     const auto msg = packPosePlusTextMessage(7, "reset");
@@ -652,7 +652,7 @@ TEST_CASE("CigiFrameAssembler keeps a multi-packet message as one frame",
 // =============================================================================
 
 SCENARIO("IG sends a message to Host and Host processor receives it",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-igmsg-tcp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -692,7 +692,7 @@ SCENARIO("IG sends a message to Host and Host processor receives it",
 }
 
 SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-colldet-seg]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -759,7 +759,7 @@ SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
 }
 
 SCENARIO("IG sends a UDP message and Host processor receives it",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-igmsg-udp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -804,7 +804,7 @@ SCENARIO("IG sends a UDP message and Host processor receives it",
 // =============================================================================
 
 SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-colldet-vol]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -882,7 +882,7 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
 // =============================================================================
 
 SCENARIO("Host TCP-filled message is not sent via flushUdp",
-         "[acceptance][bdd][sync][cmd][e2e][negative]")
+         "[acceptance][bdd][sync][cmd][e2e][negative][CMD-host-tcp-not-udp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -921,7 +921,7 @@ SCENARIO("Host TCP-filled message is not sent via flushUdp",
 }
 
 SCENARIO("Host TCP-filled message is delivered via flushTcp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-host-tcp-ok]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -960,7 +960,7 @@ SCENARIO("Host TCP-filled message is delivered via flushTcp",
 }
 
 SCENARIO("IG TCP-filled message is not sent via flushUdp",
-         "[acceptance][bdd][sync][cmd][e2e][negative]")
+         "[acceptance][bdd][sync][cmd][e2e][negative][CMD-ig-tcp-not-udp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1000,7 +1000,7 @@ SCENARIO("IG TCP-filled message is not sent via flushUdp",
 }
 
 SCENARIO("IG TCP-filled message is delivered via flushTcp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-ig-tcp-ok]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1063,7 +1063,7 @@ namespace
 } // namespace
 
 SCENARIO("Host UDP frames carry valid IGCtrl first packet with timestamp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CIGI-udp-igctrl-ts]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1103,7 +1103,7 @@ SCENARIO("Host UDP frames carry valid IGCtrl first packet with timestamp",
 }
 
 SCENARIO("Host TCP messages carry IGCtrl first packet with invalid timestamp and continuous frame counter",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CIGI-tcp-igctrl-cmd]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1151,7 +1151,7 @@ SCENARIO("Host TCP messages carry IGCtrl first packet with invalid timestamp and
 // =============================================================================
 
 SCENARIO("Host can fill multiple packets in one message via repeated outMsgWithIgCtrlTcp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-host-fill-tcp]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1195,7 +1195,7 @@ SCENARIO("Host can fill multiple packets in one message via repeated outMsgWithI
 }
 
 SCENARIO("Host UDP message carries exactly one IGCtrl across repeated outMsgWithIgCtrlUdp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CIGI-udp-one-igctrl]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1238,7 +1238,7 @@ SCENARIO("Host UDP message carries exactly one IGCtrl across repeated outMsgWith
 }
 
 SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSofTcp",
-         "[acceptance][bdd][sync][cmd][e2e]")
+         "[acceptance][bdd][sync][cmd][e2e][CMD-sof-dedup]")
 {
     GIVEN("independent Host and Engine B as IG-only linked over real sockets")
     {
@@ -1280,6 +1280,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 
             THEN("Host received all three IGMsgs with exactly one SOF header")
             {
+                hostA.drainIncoming();
                 REQUIRE(hostMsgProc->count() == 3);
                 // IG 出站去重后只有 1 个 SOF：三条报文在一条消息内，分帧器切出一条消息 → Host 收 1 个 SOF。
                 REQUIRE(hostA.sofReceivedCount() == 1);
@@ -1296,7 +1297,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 // =============================================================================
 
 SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
-         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+         "[acceptance][bdd][sync][cmd][e2e][all-packets][CMD-sub-entityctrl-tcp]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
@@ -1339,7 +1340,7 @@ SCENARIO("IG subscribes a one-shot Host→IG EntityCtrl over TCP",
 // viewhost Apply 两族都脏、以及手动 Host 同一次 flush 会把 Position 与 EntityCtrl
 // 打进同一条 TCP 消息。此处钉 engine 侧 addCallback 两条订阅都要被调用。
 SCENARIO("IG callbacks fire for EntityPositionCtrl and EntityCtrl in one Host TCP flush",
-         "[acceptance][bdd][sync][cmd][e2e][mixed-tcp]")
+         "[acceptance][bdd][sync][cmd][e2e][mixed-tcp][CMD-dual-callback-tcp]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
@@ -1434,7 +1435,7 @@ SCENARIO("IG callbacks fire for EntityPositionCtrl and EntityCtrl in one Host TC
 }
 
 SCENARIO("IG subscribes a per-frame Host→IG ViewCtrl over UDP",
-         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+         "[acceptance][bdd][sync][cmd][e2e][all-packets][CMD-sub-viewctrl-udp]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
@@ -1480,7 +1481,7 @@ SCENARIO("IG subscribes a per-frame Host→IG ViewCtrl over UDP",
 }
 
 SCENARIO("Host subscribes an IG→Host CigiIGMsgV4 over TCP",
-         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+         "[acceptance][bdd][sync][cmd][e2e][all-packets][CMD-host-sub-igmsg]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
@@ -1525,7 +1526,7 @@ SCENARIO("Host subscribes an IG→Host CigiIGMsgV4 over TCP",
 
 // HostSync 侧订阅：IG→Host 报文的到达通知。
 SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
-         "[acceptance][bdd][sync][cmd][e2e][all-packets]")
+         "[acceptance][bdd][sync][cmd][e2e][all-packets][CMD-addcallback-sink]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
@@ -1585,7 +1586,7 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
 // 解释为相对父实体的 XYZ 偏移），并非用 AttachState 做业务层坐标系选择。本用例仅钉住
 // 「Detach+LLA 正确走到 ELLIPSOID 语义位姿」这条既有路径，防止回归。
 SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LLA",
-         "[acceptance][bdd][sync][cmd][e2e][entity-pose][ellipsoid]")
+         "[acceptance][bdd][sync][cmd][e2e][entity-pose][ellipsoid][CMD-place-lla-tcp]")
 {
     GIVEN("independent Host and an IG engine with an entity configured in Ellipsoid")
     {
@@ -1759,7 +1760,7 @@ SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
 // 验 IG 分帧解包把每条都投递到业务回调。不是 Catch BENCHMARK：固定 200 条、
 // 自建 Host+IG 场景，断言条数与 id，不钉耗时。
 SCENARIO("linked IG unpacks two hundred EntityCtrl from one Host TCP flush",
-         "[integration][stress][sync][cmd][e2e]")
+         "[integration][stress][sync][cmd][e2e][CMD-burst-entityctrl]")
 {
     GIVEN("a linked Host and an IG with two hundred Standby catalog entities")
     {
@@ -1834,7 +1835,7 @@ SCENARIO("linked IG unpacks two hundred EntityCtrl from one Host TCP flush",
 // =============================================================================
 
 SCENARIO("IG sink callback fires once per EntityPositionCtrlV4 over both TCP and UDP",
-         "[acceptance][bdd][sync][cmd][e2e][entity-pose]")
+         "[acceptance][bdd][sync][cmd][e2e][entity-pose][CMD-posctrl-tcp-udp]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {

@@ -24,7 +24,7 @@ namespace
     }
 } // namespace
 
-TEST_CASE("UdpSocket sendTo/recv loopback 自环收发", "[unit]")
+TEST_CASE("UdpSocket sendTo/recv loopback 自环收发", "[unit][UDP-loopback]")
 {
     UdpSocket recvSock;
     int port = 0;
@@ -45,7 +45,7 @@ TEST_CASE("UdpSocket sendTo/recv loopback 自环收发", "[unit]")
     REQUIRE(std::memcmp(buf, msg, sizeof(msg)) == 0);
 }
 
-TEST_CASE("UdpSocket recvFrom 回填源 IP 与端口", "[unit]")
+TEST_CASE("UdpSocket recvFrom 回填源 IP 与端口", "[unit][UDP-recvfrom-peer]")
 {
     UdpSocket recvSock;
     int port = 0;
@@ -66,7 +66,7 @@ TEST_CASE("UdpSocket recvFrom 回填源 IP 与端口", "[unit]")
     REQUIRE(fromPort > 0);
 }
 
-TEST_CASE("UdpSocket sendTo 非法参数返回 -1", "[unit]")
+TEST_CASE("UdpSocket sendTo 非法参数返回 -1", "[unit][UDP-send-bad-arg]")
 {
     UdpSocket sock;
     REQUIRE(sock.initialize(0));
@@ -78,7 +78,7 @@ TEST_CASE("UdpSocket sendTo 非法参数返回 -1", "[unit]")
     REQUIRE(sock.sendTo("127.0.0.1", 12345, msg, 0) == -1);               // size<=0
 }
 
-TEST_CASE("UdpSocket 未初始化时 recv/sendTo 返回 -1", "[unit]")
+TEST_CASE("UdpSocket 未初始化时 recv/sendTo 返回 -1", "[unit][UDP-uninit]")
 {
     UdpSocket sock;
     REQUIRE_FALSE(sock.valid());
@@ -93,7 +93,7 @@ TEST_CASE("UdpSocket 未初始化时 recv/sendTo 返回 -1", "[unit]")
     REQUIRE(sock.sendTo("127.0.0.1", 1, buf, sizeof(buf)) == -1);
 }
 
-TEST_CASE("UdpSocket initialize 端口占用冲突返回 false", "[unit]")
+TEST_CASE("UdpSocket initialize 端口占用冲突返回 false", "[unit][UDP-port-busy]")
 {
     UdpSocket first;
     int port = 0;
@@ -106,7 +106,7 @@ TEST_CASE("UdpSocket initialize 端口占用冲突返回 false", "[unit]")
     REQUIRE_FALSE(second.valid());
 }
 
-TEST_CASE("UdpSocket close 幂等", "[unit]")
+TEST_CASE("UdpSocket close 幂等", "[unit][UDP-close-idempotent]")
 {
     UdpSocket sock;
     REQUIRE(sock.initialize(0));

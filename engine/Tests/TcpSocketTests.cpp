@@ -45,7 +45,7 @@ namespace
     }
 } // namespace
 
-TEST_CASE("TcpSocket listen/accept/connect 建立 loopback 连接", "[unit]")
+TEST_CASE("TcpSocket listen/accept/connect 建立 loopback 连接", "[unit][TCP-loopback-connect]")
 {
     LoopbackPair pair;
     REQUIRE(establishPair(pair));
@@ -56,7 +56,7 @@ TEST_CASE("TcpSocket listen/accept/connect 建立 loopback 连接", "[unit]")
     REQUIRE_FALSE(pair.client.listening());
 }
 
-TEST_CASE("TcpSocket sendAll/recvAll 双向收发完整字节", "[unit]")
+TEST_CASE("TcpSocket sendAll/recvAll 双向收发完整字节", "[unit][TCP-send-recv-all]")
 {
     LoopbackPair pair;
     REQUIRE(establishPair(pair));
@@ -69,7 +69,7 @@ TEST_CASE("TcpSocket sendAll/recvAll 双向收发完整字节", "[unit]")
     REQUIRE(std::memcmp(buf, msg, sizeof(msg)) == 0);
 }
 
-TEST_CASE("TcpSocket recv 区分 PEER_CLOSED(对端关闭)", "[unit]")
+TEST_CASE("TcpSocket recv 区分 PEER_CLOSED(对端关闭)", "[unit][TCP-peer-closed]")
 {
     LoopbackPair pair;
     REQUIRE(establishPair(pair));
@@ -81,7 +81,7 @@ TEST_CASE("TcpSocket recv 区分 PEER_CLOSED(对端关闭)", "[unit]")
     REQUIRE(outcome.kind == RecvKind::PEER_CLOSED);
 }
 
-TEST_CASE("TcpSocket recv 无数据超时返回 TIMEOUT", "[unit]")
+TEST_CASE("TcpSocket recv 无数据超时返回 TIMEOUT", "[unit][TCP-recv-timeout]")
 {
     LoopbackPair pair;
     REQUIRE(establishPair(pair));
@@ -94,7 +94,7 @@ TEST_CASE("TcpSocket recv 无数据超时返回 TIMEOUT", "[unit]")
     REQUIRE(outcome.bytes == 0);
 }
 
-TEST_CASE("TcpSocket connect 到未监听端口失败", "[unit]")
+TEST_CASE("TcpSocket connect 到未监听端口失败", "[unit][TCP-connect-fail]")
 {
     // 先 listen(0) 取端口再关闭，得到一个确定无监听的端口。
     TcpSocket listener;
@@ -109,7 +109,7 @@ TEST_CASE("TcpSocket connect 到未监听端口失败", "[unit]")
     REQUIRE_FALSE(client.valid());
 }
 
-TEST_CASE("TcpSocket accept 回填对端 IPv4", "[unit]")
+TEST_CASE("TcpSocket accept 回填对端 IPv4", "[unit][TCP-accept-peer-ip]")
 {
     TcpSocket listener;
     REQUIRE(listener.listen(0));
@@ -127,7 +127,7 @@ TEST_CASE("TcpSocket accept 回填对端 IPv4", "[unit]")
     REQUIRE(peerIp == "127.0.0.1");
 }
 
-TEST_CASE("TcpSocket close 幂等", "[unit]")
+TEST_CASE("TcpSocket close 幂等", "[unit][TCP-close-idempotent]")
 {
     LoopbackPair pair;
     REQUIRE(establishPair(pair));
@@ -139,7 +139,7 @@ TEST_CASE("TcpSocket close 幂等", "[unit]")
     REQUIRE_FALSE(pair.server.valid());
 }
 
-TEST_CASE("TcpSocket 并发 create/destroy 压力不破坏 WSA 引用计数", "[unit][stress]")
+TEST_CASE("TcpSocket 并发 create/destroy 压力不破坏 WSA 引用计数", "[unit][stress][TCP-wsa-refcount]")
 {
     // 多线程高频 acquire/release WSA 引用计数。若 fetch_add/fetch_sub 非原子，
     // 计数失衡会提前 WSACleanup，之后 socket() 返回 WSANOTINITIALISED。

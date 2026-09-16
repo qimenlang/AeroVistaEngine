@@ -88,7 +88,7 @@ namespace
 // =============================================================================
 
 SCENARIO("injectEllipsoidIfMissing injects EllipsoidModel on scene; otherwise lz has none",
-         "[acceptance][bdd][config][ellipsoid-inject]")
+         "[acceptance][bdd][config][ellipsoid-inject][CFG-inject-ellipsoid-on-scene]")
 {
     GIVEN("a channel config that uses lz.vsgt (model has no built-in EllipsoidModel)")
     {
@@ -124,7 +124,7 @@ SCENARIO("injectEllipsoidIfMissing injects EllipsoidModel on scene; otherwise lz
 }
 
 SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfMissing",
-         "[acceptance][bdd][config][ellipsoid-inject]")
+         "[acceptance][bdd][config][ellipsoid-inject][CFG-keep-builtin-ellipsoid]")
 {
     GIVEN("a channel config that uses readymap.vsgt (model already has EllipsoidModel)")
     {
@@ -163,7 +163,7 @@ SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfM
 // 覆盖「注入在相机创建前」：lz 无自带椭球，靠 injectEllipsoidIfMissing 注入后才能建 EllipsoidPerspective。
 // 无 pose 实体默认摆在地心，会触发 fallback 到北京上空（见 §4.2 fallback 判据）。
 SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LLA LookAt",
-         "[acceptance][bdd][config][ellipsoid][initial-lla]")
+         "[acceptance][bdd][config][ellipsoid][initial-lla][CFG-inject-before-camera]")
 {
     // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
     //       待实现后移除 !hide 标签并验证 AABB 关系。
@@ -207,7 +207,7 @@ SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LL
 }
 
 SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardcoded Beijing",
-         "[acceptance][bdd][config][ellipsoid][initial-lla]")
+         "[acceptance][bdd][config][ellipsoid][initial-lla][CFG-builtin-ellipsoid-aabb]")
 {
     // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
     //       待实现后移除 !hide 标签并验证 AABB 关系。
@@ -255,7 +255,7 @@ SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardco
 // =============================================================================
 
 SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
-         "[acceptance][bdd][config][initial-camera][aabb]")
+         "[acceptance][bdd][config][initial-camera][aabb][CFG-local-single-aabb]")
 {
     // A1: Local：单实体无 pose，无 camera → eye = AABB centre - Y方向 3.5·radius
     GIVEN("lz.vsgt in local cartesian without pose")
@@ -292,7 +292,7 @@ SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
 }
 
 SCENARIO("Local multiple entities no pose camera uses overall AABB",
-         "[acceptance][bdd][config][initial-camera][aabb]")
+         "[acceptance][bdd][config][initial-camera][aabb][CFG-local-multi-aabb]")
 {
     // A2: Local：多实体分散，无 camera → eye 按整体 AABB
     GIVEN("two lz.vsgt entities at different positions without camera pose")
@@ -329,7 +329,7 @@ SCENARIO("Local multiple entities no pose camera uses overall AABB",
 }
 
 SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
-         "[acceptance][bdd][config][initial-camera][aabb]")
+         "[acceptance][bdd][config][initial-camera][aabb][CFG-ellipsoid-lla-aabb]")
 {
     // A3: Ellipsoid：单实体有 LLA pose，无 camera → eye 按整体 AABB
     // 注意：小模型（lz.vsgt ~1.4km）即使摆放在天安门，AABB centre 的 ECEF 坐标
@@ -373,7 +373,7 @@ SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
 }
 
 SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
-         "[acceptance][bdd][config][initial-camera][fallback]")
+         "[acceptance][bdd][config][initial-camera][fallback][CFG-ellipsoid-beijing-fallback]")
 {
     // A4 + B2: Ellipsoid：单实体无 pose（地心），无 camera → 触发 fallback
     GIVEN("lz.vsgt without pose with injected ellipsoid (sits at origin)")
@@ -412,7 +412,7 @@ SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
 }
 
 SCENARIO("camera pose overrides AABB computed position",
-         "[acceptance][bdd][config][initial-camera][override]")
+         "[acceptance][bdd][config][initial-camera][override][CFG-camera-overrides-aabb]")
 {
     // A5: 有 camera.pose → 覆盖 AABB
     GIVEN("lz.vsgt with both entity pose and camera pose in Local")
@@ -445,7 +445,7 @@ SCENARIO("camera pose overrides AABB computed position",
 }
 
 SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
-         "[acceptance][bdd][config][initial-camera][projection]")
+         "[acceptance][bdd][config][initial-camera][projection][CFG-ellipsoid-near-far-ratio]")
 {
     // D2: Ellipsoid：EllipsoidPerspective 的 nearFarRatio = 0.001
     GIVEN("any Ellipsoid scene")
@@ -472,7 +472,7 @@ SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
 }
 
 SCENARIO("Local Perspective near far proportional to radius",
-         "[acceptance][bdd][config][initial-camera][projection]")
+         "[acceptance][bdd][config][initial-camera][projection][CFG-local-near-far-radius]")
 {
     // D1: Local：Perspective 的 near/far = 0.001·radius / 4.5·radius
     GIVEN("lz.vsgt in local cartesian")
@@ -506,7 +506,7 @@ SCENARIO("Local Perspective near far proportional to radius",
 }
 
 SCENARIO("Local camera pose recomputes near far to prevent clipping",
-         "[acceptance][bdd][config][initial-camera][projection]")
+         "[acceptance][bdd][config][initial-camera][projection][CFG-local-pose-near-far]")
 {
     // D3: Local + camera.pose → far = max(4.5·radius, |eye-centre| + radius)
     // 此用例依赖设计实现，当前未实现
@@ -550,7 +550,7 @@ SCENARIO("Local camera pose recomputes near far to prevent clipping",
 // 验收：默认配置与角色规则（§3.1：默认 default.json，父键决定 enable）
 // =============================================================================
 
-SCENARIO("default Engine config matches the default channel file", "[acceptance][bdd][config]")
+SCENARIO("default Engine config matches the default channel file", "[acceptance][bdd][config][CFG-default-matches-file]")
 {
     GIVEN("an Engine constructed with no explicit config path")
     {
@@ -574,7 +574,7 @@ SCENARIO("default Engine config matches the default channel file", "[acceptance]
     }
 }
 
-SCENARIO("default initialization does not start the sync subsystem", "[acceptance][bdd][config]")
+SCENARIO("default initialization does not start the sync subsystem", "[acceptance][bdd][config][CFG-default-no-sync]")
 {
     GIVEN("an Engine using the default config (no igConfig)")
     {
@@ -593,7 +593,7 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
     }
 }
 
-SCENARIO("loading a channel file replaces Engine config with that file", "[acceptance][bdd][config]")
+SCENARIO("loading a channel file replaces Engine config with that file", "[acceptance][bdd][config][CFG-channel-replaces-config]")
 {
     GIVEN("an Engine and a channel file with left IG settings")
     {
@@ -619,7 +619,7 @@ SCENARIO("loading a channel file replaces Engine config with that file", "[accep
 // 验收：init 后同步角色与配置一致（父键 enable，非 channelId）
 // =============================================================================
 
-SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd][config]")
+SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd][config][CFG-channel-starts-ig]")
 {
     GIVEN("an Engine loaded from a config with igConfig")
     {
@@ -641,7 +641,7 @@ SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd]
     }
 }
 
-SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config]")
+SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config][CFG-ig-only-no-host]")
 {
     GIVEN("an Engine loaded from a config with igConfig")
     {
@@ -664,7 +664,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
 }
 
 SCENARIO("channel offset is applied to the camera driver after init",
-         "[acceptance][bdd][config]")
+         "[acceptance][bdd][config][CFG-channel-offset]")
 {
     GIVEN("an Engine loaded from a channel config with non-default offset")
     {
@@ -688,7 +688,7 @@ SCENARIO("channel offset is applied to the camera driver after init",
 
 // engine 配置不含 hostConfig；Host 进程由 sync 库 loadHostConfig 消费，见下方用例。
 
-SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance][bdd][config]")
+SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance][bdd][config][CFG-channelid-no-sync]")
 {
     GIVEN("a config with channelId 0 but no igConfig")
     {
@@ -715,7 +715,7 @@ SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance]
 // 验收：requireConnectedIg（配置项决定连失败是否令 init 失败；缺省恒 false）
 // =============================================================================
 
-SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[acceptance][bdd][config]")
+SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[acceptance][bdd][config][CFG-ig-require-false-init]")
 {
     GIVEN("a config with requireConnectedIg false and no Host process")
     {
@@ -737,7 +737,7 @@ SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[a
 }
 
 SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init when Host is down",
-         "[acceptance][bdd][config]")
+         "[acceptance][bdd][config][CFG-ig-require-omit-false]")
 {
     GIVEN("an IG-only config that does not set requireConnectedIg")
     {
@@ -759,7 +759,7 @@ SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init whe
     }
 }
 
-SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[acceptance][bdd][config]")
+SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[acceptance][bdd][config][CFG-ig-require-true-fail]")
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
@@ -779,7 +779,7 @@ SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[
     }
 }
 
-SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "[acceptance][bdd][config]")
+SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "[acceptance][bdd][config][CFG-ig-require-true-ok]")
 {
     GIVEN("an IG config that requires a successful connect, and an independent HostSync on those ports")
     {
@@ -809,7 +809,7 @@ SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "
 // 单元 / 验收：解析校验（方案 A、跨字段、未知键）
 // =============================================================================
 
-TEST_CASE("resolveConfigPath defaults to default config when -c is omitted", "[unit][config][cli]")
+TEST_CASE("resolveConfigPath defaults to default config when -c is omitted", "[unit][config][cli][CFG-cli-default-path]")
 {
     char arg0[] = "engine.exe";
     char* argv[] = {arg0};
@@ -817,7 +817,7 @@ TEST_CASE("resolveConfigPath defaults to default config when -c is omitted", "[u
     REQUIRE(Engine::resolveConfigPath(1, argv) == defaultPath);
 }
 
-TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli]")
+TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli][CFG-cli-c-path]")
 {
     char arg0[] = "engine.exe";
     char argC[] = "-c";
@@ -826,7 +826,7 @@ TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli]")
     REQUIRE(Engine::resolveConfigPath(3, argv) == givenPath);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects unknown top-level keys", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects unknown top-level keys", "[unit][config][parse][CFG-reject-unknown-top]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
                               R"(, "hostLocl": { "addr": "127.0.0.1" }})");
@@ -836,7 +836,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown top-level keys", "[unit][conf
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config][parse][CFG-reject-unknown-nested]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel +
                               R"(, "window": { "x": 0, "y": 0, "width": 640, "height": 480, "fullscreen": true }})");
@@ -846,7 +846,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config]
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg", "[unit][config][parse][CFG-accept-igconfig-no-require]")
 {
     // igConfig 自包含本地绑定 + 远端目标，不再需要独立的 hostEndpoint 配对。
     const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + jsonIgConfig() + ", " + kMinimalModel + ", " + kMinimalWindow + "}");
@@ -856,7 +856,7 @@ TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg",
     REQUIRE(cfg.igConfig.has_value());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig", "[unit][config][parse][CFG-reject-require-without-ig]")
 {
     const TempConfigFile file(std::string(R"({ "syncSystem": { "requireConnectedIg": true }, )") + kMinimalModel + ", " +
                               kMinimalWindow + "}");
@@ -866,7 +866,7 @@ TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[unit][config][parse][CFG-reject-partial-window]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel + R"(, "window": { "width": 800 }})");
     EngineChannelConfig cfg;
@@ -875,7 +875,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)", "[unit][config][parse][CFG-reject-partial-offset]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
                               R"(, "syncSystem": { "offsetDeg": { "yaw": 1.0 } }})");
@@ -885,7 +885,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level key", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level key", "[unit][config][parse][CFG-reject-hostconfig-top]")
 {
     // engine 配置含 hostConfig 即未知键拒绝；Host 进程用 loadHostConfig（见下方用例）。
     const TempConfigFile file(
@@ -897,7 +897,7 @@ TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level ke
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", "[unit][config][parse][CFG-reject-partial-igconfig]")
 {
     const TempConfigFile file(
         std::string(R"({ "igConfig": { "udpPortRecv": 8000 }, )") +
@@ -908,7 +908,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", 
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects igConfig missing target fields (scheme A)", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects igConfig missing target fields (scheme A)", "[unit][config][parse][CFG-reject-igconfig-missing-target]")
 {
     // igConfig 自包含远端目标，缺 targetTcpPort 必须拒绝。
     const TempConfigFile file(
@@ -921,7 +921,7 @@ TEST_CASE("loadEngineChannelConfig rejects igConfig missing target fields (schem
 }
 
 TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.tcpPort (IgConfig has no bare tcpPort)",
-          "[unit][config][parse]")
+          "[unit][config][parse][CFG-reject-igconfig-tcpport]")
 {
     const TempConfigFile file(
         std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
@@ -933,7 +933,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.tcpPort (IgConfig ha
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects leftover igConfig.udpPortSend", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig rejects leftover igConfig.udpPortSend", "[unit][config][parse][CFG-reject-udp-port-send]")
 {
     const TempConfigFile file(
         std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )") +
@@ -946,7 +946,7 @@ TEST_CASE("loadEngineChannelConfig rejects leftover igConfig.udpPortSend", "[uni
 }
 
 TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.udpPortSend on target side (targetUdpPortSend)",
-          "[unit][config][parse]")
+          "[unit][config][parse][CFG-reject-target-udp-port-send]")
 {
     const TempConfigFile file(
         std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
@@ -958,7 +958,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.udpPortSend on targe
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig accepts default config with only model and window", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts default config with only model and window", "[unit][config][parse][CFG-accept-default-model-window]")
 {
     const TempConfigFile file(kDefaultJson);
     EngineChannelConfig cfg;
@@ -969,7 +969,7 @@ TEST_CASE("loadEngineChannelConfig accepts default config with only model and wi
     REQUIRE(cfg.window.height == 1080);
 }
 
-TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem", "[unit][config][parse][CFG-accept-ig-sample-syncsystem]")
 {
     const TempConfigFile file(kMainJson);
     EngineChannelConfig cfg;
@@ -981,7 +981,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem
     REQUIRE(cfg.syncSystem.channelId == 0);
 }
 
-TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][config][parse]")
+TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][config][parse][CFG-accept-ig-sample]")
 {
     const TempConfigFile file(kLeftJson);
     EngineChannelConfig cfg;
@@ -991,7 +991,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem]")
+TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem][CFG-parse-syncsystem]")
 {
     const TempConfigFile file(
         R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
@@ -1008,7 +1008,7 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
     REQUIRE(cfg.syncSystem.requireConnectedIg);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group", "[unit][config][parse][syncSystem]")
+TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group", "[unit][config][parse][syncSystem][CFG-reject-unknown-syncsystem]")
 {
     const TempConfigFile file(R"({ "syncSystem": { "channelId": 0, "bogus": 1 }, "model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
@@ -1017,7 +1017,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects removed hostEyeStalePolicy key", "[unit][config][parse][syncSystem]")
+TEST_CASE("loadEngineChannelConfig rejects removed hostEyeStalePolicy key", "[unit][config][parse][syncSystem][CFG-reject-host-eye-stale]")
 {
     const TempConfigFile file(
         R"({ "syncSystem": { "channelId": 0, "hostEyeStalePolicy": "ReuseLast" }, "model": "models/lz.vsgt" })");
@@ -1027,7 +1027,7 @@ TEST_CASE("loadEngineChannelConfig rejects removed hostEyeStalePolicy key", "[un
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit][config][parse][syncSystem]")
+TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit][config][parse][syncSystem][CFG-reject-partial-syncsystem-offset]")
 {
     const TempConfigFile file(R"({ "syncSystem": { "offsetDeg": { "yaw": 1.0 } }, "model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
@@ -1040,7 +1040,7 @@ TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit
 // loadHostConfig：viewhost / 独立 Host 进程的 sync 库入口（sync模块化设计.md §4.0）
 // =============================================================================
 
-TEST_CASE("loadHostConfig parses a host-only config file", "[unit][config][sync][host]")
+TEST_CASE("loadHostConfig parses a host-only config file", "[unit][config][sync][host][CFG-host-parse-ok]")
 {
     const TempConfigFile file(R"({ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } })");
     HostConfig cfg;
@@ -1050,7 +1050,7 @@ TEST_CASE("loadHostConfig parses a host-only config file", "[unit][config][sync]
     REQUIRE(cfg.tcpPort == 8100);
 }
 
-TEST_CASE("loadHostConfig rejects unknown top-level keys", "[unit][config][sync][host]")
+TEST_CASE("loadHostConfig rejects unknown top-level keys", "[unit][config][sync][host][CFG-host-reject-unknown]")
 {
     const TempConfigFile file(R"({ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 }, "igConfig": {} })");
     HostConfig cfg;
@@ -1059,7 +1059,7 @@ TEST_CASE("loadHostConfig rejects unknown top-level keys", "[unit][config][sync]
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sync][host]")
+TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sync][host][CFG-host-reject-partial]")
 {
     const TempConfigFile file(R"({ "hostConfig": { "udpPortRecv": 8000 } })");
     HostConfig cfg;
@@ -1072,7 +1072,7 @@ TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sy
 // loadIgConfig：独立 IG 进程 / 外部引擎的 sync 库入口（sync模块化设计.md §4.1）
 // =============================================================================
 
-TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig]")
+TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig][CFG-ig-parse-ok]")
 {
     const TempConfigFile file(
         R"({ "igConfig": { "udpPortRecv": 8005, )"
@@ -1086,7 +1086,7 @@ TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig
     REQUIRE(cfg.targetUdpPortRecv == 8000);
 }
 
-TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][ig]")
+TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][ig][CFG-ig-reject-unknown]")
 {
     const TempConfigFile file(
         R"({ "igConfig": { "udpPortRecv": 8005, )"
@@ -1098,7 +1098,7 @@ TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][i
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][ig]")
+TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][ig][CFG-ig-reject-partial]")
 {
     const TempConfigFile file(
         R"({ "igConfig": { "udpPortRecv": 8005, )"
@@ -1116,7 +1116,7 @@ TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][
 //   initialEntityState 仅 "Active"|"Standby" / pose 双轨可选 / 空表与未知键拒绝）。
 // =============================================================================
 
-TEST_CASE("loadEntitiesFile parses entities.json into EntityConfig list", "[unit][config][parse][entities-catalog]")
+TEST_CASE("loadEntitiesFile parses entities.json into EntityConfig list", "[unit][config][parse][entities-catalog][CFG-entities-parse]")
 {
     const TempConfigFile file(
         R"({ "entities": [)"
@@ -1148,7 +1148,7 @@ TEST_CASE("loadEntitiesFile parses entities.json into EntityConfig list", "[unit
     }
 }
 
-TEST_CASE("loadEntitiesFile applies name default from model basename", "[unit][config][parse][entities-catalog]")
+TEST_CASE("loadEntitiesFile applies name default from model basename", "[unit][config][parse][entities-catalog][CFG-entities-name-default]")
 {
     const TempConfigFile file(
         R"({ "entities": [ { "id": 7, "model": "models/lz.vsgt" } ] })");
@@ -1159,7 +1159,7 @@ TEST_CASE("loadEntitiesFile applies name default from model basename", "[unit][c
     REQUIRE(entities[0].name == "lz.vsgt");
 }
 
-TEST_CASE("loadEntitiesFile rejects invalid initialEntityState", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects invalid initialEntityState", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-state]")
 {
     for (const char* bad : {R"("active")", R"("ACTIVE")", R"("Destroyed")", R"("Remove")", R"("bogus")"})
     {
@@ -1173,7 +1173,7 @@ TEST_CASE("loadEntitiesFile rejects invalid initialEntityState", "[unit][config]
     }
 }
 
-TEST_CASE("loadEntitiesFile rejects duplicate entity id", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects duplicate entity id", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-dup]")
 {
     const TempConfigFile file(
         R"({ "entities": [ { "id": 1, "model": "models/lz.vsgt" }, { "id": 1, "model": "models/teapot.vsgt" } ] })");
@@ -1183,7 +1183,7 @@ TEST_CASE("loadEntitiesFile rejects duplicate entity id", "[unit][config][parse]
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEntitiesFile rejects entity id outside 1..65535", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects entity id outside 1..65535", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-id]")
 {
     for (const char* badId : {"0", "-1", "65536", "70000"})
     {
@@ -1197,7 +1197,7 @@ TEST_CASE("loadEntitiesFile rejects entity id outside 1..65535", "[unit][config]
     }
 }
 
-TEST_CASE("loadEntitiesFile rejects missing or empty model", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects missing or empty model", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-empty-model]")
 {
     for (const char* item : {R"({ "id": 1 })", R"({ "id": 1, "model": "" })"})
     {
@@ -1210,7 +1210,7 @@ TEST_CASE("loadEntitiesFile rejects missing or empty model", "[unit][config][par
     }
 }
 
-TEST_CASE("loadEntitiesFile rejects empty entities array", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects empty entities array", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-empty-array]")
 {
     const TempConfigFile file(R"({ "entities": [] })");
     std::vector<EntityConfig> entities;
@@ -1219,7 +1219,7 @@ TEST_CASE("loadEntitiesFile rejects empty entities array", "[unit][config][parse
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEntitiesFile rejects unknown keys in file or item", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects unknown keys in file or item", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-unknown-keys]")
 {
     for (const char* json : {
              R"({ "entities": [ { "id": 1, "model": "models/lz.vsgt" } ], "bogus": 1 })",
@@ -1233,7 +1233,7 @@ TEST_CASE("loadEntitiesFile rejects unknown keys in file or item", "[unit][confi
     }
 }
 
-TEST_CASE("loadEntitiesFile rejects missing entities key or file", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects missing entities key or file", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-missing-key]")
 {
     const TempConfigFile fileNoKey(R"({ "model": "models/lz.vsgt" })");
     std::vector<EntityConfig> entities;
@@ -1245,7 +1245,7 @@ TEST_CASE("loadEntitiesFile rejects missing entities key or file", "[unit][confi
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEntitiesFile rejects item without id", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects item without id", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-missing-id]")
 {
     const TempConfigFile file(R"({ "entities": [ { "model": "models/teapot.vsgt" } ] })");
     std::vector<EntityConfig> entities;
@@ -1254,7 +1254,7 @@ TEST_CASE("loadEntitiesFile rejects item without id", "[unit][config][parse][ent
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEntitiesFile rejects item with non-integer id", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEntitiesFile rejects item with non-integer id", "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-nonint-id]")
 {
     const TempConfigFile file(R"({ "entities": [ { "id": "a", "model": "models/teapot.vsgt" } ] })");
     std::vector<EntityConfig> entities;
@@ -1264,7 +1264,7 @@ TEST_CASE("loadEntitiesFile rejects item with non-integer id", "[unit][config][p
 }
 
 TEST_CASE("loadEntitiesFile rejects local pose with incomplete position array",
-          "[unit][config][parse][entities-catalog][negative]")
+          "[unit][config][parse][entities-catalog][negative][CFG-entities-reject-incomplete-pose]")
 {
     const TempConfigFile file(
         R"({ "entities": [ { "id": 1, "model": "models/teapot.vsgt", )"
@@ -1275,7 +1275,7 @@ TEST_CASE("loadEntitiesFile rejects local pose with incomplete position array",
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("loadEngineChannelConfig parses entitiesFilePath", "[unit][config][parse][entities-catalog]")
+TEST_CASE("loadEngineChannelConfig parses entitiesFilePath", "[unit][config][parse][entities-catalog][CFG-parse-entities-file-path]")
 {
     const TempConfigFile file(std::string(R"({ "entitiesFilePath": "config/entities.json", )") + kMinimalWindow + "}");
     EngineChannelConfig cfg;
@@ -1284,7 +1284,7 @@ TEST_CASE("loadEngineChannelConfig parses entitiesFilePath", "[unit][config][par
     REQUIRE(cfg.entitiesFilePath == "config/entities.json");
 }
 
-TEST_CASE("loadEngineChannelConfig rejects top-level entities key", "[unit][config][parse][entities-catalog][negative]")
+TEST_CASE("loadEngineChannelConfig rejects top-level entities key", "[unit][config][parse][entities-catalog][negative][CFG-reject-toplevel-entities]")
 {
     const TempConfigFile file(std::string(R"({ "entities": [], )") + kMinimalWindow + "}");
     EngineChannelConfig cfg;
@@ -1293,7 +1293,7 @@ TEST_CASE("loadEngineChannelConfig rejects top-level entities key", "[unit][conf
     REQUIRE_FALSE(error.empty());
 }
 
-TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][config][parse][entities-catalog]")
+TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][config][parse][entities-catalog][CFG-viewhost-ig-entities-path]")
 {
     EngineChannelConfig cfg;
     std::string error;
@@ -1306,7 +1306,7 @@ TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][confi
 }
 
 TEST_CASE("loadEngineChannelConfig accepts integer-valued floats for window ints",
-          "[unit][config][parse][json-adapter]")
+          "[unit][config][parse][json-adapter][CFG-accept-int-window]")
 {
     const TempConfigFile file(R"({ "window": { "x": 0.0, "y": 0, "width": 640.0, "height": 480 } })");
     EngineChannelConfig cfg;
@@ -1318,7 +1318,7 @@ TEST_CASE("loadEngineChannelConfig accepts integer-valued floats for window ints
 }
 
 TEST_CASE("loadEngineChannelConfig rejects fractional window ints",
-          "[unit][config][parse][json-adapter][negative]")
+          "[unit][config][parse][json-adapter][negative][CFG-reject-fractional-window]")
 {
     const TempConfigFile file(R"({ "window": { "x": 0, "y": 0, "width": 640.5, "height": 480 } })");
     EngineChannelConfig cfg;
@@ -1327,7 +1327,7 @@ TEST_CASE("loadEngineChannelConfig rejects fractional window ints",
     REQUIRE(error.find("integer") != std::string::npos);
 }
 
-TEST_CASE("loadEntitiesFile accepts integer-valued float id", "[unit][config][parse][json-adapter][entities-catalog]")
+TEST_CASE("loadEntitiesFile accepts integer-valued float id", "[unit][config][parse][json-adapter][entities-catalog][CFG-entities-accept-float-id]")
 {
     const TempConfigFile file(R"({ "entities": [ { "id": 1.0, "model": "models/teapot.vsgt" } ] })");
     std::vector<EntityConfig> entities;
@@ -1337,7 +1337,7 @@ TEST_CASE("loadEntitiesFile accepts integer-valued float id", "[unit][config][pa
     REQUIRE(entities[0].id == 1);
 }
 
-TEST_CASE("loadEngineChannelConfig accepts UTF-8 BOM", "[unit][config][parse][json-adapter]")
+TEST_CASE("loadEngineChannelConfig accepts UTF-8 BOM", "[unit][config][parse][json-adapter][CFG-accept-utf8-bom]")
 {
     const std::string body = std::string("\xEF\xBB\xBF{") + kMinimalModel + ", " + kMinimalWindow + "}";
     const TempConfigFile file(body);
@@ -1347,7 +1347,7 @@ TEST_CASE("loadEngineChannelConfig accepts UTF-8 BOM", "[unit][config][parse][js
     REQUIRE(cfg.window.width == 640);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects trailing comma", "[unit][config][parse][json-adapter][negative]")
+TEST_CASE("loadEngineChannelConfig rejects trailing comma", "[unit][config][parse][json-adapter][negative][CFG-reject-trailing-comma]")
 {
     const TempConfigFile file(R"({ "window": { "x": 0, "y": 0, "width": 640, "height": 480 }, })");
     EngineChannelConfig cfg;
@@ -1360,7 +1360,7 @@ TEST_CASE("loadEngineChannelConfig rejects trailing comma", "[unit][config][pars
 // 验收：窗口几何与通道配置一致
 // =============================================================================
 
-SCENARIO("on-screen window position and size match the channel config", "[acceptance][bdd][config]")
+SCENARIO("on-screen window position and size match the channel config", "[acceptance][bdd][config][CFG-window-matches-channel]")
 {
     GIVEN("an Engine loaded from a channel config with window shown")
     {

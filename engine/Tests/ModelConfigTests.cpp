@@ -372,7 +372,7 @@ namespace
 // -----------------------------------------------------------------------------
 
 SCENARIO("local entity pose from config matches sampled engine pose",
-         "[acceptance][bdd][config][pose][local][entity]")
+         "[acceptance][bdd][config][pose][local][entity][POSE-local-entity-sampled]")
 {
     GIVEN("a Local channel config with entities[].pose.local")
     {
@@ -398,7 +398,7 @@ SCENARIO("local entity pose from config matches sampled engine pose",
 }
 
 SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
-         "[acceptance][bdd][config][pose][ellipsoid][entity]")
+         "[acceptance][bdd][config][pose][ellipsoid][entity][POSE-ellipsoid-not-local]")
 {
     GIVEN("an Ellipsoid config with both pose halves deliberately different")
     {
@@ -430,7 +430,7 @@ SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
 }
 
 SCENARIO("loaded entity is parented under a MatrixTransform",
-         "[acceptance][bdd][config][pose][entity]")
+         "[acceptance][bdd][config][pose][entity][POSE-parented-matrix]")
 {
     GIVEN("a Local entity config with pose.local")
     {
@@ -487,7 +487,7 @@ SCENARIO("multiple entities: catalog entries are registered and hung on the scen
 }
 
 SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
-         "[acceptance][bdd][config][pose][entities][local][transform]")
+         "[acceptance][bdd][config][pose][entities][local][transform][POSE-multi-local-matrix]")
 {
     GIVEN("a Local config with two entities, each with distinct pose.local")
     {
@@ -514,7 +514,7 @@ SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
 }
 
 SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF config",
-         "[acceptance][bdd][config][pose][entities][ellipsoid][transform]")
+         "[acceptance][bdd][config][pose][entities][ellipsoid][transform][POSE-multi-ellipsoid-ecef]")
 {
     GIVEN("an Ellipsoid config with two entities and distinct pose.ellipsoid")
     {
@@ -556,13 +556,13 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
 // -----------------------------------------------------------------------------
 
 TEST_CASE("loadEngineChannelConfig rejects singular entity key",
-          "[unit][config][parse][pose][entities]")
+          "[unit][config][parse][pose][entities][CFG-reject-singular-entity]")
 {
     requireLoadFails(std::string("{ \"entity\": { \"model\": \"") + kLz + "\" }, " + kWindow + " }");
 }
 
 TEST_CASE("loadEntitiesFile accepts pose with only the non-selected half",
-          "[unit][config][parse][pose][entities-catalog]")
+          "[unit][config][parse][pose][entities-catalog][CFG-entities-pose-nonsel-half]")
 {
     // 双轨自由解析：不再按 injectEllipsoidIfMissing 强制某半，两半均可解析。
     const TempConfigFile file(
@@ -576,7 +576,7 @@ TEST_CASE("loadEntitiesFile accepts pose with only the non-selected half",
     REQUIRE_FALSE(entities[0].hasPoseLocal);
 }
 
-TEST_CASE("loadEntitiesFile accepts pose with ellipsoid half absent", "[unit][config][parse][pose][entities-catalog]")
+TEST_CASE("loadEntitiesFile accepts pose with ellipsoid half absent", "[unit][config][parse][pose][entities-catalog][CFG-entities-pose-no-ellipsoid]")
 {
     // 双轨自由解析：不强制 pose 必须带某半。
     const TempConfigFile file(
@@ -591,7 +591,7 @@ TEST_CASE("loadEntitiesFile accepts pose with ellipsoid half absent", "[unit][co
 }
 
 TEST_CASE("loadEngineChannelConfig accepts camera pose with only the non-selected half",
-          "[unit][config][parse][pose][camera]")
+          "[unit][config][parse][pose][camera][CFG-camera-pose-nonsel-half]")
 {
     // 双轨自由解析：不强制 camera pose 必须带「选中」半，运行时按场景有无椭球选半。
     const TempConfigFile file(std::string("{ ") + kWindow +
@@ -606,7 +606,7 @@ TEST_CASE("loadEngineChannelConfig accepts camera pose with only the non-selecte
 }
 
 TEST_CASE("loadEngineChannelConfig rejects camera local pose with incomplete eulerYprDeg",
-          "[unit][config][parse][pose][camera]")
+          "[unit][config][parse][pose][camera][CFG-camera-reject-incomplete-ypr]")
 {
     requireLoadFails(std::string("{ ") + kWindow +
                      R"(, "camera": { "pose": { "local": { "position": [0, -10, 5], "eulerYprDeg": [0, 0] } } } })");
@@ -617,7 +617,7 @@ TEST_CASE("loadEngineChannelConfig rejects camera local pose with incomplete eul
 // -----------------------------------------------------------------------------
 
 SCENARIO("entity name defaults to model basename and explicit name is kept",
-         "[acceptance][bdd][config][pose][entities][name]")
+         "[acceptance][bdd][config][pose][entities][name][CFG-entity-name-basename]")
 {
     GIVEN("two entities: one omits name, one sets name explicitly")
     {
@@ -688,7 +688,7 @@ SCENARIO("single entities entry still registers in the id map",
 }
 
 SCENARIO("sampled entity pose matches MatrixTransform for local pose",
-         "[acceptance][bdd][config][pose][entities][local][sample]")
+         "[acceptance][bdd][config][pose][entities][local][sample][POSE-sampled-local-matrix]")
 {
     GIVEN("a Local entity with pose.local")
     {
@@ -714,7 +714,7 @@ SCENARIO("sampled entity pose matches MatrixTransform for local pose",
 }
 
 SCENARIO("duplicate entity names are allowed; lookup is by id only",
-         "[acceptance][bdd][config][pose][entities][name][id]")
+         "[acceptance][bdd][config][pose][entities][name][id][CFG-dup-names-id-lookup]")
 {
     GIVEN("two entities sharing the same display name but different ids")
     {
@@ -1230,7 +1230,7 @@ SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
 // -----------------------------------------------------------------------------
 
 SCENARIO("local camera pose from config matches LookAt",
-         "[acceptance][bdd][config][pose][local][camera]")
+         "[acceptance][bdd][config][pose][local][camera][CAM-local-config-lookat]")
 {
     GIVEN("a Local config with camera.pose.local")
     {
@@ -1256,7 +1256,7 @@ SCENARIO("local camera pose from config matches LookAt",
 }
 
 SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
-         "[acceptance][bdd][config][pose][ellipsoid][camera]")
+         "[acceptance][bdd][config][pose][ellipsoid][camera][CAM-ellipsoid-config-lookat]")
 {
     GIVEN("an Ellipsoid config with different camera pose halves")
     {
@@ -1289,7 +1289,7 @@ SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
 // -----------------------------------------------------------------------------
 
 SCENARIO("no camera config: Local default LookAt frames entities AABB",
-         "[acceptance][bdd][config][pose][local][camera][aabb-default]")
+         "[acceptance][bdd][config][pose][local][camera][aabb-default][CAM-local-default-aabb]")
 {
     GIVEN("a Local entities config without camera")
     {
@@ -1312,7 +1312,7 @@ SCENARIO("no camera config: Local default LookAt frames entities AABB",
 }
 
 SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
-         "[acceptance][bdd][config][pose][ellipsoid][camera][aabb-default]")
+         "[acceptance][bdd][config][pose][ellipsoid][camera][aabb-default][CAM-ellipsoid-default-aabb]")
 {
     GIVEN("an Ellipsoid entities config without camera, model pinned away from Beijing default")
     {
@@ -1342,7 +1342,7 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 // -----------------------------------------------------------------------------
 
 SCENARIO("system loads scene_local config with one local entity and camera",
-         "[system][bdd][config][pose][local][resource]")
+         "[system][bdd][config][pose][local][resource][CFG-load-scene-local]")
 {
     GIVEN("a Local teapot pose config")
     {
@@ -1383,7 +1383,7 @@ SCENARIO("system loads scene_local config with one local entity and camera",
 }
 
 SCENARIO("system loads scene_ecef config with one ECEF entity and camera",
-         "[system][bdd][config][pose][ellipsoid][resource]")
+         "[system][bdd][config][pose][ellipsoid][resource][CFG-load-scene-ecef]")
 {
     GIVEN("an Ellipsoid Tiananmen teapot pose config")
     {

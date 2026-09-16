@@ -7,7 +7,7 @@
 // 验收：Engine 加载 / 渲染对外行为
 // =============================================================================
 
-SCENARIO("Engine loads a valid model and renders one frame", "[acceptance][bdd][render][load]")
+SCENARIO("Engine loads a valid model and renders one frame", "[acceptance][bdd][render][load][RND-load-frame]")
 {
     GIVEN("an offscreen Engine and a valid teapot model")
     {
@@ -32,7 +32,7 @@ SCENARIO("Engine loads a valid model and renders one frame", "[acceptance][bdd][
 }
 
 SCENARIO("Engine fails to initialize when the model path does not exist",
-         "[acceptance][bdd][render][load][failure]")
+         "[acceptance][bdd][render][load][failure][RND-load-missing]")
 {
     GIVEN("an offscreen Engine and a model path that does not exist")
     {
@@ -55,7 +55,7 @@ SCENARIO("Engine fails to initialize when the model path does not exist",
 }
 
 SCENARIO("default teapot view matches the golden reference image",
-         "[acceptance][bdd][render][golden]")
+         "[acceptance][bdd][render][golden][RND-golden-teapot]")
 {
     GIVEN("an offscreen Engine, teapot model, and golden reference image")
     {

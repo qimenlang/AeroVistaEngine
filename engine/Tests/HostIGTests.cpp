@@ -2,11 +2,17 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine.h"
+#include <aerovista/sync/CigiIncludes.h>
 #include <aerovista/sync/CigiWire.h>
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SyncConfig.h>
 #include <aerovista/sync/SynchronSystem.h>
+
+#include "CigiBaseEntityPositionCtrl.h"
+#include "CigiEntityPositionCtrlV4.h"
+#include "CigiHostSession.h"
+#include "CigiIGSession.h"
 
 #include <chrono>
 #include <cmath>
@@ -33,7 +39,7 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 // 协议分层（测试约定）：
 // - 握手 / 动态端口：仍为自建 sync_proto WireMsg（HELLO / UDP_SYNC）——§1 用例覆盖，本文件不改其方向。
 // - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。
-//   §2 / §3 / §4.6 行为断言仍走 HostSync/IgSync/Engine API；线格式契约见 [unit][cigi][wire-contract]。
+//   数据面契约走 HostSync/IgSync 可观察收发（[wire-contract]）；CCL 首包约束仍为 session 负向单测。
 
 namespace
 {
@@ -59,8 +65,91 @@ namespace
     /// IGCtrl 由 outMsgWithIgCtrlUdp() 自动前置（帧号/自计时时间戳）；hostSendFrame 只发无眼点帧。
     void hostSendFrame(HostSync& host, double /*simTimeMs*/)
     {
-        auto& omsg = host.outMsgWithIgCtrlUdp();
+        host.outMsgWithIgCtrlUdp();
         host.flushUdp();
+    }
+
+    void hostSendEyePose(HostSync& host, const cigi_wire::EyePose& eye)
+    {
+        auto& omsg = host.outMsgWithIgCtrlUdp();
+        cigi_wire::appendEye(omsg, &eye);
+        host.flushUdp();
+    }
+
+    // 业务侧扇出一帧 IGCtrl + 眼点（outMsgWithIgCtrlUdp 自动前置 IGCtrl，appendEye 追加 ownship）。
+    void hostSendEyeFrame(HostSync& host, const ChannelEye& eye)
+    {
+        cigi_wire::EyePose wire{};
+        wire.x = eye.lla.x;
+        wire.y = eye.lla.y;
+        wire.z = eye.lla.z;
+        wire.yawDeg = eye.eulerYprDeg.x;
+        wire.pitchDeg = eye.eulerYprDeg.y;
+        wire.rollDeg = eye.eulerYprDeg.z;
+        hostSendEyePose(host, wire);
+    }
+
+    bool linkHostIg(HostSync& host, IgSync& ig, int base)
+    {
+        if (!host.initialize(makeTestHostConfig(base)))
+            return false;
+        const IgConfig igConfig = makeTestIgConfig(base + 1, base);
+        if (!ig.initialize(igConfig) || !ig.connect(igConfig))
+            return false;
+        host.run();
+        return true;
+    }
+
+    struct OwnshipEyeCapture
+    {
+        bool got = false;
+        std::uint16_t entityId = 0;
+        std::uint16_t parentId = 0;
+        CigiBaseEntityPositionCtrl::AttachStateGrp attachState = CigiBaseEntityPositionCtrl::Detach;
+        double lat = 0.0;
+        double lon = 0.0;
+        double alt = 0.0;
+        double yawDeg = 0.0;
+        double pitchDeg = 0.0;
+        double rollDeg = 0.0;
+    };
+
+    void captureOwnship(IgSync& ig, OwnshipEyeCapture& cap)
+    {
+        ig.addCallback<CigiEntityPositionCtrlV4>([&](const CigiEntityPositionCtrlV4& pose) {
+            if (pose.GetEntityID() != 0)
+                return;
+            cap.got = true;
+            cap.entityId = pose.GetEntityID();
+            cap.parentId = pose.GetParentID();
+            cap.attachState = pose.GetAttachState();
+            cap.lat = pose.GetLat();
+            cap.lon = pose.GetLon();
+            cap.alt = pose.GetAlt();
+            cap.yawDeg = pose.GetYaw();
+            cap.pitchDeg = pose.GetPitch();
+            cap.rollDeg = pose.GetRoll();
+        });
+    }
+
+    void pumpIgCtrlFrames(HostSync& host, IgSync& ig, int frames = 5)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            hostSendFrame(host, i * 16.667);
+            ig.drainIncoming();
+            ig.update();
+        }
+    }
+
+    void pumpOwnshipEyeFrames(HostSync& host, IgSync& ig, const cigi_wire::EyePose& eye, int frames = 5)
+    {
+        for (int i = 0; i < frames; ++i)
+        {
+            hostSendEyePose(host, eye);
+            ig.drainIncoming();
+            ig.update();
+        }
     }
 
     // 独立 Host 端点（测试用）：持 HostSync，RAII 生命周期。
@@ -78,53 +167,68 @@ namespace
     };
 } // namespace
 
-TEST_CASE("CIGI HostFrame wire contract: IGCtrl with optional EntityPosition eye",
-          "[unit][cigi][wire-contract]")
+SCENARIO("linked IG receives Host ownship eye as Detach LLA EntityID 0",
+         "[integration][sync][cigi][wire-contract][lla][CIGI-ownship-lla]")
 {
-    constexpr std::uint32_t kFrame = 7;
-    constexpr double kSimTimeMs = 123.45; // → TimeStamp 12345（10 µs 步进）
-    const cigi_wire::EyePose eye{11.0, 22.0, 33.0, 40.0, 0.0, 0.0};
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(linkHostIg(host, ig, 19100));
 
-    std::vector<unsigned char> withEye;
-    REQUIRE(cigi_wire::packHostFrame(kFrame, kSimTimeMs, &eye, withEye));
-    REQUIRE_FALSE(cigi_wire::isAvsyMagic(withEye.data(), static_cast<int>(withEye.size())));
+        OwnshipEyeCapture cap;
+        captureOwnship(ig, cap);
 
-    cigi_wire::HostFrame frame{};
-    REQUIRE(cigi_wire::unpackHostFrame(withEye.data(), static_cast<int>(withEye.size()), frame));
-    REQUIRE(frame.frameCntr == kFrame);
-    REQUIRE(frame.timeStampValid);
-    REQUIRE(frame.timeStamp == cigi_wire::simTimeMsToTimeStamp(kSimTimeMs));
-    REQUIRE(frame.eye.has_value());
-    REQUIRE(frame.eye->x == Catch::Approx(eye.x));
-    REQUIRE(frame.eye->y == Catch::Approx(eye.y));
-    REQUIRE(frame.eye->z == Catch::Approx(eye.z));
-    REQUIRE(frame.eye->yawDeg == Catch::Approx(eye.yawDeg));
-    REQUIRE(frame.eye->entityId == 0);
-    REQUIRE(frame.eye->parentId == 0);
+        WHEN("Host sends IGCtrl with an ownship eye")
+        {
+            cigi_wire::EyePose eye{};
+            eye.x = 39.9;
+            eye.y = 116.4;
+            eye.z = 500.0;
+            eye.yawDeg = 30.0;
+            eye.pitchDeg = 10.0;
+            pumpOwnshipEyeFrames(host, ig, eye);
+
+            THEN("IG unpacks Detach LLA ownship at EntityID 0 ParentID 0")
+            {
+                REQUIRE(ig.igCtrlReceivedCount() >= 1);
+                REQUIRE(cap.got);
+                REQUIRE(cap.entityId == 0);
+                REQUIRE(cap.parentId == 0);
+                REQUIRE(cap.attachState == CigiBaseEntityPositionCtrl::Detach);
+                REQUIRE(cap.lat == Catch::Approx(eye.x));
+                REQUIRE(cap.lon == Catch::Approx(eye.y));
+                REQUIRE(cap.alt == Catch::Approx(eye.z));
+                REQUIRE(cap.yawDeg == Catch::Approx(eye.yawDeg));
+                REQUIRE(cap.pitchDeg == Catch::Approx(eye.pitchDeg));
+            }
+        }
+    }
 }
 
-TEST_CASE("CIGI HostFrame wire contract: IGCtrl without eye", "[unit][cigi][wire-contract]")
+SCENARIO("linked IG receives IGCtrl when Host sends a frame without eye",
+         "[integration][sync][cigi][wire-contract][CIGI-igctrl-no-eye]")
 {
-    constexpr std::uint32_t kFrame = 8;
-    constexpr double kSimTimeMs = 123.45;
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(linkHostIg(host, ig, 19200));
 
-    std::vector<unsigned char> noEye;
-    REQUIRE(cigi_wire::packHostFrame(kFrame, kSimTimeMs, nullptr, noEye));
-    cigi_wire::HostFrame frameNoEye{};
-    REQUIRE(cigi_wire::unpackHostFrame(noEye.data(), static_cast<int>(noEye.size()), frameNoEye));
-    REQUIRE(frameNoEye.frameCntr == kFrame);
-    REQUIRE_FALSE(frameNoEye.eye.has_value());
-}
+        OwnshipEyeCapture cap;
+        captureOwnship(ig, cap);
 
-TEST_CASE("CIGI Sof wire contract: SOF frame counter round-trip", "[unit][cigi][wire-contract]")
-{
-    constexpr std::uint32_t kFrame = 7;
+        WHEN("Host sends IGCtrl with no ownship eye")
+        {
+            pumpIgCtrlFrames(host, ig);
 
-    std::vector<unsigned char> sofBuf;
-    REQUIRE(cigi_wire::packSof(kFrame, sofBuf));
-    std::uint32_t sofFrame = 0;
-    REQUIRE(cigi_wire::unpackSof(sofBuf.data(), static_cast<int>(sofBuf.size()), sofFrame));
-    REQUIRE(sofFrame == kFrame);
+            THEN("IG received IGCtrl and no ownship EntityPosition")
+            {
+                REQUIRE(ig.igCtrlReceivedCount() >= 1);
+                REQUIRE_FALSE(cap.got);
+            }
+        }
+    }
 }
 
 namespace
@@ -144,7 +248,7 @@ namespace
 } // namespace
 
 TEST_CASE("CIGI IG rejects a message whose first packet is not IGCtrl",
-          "[unit][cigi][wire-contract][negative]")
+          "[unit][cigi][wire-contract][negative][CIGI-first-igctrl]")
 {
     // CCL 硬约束（CigiIncomingMsg.cpp CheckFirstPacket）：IG 入站消息首包必须 IGCtrl（0x0000），
     // 否则拒绝。构造首包 PacketID=0x0001（EntityPosition，非 IGCtrl）。
@@ -165,7 +269,7 @@ TEST_CASE("CIGI IG rejects a message whose first packet is not IGCtrl",
 }
 
 TEST_CASE("CIGI Host rejects a message whose first packet is not SOF",
-          "[unit][cigi][wire-contract][negative]")
+          "[unit][cigi][wire-contract][negative][CIGI-first-sof]")
 {
     // CCL 硬约束（CigiIncomingMsg.cpp CheckFirstPacket）：Host 入站消息首包必须 SOF（0xffff），
     // 否则拒绝。构造首包 PacketID=0x0001（IGCtrl，非 SOF）。
@@ -185,77 +289,11 @@ TEST_CASE("CIGI Host rejects a message whose first packet is not SOF",
     REQUIRE(stat != CIGI_SUCCESS);
 }
 
-// lla位姿传输设计.md §5 / §7 线契约：Detach+LLA、EntityID/ParentID（同步层只 LLA）。
-TEST_CASE("CIGI EntityPosition Detach+LLA maps to Lla with EntityID 0 ParentID 0",
-          "[unit][cigi][wire-contract][lla]")
-{
-    cigi_wire::EyePose eye{};
-    eye.x = 39.9;  // lat
-    eye.y = 116.4; // lon
-    eye.z = 500.0; // alt m
-    eye.yawDeg = 30.0;
-    eye.pitchDeg = 10.0;
-    eye.rollDeg = 0.0;
-
-    std::vector<unsigned char> buf;
-    REQUIRE(cigi_wire::packHostFrame(2, 0.0, &eye, buf));
-
-    cigi_wire::HostFrame frame{};
-    REQUIRE(cigi_wire::unpackHostFrame(buf.data(), static_cast<int>(buf.size()), frame));
-    REQUIRE(frame.eye.has_value());
-    REQUIRE(frame.eye->entityId == 0);
-    REQUIRE(frame.eye->parentId == 0);
-    REQUIRE(frame.eye->x == Catch::Approx(eye.x));
-    REQUIRE(frame.eye->y == Catch::Approx(eye.y));
-    REQUIRE(frame.eye->z == Catch::Approx(eye.z));
-    REQUIRE(frame.eye->yawDeg == Catch::Approx(eye.yawDeg));
-    REQUIRE(frame.eye->pitchDeg == Catch::Approx(eye.pitchDeg));
-}
-
-namespace
-{
-    cigi_wire::EyePose channelEyeToWire(const ChannelEye& host)
-    {
-        cigi_wire::EyePose wire{};
-        wire.x = host.lla.x;
-        wire.y = host.lla.y;
-        wire.z = host.lla.z;
-        wire.yawDeg = host.eulerYprDeg.x;
-        wire.pitchDeg = host.eulerYprDeg.y;
-        wire.rollDeg = host.eulerYprDeg.z;
-        return wire;
-    }
-} // namespace
-
-// lla位姿传输设计.md §5 / §7：Host 眼点恒为 Detach+LLA（同步层只 LLA）。
-TEST_CASE("ChannelEye selects Detach on wire",
-          "[unit][cigi][wire-contract][lla][host-eye]")
-{
-    ChannelEye host{};
-    host.lla = {39.9, 116.4, 500.0};
-    host.eulerYprDeg = {45.0, 10.0, 0.0};
-
-    const cigi_wire::EyePose wireIn = channelEyeToWire(host);
-    std::vector<unsigned char> buf;
-    REQUIRE(cigi_wire::packHostFrame(4, 0.0, &wireIn, buf));
-
-    REQUIRE_FALSE(cigi_wire::isAvsyMagic(buf.data(), static_cast<int>(buf.size())));
-
-    cigi_wire::HostFrame frame{};
-    REQUIRE(cigi_wire::unpackHostFrame(buf.data(), static_cast<int>(buf.size()), frame));
-    REQUIRE(frame.eye.has_value());
-    REQUIRE(frame.eye->entityId == 0);
-    REQUIRE(frame.eye->parentId == 0);
-    REQUIRE(frame.eye->x == Catch::Approx(host.lla.x));
-    REQUIRE(frame.eye->y == Catch::Approx(host.lla.y));
-    REQUIRE(frame.eye->z == Catch::Approx(host.lla.z));
-}
-
 // =============================================================================
 // 1. 连接面（集成；握手仍为自建 sync_proto，非 CIGI）
 // =============================================================================
 
-SCENARIO("Host initializes with no ready IG", "[integration][sync][initialize]")
+SCENARIO("Host initializes with no ready IG", "[integration][sync][initialize][HS-host-init-empty]")
 {
     GIVEN("a new HostSync")
     {
@@ -275,7 +313,7 @@ SCENARIO("Host initializes with no ready IG", "[integration][sync][initialize]")
     }
 }
 
-SCENARIO("IG initializes disconnected from any Host", "[integration][sync][initialize]")
+SCENARIO("IG initializes disconnected from any Host", "[integration][sync][initialize][HS-ig-init-disconnected]")
 {
     GIVEN("a new IgSync")
     {
@@ -295,7 +333,7 @@ SCENARIO("IG initializes disconnected from any Host", "[integration][sync][initi
     }
 }
 
-SCENARIO("IG connect fails when Host is not running", "[integration][sync][connect][failure]")
+SCENARIO("IG connect fails when Host is not running", "[integration][sync][connect][failure][HS-connect-fail-no-host]")
 {
     GIVEN("an IG initialized without a running Host")
     {
@@ -316,7 +354,7 @@ SCENARIO("IG connect fails when Host is not running", "[integration][sync][conne
     }
 }
 
-SCENARIO("IG connects successfully when Host is already waiting", "[integration][sync][connect]")
+SCENARIO("IG connects successfully when Host is already waiting", "[integration][sync][connect][HS-connect-ok]")
 {
     GIVEN("a Host that has been initialized and is waiting for IGs")
     {
@@ -346,7 +384,7 @@ SCENARIO("IG connects successfully when Host is already waiting", "[integration]
     }
 }
 
-SCENARIO("IG disconnects when Host goes offline", "[integration][sync][connect][disconnect]")
+SCENARIO("IG disconnects when Host goes offline", "[integration][sync][connect][disconnect][HS-disconnect-host-offline]")
 {
     GIVEN("a connected Host and IG")
     {
@@ -372,7 +410,7 @@ SCENARIO("IG disconnects when Host goes offline", "[integration][sync][connect][
 }
 
 SCENARIO("IG connect fails when UDP peer ports are wrong but TCP port is valid",
-         "[integration][sync][connect][failure]")
+         "[integration][sync][connect][failure][HS-connect-fail-udp-port]")
 {
     GIVEN("a Host waiting for IGs")
     {
@@ -402,7 +440,7 @@ SCENARIO("IG connect fails when UDP peer ports are wrong but TCP port is valid",
     }
 }
 
-SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync][connect][multi-ig]")
+SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync][connect][multi-ig][HS-multi-ig-ready]")
 {
     GIVEN("a Host waiting for IGs")
     {
@@ -437,7 +475,7 @@ SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync]
 // =============================================================================
 
 SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each update",
-         "[integration][sync][status][cigi]")
+         "[integration][sync][status][cigi][CIGI-running-igctrl]")
 {
     GIVEN("a Host and an IG that have completed sync_proto handshake")
     {
@@ -469,7 +507,7 @@ SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each upda
     }
 }
 
-SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync][status][sof][cigi]")
+SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync][status][sof][cigi][CIGI-sof-echo]")
 {
     GIVEN("a Host and an IG that have completed sync_proto handshake")
     {
@@ -492,6 +530,7 @@ SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync
 
             THEN("SOF sent equals IGCtrl received; Host SOF count cannot exceed what IG sent")
             {
+                host.drainIncoming();
                 REQUIRE(ig.igCtrlReceivedCount() >= 1);
                 REQUIRE(ig.sofSentCount() == ig.igCtrlReceivedCount());
                 REQUIRE(host.sofReceivedCount() <= ig.sofSentCount());
@@ -501,7 +540,7 @@ SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync
 }
 
 SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
-         "[integration][sync][status][freerun][cigi]")
+         "[integration][sync][status][freerun][cigi][CIGI-freerun]")
 {
     GIVEN("a connected Host and IG (send is never gated by SOF)")
     {
@@ -524,6 +563,7 @@ SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
 
             THEN("Host sent all IGCtrl without depending on SOF")
             {
+                host.drainIncoming();
                 REQUIRE(host.igCtrlSentCount() == kFrames);
                 REQUIRE(host.sofReceivedCount() == 0);
                 REQUIRE(ig.igCtrlReceivedCount() <= kFrames);
@@ -533,7 +573,7 @@ SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
 }
 
 SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
-         "[integration][sync][status][frame][cigi]")
+         "[integration][sync][status][frame][cigi][CIGI-frame-cntr]")
 {
     GIVEN("a Host and an IG that have completed sync_proto handshake")
     {
@@ -581,7 +621,7 @@ SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
 // =============================================================================
 
 SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
-         "[integration][sync][engine][cigi]")
+         "[integration][sync][engine][cigi][CIGI-engine-ticks]")
 {
     GIVEN("an offscreen IG-only Engine and an independent HostSync")
     {
@@ -613,6 +653,7 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
                 HostSync& hostRef = host.sync;
                 IgSync& ig = sync.igSync();
 
+                hostRef.drainIncoming();
                 REQUIRE(hostRef.igCtrlSentCount() == kTicks);
                 REQUIRE(approxAtMost(ig.igCtrlReceivedCount(), kTicks, 3));
                 REQUIRE(ig.sofSentCount() == ig.igCtrlReceivedCount());
@@ -624,7 +665,7 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
 }
 
 SCENARIO("three IG Engines exchange CIGI frame control across one independent Host",
-         "[integration][sync][engine][multi-ig][cigi]")
+         "[integration][sync][engine][multi-ig][cigi][CIGI-multi-ig]")
 {
     GIVEN("one independent HostSync and three IG-only Engines A/B/C on distinct UDP ports")
     {
@@ -662,6 +703,7 @@ SCENARIO("three IG Engines exchange CIGI frame control across one independent Ho
                 IgSync& igB = engineB.synchronSystem().igSync();
                 IgSync& igC = engineC.synchronSystem().igSync();
 
+                hostRef.drainIncoming();
                 REQUIRE(hostRef.igCtrlSentCount() == kTicks);
                 REQUIRE(approxAtMost(igA.igCtrlReceivedCount(), kTicks, 3));
                 REQUIRE(approxAtMost(igB.igCtrlReceivedCount(), kTicks, 3));
@@ -818,28 +860,13 @@ namespace
     {
         return makeIgLocalEye(igUdpRecv, base);
     }
-
-    // 业务侧扇出一帧 IGCtrl + 眼点（outMsgWithIgCtrlUdp 自动前置 IGCtrl，appendEye 追加 ownship）。
-    void hostSendEyeFrame(HostSync& host, const ChannelEye& eye)
-    {
-        auto& omsg = host.outMsgWithIgCtrlUdp();
-        cigi_wire::EyePose wire{};
-        wire.x = eye.lla.x;
-        wire.y = eye.lla.y;
-        wire.z = eye.lla.z;
-        wire.yawDeg = eye.eulerYprDeg.x;
-        wire.pitchDeg = eye.eulerYprDeg.y;
-        wire.rollDeg = eye.eulerYprDeg.z;
-        cigi_wire::appendEye(omsg, &wire);
-        host.flushUdp();
-    }
 } // namespace
 
 // -----------------------------------------------------------------------------
 // 4.1 位姿 API 标尺（单元，非验收）
 // -----------------------------------------------------------------------------
 
-TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][camera]")
+TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][camera][CAM-lookat-ypr]")
 {
     Engine engine;
     engine.extent = {1920, 1080};
@@ -859,7 +886,7 @@ TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][cam
 }
 
 // lla位姿传输设计.md §3.3 / §4.1 / §7：有 EllipsoidModel 时 LLA+当地 YPR → ECEF LookAt。
-TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[unit][camera][lla]")
+TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[unit][camera][lla][CAM-lookat-lla]")
 {
     Engine engine;
     engine.extent = {1920, 1080};
@@ -884,7 +911,7 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
 }
 
 // lla位姿传输设计.md §3.5 / §7：LLA 本机往返（单机、无网络）。
-TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit][camera][lla][roundtrip]")
+TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit][camera][lla][roundtrip][CAM-lla-roundtrip]")
 {
     Engine engine;
     engine.extent = {1920, 1080};
@@ -918,7 +945,7 @@ TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit
 // -----------------------------------------------------------------------------
 
 SCENARIO("unlinked IG still applies queued Host eye to the camera",
-         "[acceptance][bdd][sync][hostctrl][gate]")
+         "[acceptance][bdd][sync][hostctrl][gate][LLA-unlinked-apply]")
 {
     GIVEN("an Engine with graphics whose IG is not linked to a Host")
     {
@@ -953,7 +980,7 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
     }
 }
 
-SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][hostctrl][gate]")
+SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][hostctrl][gate][LLA-linked-apply]")
 {
     GIVEN("an IG Engine linked to an independent Host")
     {
@@ -990,7 +1017,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
 // -----------------------------------------------------------------------------
 
 SCENARIO("update re-applies last Host eye when no new eye arrives",
-         "[acceptance][bdd][sync][hostctrl]")
+         "[acceptance][bdd][sync][hostctrl][LLA-reuse-last]")
 {
     GIVEN("a linked Engine after one Host eye was applied")
     {
@@ -1023,7 +1050,7 @@ SCENARIO("update re-applies last Host eye when no new eye arrives",
 }
 
 SCENARIO("after disconnect, camera keeps the last Host eye pose",
-         "[acceptance][bdd][sync][hostctrl][disconnect]")
+         "[acceptance][bdd][sync][hostctrl][disconnect][LLA-keep-after-disconnect]")
 {
     GIVEN("a linked Engine that applied a Host eye then lost the IG link")
     {
@@ -1238,7 +1265,7 @@ namespace
 } // namespace
 
 SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
-         "[acceptance][bdd][sync][lla][follow]")
+         "[acceptance][bdd][sync][lla][follow][LLA-follow-aligned]")
 {
     GIVEN("an independent Host, IG Engine A and IG-only Engine B both on readymap with zero offset")
     {
@@ -1300,7 +1327,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 // -----------------------------------------------------------------------------
 
 SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
-         "[acceptance][bdd][sync][lla][offset]")
+         "[acceptance][bdd][sync][lla][offset][LLA-zero-offset]")
 {
     GIVEN("an IG Engine on readymap linked to an independent Host with channel offset all zero")
     {
@@ -1337,7 +1364,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
 }
 
 SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
-         "[acceptance][bdd][sync][lla][offset]")
+         "[acceptance][bdd][sync][lla][offset][LLA-yaw-offset]")
 {
     GIVEN("an IG Engine on readymap linked to an independent Host with yaw offset -60 deg")
     {
@@ -1376,7 +1403,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
 }
 
 SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R_host*Rz(delta))",
-         "[acceptance][bdd][sync][lla][offset]")
+         "[acceptance][bdd][sync][lla][offset][LLA-up-parallel]")
 {
     GIVEN("an IG Engine on readymap linked to an independent Host; Host LLA eye has pitch/roll; channel yaw-only")
     {
@@ -1416,7 +1443,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
 }
 
 SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
-         "[acceptance][bdd][sync][lla][offset][e2e][cigi]")
+         "[acceptance][bdd][sync][lla][offset][e2e][cigi][LLA-remote-yaw]")
 {
     GIVEN("an independent Host, IG A (offset 0) and IG-only B (yaw +60) both on readymap")
     {
@@ -1473,7 +1500,7 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
 // R_ig=R_host·Rz(δ)。本地刚性用例的 ECEF 对应物；无自带椭球时用 injectEllipsoidIfMissing 注入 WGS-84
 // （lla位姿传输设计.md §2）。
 SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls over live CIGI",
-         "[acceptance][bdd][sync][lla][offset][e2e][multi-ig][cigi][rigid]")
+         "[acceptance][bdd][sync][lla][offset][e2e][multi-ig][cigi][rigid][LLA-three-up-parallel]")
 {
     GIVEN("an independent Host and IG-only A/B/C with injected WGS-84 ellipsoid, yaw offsets -60/+60")
     {
@@ -1505,7 +1532,7 @@ SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls o
 }
 
 SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with matching radii",
-         "[acceptance][bdd][sync][lla][smoke]")
+         "[acceptance][bdd][sync][lla][smoke][LLA-radii-match]")
 {
     GIVEN("an independent Host, IG Engine A and IG-only Engine B both load readymap (built-in EllipsoidModel)")
     {
@@ -1543,7 +1570,7 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
 }
 
 SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow disagree",
-         "[acceptance][bdd][sync][lla][radius-mismatch]")
+         "[acceptance][bdd][sync][lla][radius-mismatch][LLA-radii-mismatch]")
 {
     GIVEN("an independent HostSync and IG on lz with injected WGS-84 ellipsoid")
     {
@@ -1654,71 +1681,95 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
 }
 
 // =============================================================================
-// 6. LLA 验收补齐：模式隔离 / 范围校验 / 权威 offset / 缓存复位（lla设计 §7）
+// 6. LLA 验收补齐：范围校验 / 权威 offset / 缓存复位（lla设计 §7）
 // =============================================================================
 
-TEST_CASE("CIGI LLA pack drops out-of-range lat/pitch eye but still packs IGCtrl",
-          "[unit][cigi][wire-contract][lla][range]")
+SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
+         "[integration][sync][cigi][wire-contract][lla][range][CIGI-lla-oor]")
 {
-    const auto rejectedBefore = cigi_wire::eyePoseRejectedByRange();
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(linkHostIg(host, ig, 19300));
 
-    cigi_wire::EyePose badLat{};
-    badLat.x = 91.0; // lat OOR
-    badLat.y = 10.0;
-    badLat.z = 100.0;
+        OwnshipEyeCapture cap;
+        captureOwnship(ig, cap);
 
-    std::vector<unsigned char> buf;
-    bool packed = false;
-    REQUIRE_NOTHROW(packed = cigi_wire::packHostFrame(20, 0.0, &badLat, buf));
-    REQUIRE(packed);
-    REQUIRE_FALSE(buf.empty());
+        WHEN("Host sends ownship eyes with latitude and pitch out of range")
+        {
+            const auto rejectedBefore = cigi_wire::eyePoseRejectedByRange();
+            cigi_wire::EyePose badLat{};
+            badLat.x = 91.0;
+            badLat.y = 10.0;
+            badLat.z = 100.0;
+            pumpOwnshipEyeFrames(host, ig, badLat);
+            const auto receivedAfterLat = ig.igCtrlReceivedCount();
+            const bool eyeAfterLat = cap.got;
+            const auto rejectedAfterLat = cigi_wire::eyePoseRejectedByRange();
 
-    cigi_wire::HostFrame frame{};
-    REQUIRE(cigi_wire::unpackHostFrame(buf.data(), static_cast<int>(buf.size()), frame));
-    REQUIRE(frame.frameCntr == 20);
-    REQUIRE_FALSE(frame.eye.has_value());
-    REQUIRE(cigi_wire::eyePoseRejectedByRange() > rejectedBefore);
+            cap.got = false;
+            cigi_wire::EyePose badPitch{};
+            badPitch.x = 39.9;
+            badPitch.y = 116.4;
+            badPitch.z = 500.0;
+            badPitch.pitchDeg = 95.0;
+            pumpOwnshipEyeFrames(host, ig, badPitch);
 
-    cigi_wire::EyePose badPitch{};
-    badPitch.x = 39.9;
-    badPitch.y = 116.4;
-    badPitch.z = 500.0;
-    badPitch.pitchDeg = 95.0; // pitch OOR
-
-    const auto rejectedMid = cigi_wire::eyePoseRejectedByRange();
-    packed = false;
-    REQUIRE_NOTHROW(packed = cigi_wire::packHostFrame(21, 0.0, &badPitch, buf));
-    REQUIRE(packed);
-    REQUIRE(cigi_wire::unpackHostFrame(buf.data(), static_cast<int>(buf.size()), frame));
-    REQUIRE_FALSE(frame.eye.has_value());
-    REQUIRE(cigi_wire::eyePoseRejectedByRange() > rejectedMid);
+            THEN("IG received IGCtrl, no ownship eye, and the range counter advanced")
+            {
+                REQUIRE(receivedAfterLat >= 1);
+                REQUIRE_FALSE(eyeAfterLat);
+                REQUIRE(rejectedAfterLat > rejectedBefore);
+                REQUIRE(ig.igCtrlReceivedCount() >= receivedAfterLat);
+                REQUIRE_FALSE(cap.got);
+                REQUIRE(cigi_wire::eyePoseRejectedByRange() > rejectedAfterLat);
+            }
+        }
+    }
 }
 
-TEST_CASE("CIGI LLA pack normalizes longitude into (-180,180]",
-          "[unit][cigi][wire-contract][lla][range]")
+SCENARIO("linked IG receives Host longitude wrapped into (-180,180]",
+         "[integration][sync][cigi][wire-contract][lla][range][CIGI-lon-wrap]")
 {
-    auto packAndReadLon = [](double lonIn) {
-        cigi_wire::EyePose eye{};
-        eye.x = 10.0;
-        eye.y = lonIn;
-        eye.z = 50.0;
-        std::vector<unsigned char> buf;
-        bool packed = false;
-        REQUIRE_NOTHROW(packed = cigi_wire::packHostFrame(22, 0.0, &eye, buf));
-        REQUIRE(packed);
-        cigi_wire::HostFrame frame{};
-        REQUIRE(cigi_wire::unpackHostFrame(buf.data(), static_cast<int>(buf.size()), frame));
-        REQUIRE(frame.eye.has_value());
-        return frame.eye->y;
-    };
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(linkHostIg(host, ig, 19400));
 
-    REQUIRE(packAndReadLon(190.0) == Catch::Approx(-170.0));
-    REQUIRE(packAndReadLon(-190.0) == Catch::Approx(170.0));
-    REQUIRE(packAndReadLon(180.0) == Catch::Approx(180.0));
+        OwnshipEyeCapture cap;
+        captureOwnship(ig, cap);
+
+        WHEN("Host sends ownship eyes with longitudes that wrap across ±180")
+        {
+            auto sendLon = [&](double lonIn) {
+                cap.got = false;
+                cigi_wire::EyePose eye{};
+                eye.x = 10.0;
+                eye.y = lonIn;
+                eye.z = 50.0;
+                pumpOwnshipEyeFrames(host, ig, eye);
+                REQUIRE(cap.got);
+                return cap.lon;
+            };
+
+            const double lonFrom190 = sendLon(190.0);
+            const double lonFromNeg190 = sendLon(-190.0);
+            const double lonFrom180 = sendLon(180.0);
+
+            THEN("IG sees longitude in (-180,180]")
+            {
+                REQUIRE(lonFrom190 == Catch::Approx(-170.0));
+                REQUIRE(lonFromNeg190 == Catch::Approx(170.0));
+                REQUIRE(lonFrom180 == Catch::Approx(180.0));
+            }
+        }
+    }
 }
 
 SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown",
-         "[acceptance][bdd][sync][lla][cache-reset]")
+         "[acceptance][bdd][sync][lla][cache-reset][LLA-cache-reset]")
 {
     GIVEN("a linked IG Engine with an applied Host eye")
     {
@@ -1761,7 +1812,7 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
 // =============================================================================
 
 SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
-         "[acceptance][bdd][sync][viewhost][cigi]")
+         "[acceptance][bdd][sync][viewhost][cigi][CIGI-viewhost-exchange]")
 {
     GIVEN("a viewhost HostSync loaded from a host-only config file, and an IG engine targeting it")
     {
@@ -1804,6 +1855,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 
             THEN("CIGI IGCtrl flows Host→IG and SOF flows IG→Host")
             {
+                viewhost->drainIncoming();
                 const std::uint32_t sentBefore = viewhost->igCtrlSentCount();
                 const std::uint32_t recvBefore = engineIg.synchronSystem().igSync().igCtrlReceivedCount();
                 const std::uint32_t sofBefore = viewhost->sofReceivedCount();
@@ -1815,6 +1867,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
                     engineIg.tickSync();                  // IG 收包 + 回 SOF
                 }
 
+                viewhost->drainIncoming();
                 REQUIRE(viewhost->igCtrlSentCount() > sentBefore);
                 REQUIRE(engineIg.synchronSystem().igSync().igCtrlReceivedCount() > recvBefore);
                 REQUIRE(viewhost->sofReceivedCount() > sofBefore);
@@ -1830,7 +1883,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 // =============================================================================
 
 SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
-         "[acceptance][bdd][sync][standalone][cigi]")
+         "[acceptance][bdd][sync][standalone][cigi][CIGI-standalone]")
 {
     GIVEN("host HostSync from hostConfig file, and IG SynchronSystem from igConfig file")
     {
@@ -1882,6 +1935,7 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
 
             THEN("CIGI IGCtrl and SOF flow both ways over TCP/UDP")
             {
+                hostSync->drainIncoming();
                 const std::uint32_t sentBefore = hostSync->igCtrlSentCount();
                 const std::uint32_t recvBefore = igSync->igSync().igCtrlReceivedCount();
                 const std::uint32_t sofBefore = hostSync->sofReceivedCount();
@@ -1893,6 +1947,7 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
                     igSync->preFrame();                   // IG 收 IGCtrl + 回 SOF
                 }
 
+                hostSync->drainIncoming();
                 REQUIRE(hostSync->igCtrlSentCount() > sentBefore);
                 REQUIRE(igSync->igSync().igCtrlReceivedCount() > recvBefore);
                 REQUIRE(hostSync->sofReceivedCount() > sofBefore);
