@@ -40,12 +40,12 @@ namespace
     // 默认端口见 doc/design/多通道同步/多通道同步模块设计.md
     HostConfig makeHostLocal()
     {
-        return HostConfig{8001, 8000, 8100};
+        return HostConfig{8000, 8100};
     }
 
     IgConfig makeIgLocal(int udpRecvPort = 8001)
     {
-        return IgConfig{8000, udpRecvPort, "127.0.0.1", 8100, 8000};
+        return IgConfig{udpRecvPort, "127.0.0.1", 8100, 8000};
     }
 
     // UDP 可丢：actual 落在 [expected-slack, expected]
@@ -387,7 +387,7 @@ SCENARIO("IG connect fails when UDP peer ports are wrong but TCP port is valid",
             WHEN("the IG connects using a Host target with wrong UDP ports")
             {
                 // Connect 使用 targetUdpPortRecv 作为 Host UDP 收端口。
-                IgConfig badUdpConfig{8000, 8001, "127.0.0.1", 8100, 9999};
+                IgConfig badUdpConfig{8001, "127.0.0.1", 8100, 9999};
                 const bool connected = ig.connect(badUdpConfig);
 
                 THEN("overall connect fails and neither plane is ready")
@@ -811,7 +811,7 @@ namespace
     // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
     IgConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
     {
-        return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
+        return IgConfig{udpRecvPort, "127.0.0.1", base + 100, base};
     }
 
     IgConfig makeIgOnlyRole(int igUdpRecv, int base = 18000)
@@ -1087,9 +1087,8 @@ namespace
               },
               "injectEllipsoidIfMissing": )" +
                            (injectEllipsoidIfMissing ? std::string("true") : std::string("false")) + R"(,
-              "igConfig": { "udpPortSend": )" +
-                           std::to_string(kBase) +
-                           R"(, "udpPortRecv": )" + std::to_string(udpRecv) +
+              "igConfig": { "udpPortRecv": )" +
+                           std::to_string(udpRecv) +
                            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
                            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
               "model": ")" +
@@ -1129,8 +1128,7 @@ namespace
         {
             // 独立 Host 端点（hostConfig 文件，viewhost 形态）。
             const TempConfigFile hostFile(
-                std::string(R"({ "hostConfig": { "udpPortSend": )") +
-                std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
+                std::string(R"({ "hostConfig": { "udpPortRecv": )") + std::to_string(kBase) +
                 R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
             HostConfig hostCfg;
             std::string hostErr;
@@ -1552,8 +1550,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         constexpr int kBase = 19400;
         // 独立 Host 端点（hostConfig 文件，viewhost 形态）。
         const TempConfigFile hostFile(
-            std::string(R"({ "hostConfig": { "udpPortSend": )") +
-            std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
+            std::string(R"({ "hostConfig": { "udpPortRecv": )") + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
         HostConfig hostCfg;
         std::string hostErr;
@@ -1571,8 +1568,8 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "requireConnectedIg": true
               },
               "injectEllipsoidIfMissing": true,
-              "igConfig": { "udpPortSend": )") +
-            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
+              "igConfig": { "udpPortRecv": )") +
+            std::to_string(kBase + 1) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
               "model": "models/readymap.vsgt",
@@ -1587,8 +1584,8 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "requireConnectedIg": false
               },
               "injectEllipsoidIfMissing": true,
-              "igConfig": { "udpPortSend": )") +
-            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
+              "igConfig": { "udpPortRecv": )") +
+            std::to_string(kBase + 3) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
               "model": "models/lz.vsgt",
@@ -1772,8 +1769,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 
         // viewhost 配置：与 makeTestIgConfig 的 target（tcp=base+100, udpRecv=base）对齐。
         const TempConfigFile viewhostFile(
-            std::string(R"({ "hostConfig": { "udpPortSend": )") +
-            std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
+            std::string(R"({ "hostConfig": { "udpPortRecv": )") + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
 
         HostConfig host;
@@ -1840,15 +1836,13 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
     {
         constexpr int kBase = 22000;
 
-        // host 独立配置（udpSend=base+1, udpRecv=base, tcp=base+100）。
+        // host 独立配置（udpRecv=base, tcp=base+100）。
         const TempConfigFile hostFile(
-            std::string(R"({ "hostConfig": { "udpPortSend": )") +
-            std::to_string(kBase + 1) + R"(, "udpPortRecv": )" + std::to_string(kBase) +
+            std::string(R"({ "hostConfig": { "udpPortRecv": )") + std::to_string(kBase) +
             R"(, "tcpPort": )" + std::to_string(kBase + 100) + R"( } })");
         // IG 独立配置（本地 udpRecv=base+3，target 指向 host 的 tcp=base+100 / udpRecv=base）。
         const TempConfigFile igFile(
-            std::string(R"({ "igConfig": { "udpPortSend": )") +
-            std::to_string(kBase) + R"(, "udpPortRecv": )" + std::to_string(kBase + 3) +
+            std::string(R"({ "igConfig": { "udpPortRecv": )") + std::to_string(kBase + 3) +
             R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( } })");
 

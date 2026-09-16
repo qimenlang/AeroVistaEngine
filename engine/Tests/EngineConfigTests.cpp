@@ -33,9 +33,9 @@ namespace
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     // engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortSend":8000,"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
-        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortSend":8000,"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -45,7 +45,7 @@ namespace
     // Role-relevant field compares.
     bool igConfigEquals(const IgConfig& a, const IgConfig& b)
     {
-        return a.udpPortSend == b.udpPortSend && a.udpPortRecv == b.udpPortRecv &&
+        return a.udpPortRecv == b.udpPortRecv &&
                a.targetAddr == b.targetAddr && a.targetTcpPort == b.targetTcpPort &&
                a.targetUdpPortRecv == b.targetUdpPortRecv;
     }
@@ -76,7 +76,7 @@ namespace
     std::string jsonIgConfig(int udpRecv = 8003)
     {
         return std::string(
-                   R"("igConfig": { "udpPortSend": 8000, "udpPortRecv": )") +
+                   R"("igConfig": { "udpPortRecv": )") +
                std::to_string(udpRecv) +
                R"(, "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 })";
     }
@@ -785,7 +785,7 @@ SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "
     {
         // kMainJson 端口（ig target tcp=8100 / udpRecv=8000；host 本地 tcp=8100 / udpRecv=8000 / udpSend=8001）。
         HostSync host;
-        REQUIRE(host.initialize(HostConfig{8001, 8000, 8100}));
+        REQUIRE(host.initialize(HostConfig{8000, 8100}));
         host.run();
 
         Engine engine;
@@ -889,7 +889,7 @@ TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level ke
 {
     // engine 配置含 hostConfig 即未知键拒绝；Host 进程用 loadHostConfig（见下方用例）。
     const TempConfigFile file(
-        std::string(R"({ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 }, )") +
+        std::string(R"({ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 }, )") +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -900,7 +900,7 @@ TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level ke
 TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", "[unit][config][parse]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortSend": 8000 }, )") +
+        std::string(R"({ "igConfig": { "udpPortRecv": 8000 }, )") +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -912,7 +912,7 @@ TEST_CASE("loadEngineChannelConfig rejects igConfig missing target fields (schem
 {
     // igConfig 自包含远端目标，缺 targetTcpPort 必须拒绝。
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
         R"("targetAddr": "127.0.0.1", "targetUdpPortRecv": 8000 }, )" + kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -924,8 +924,20 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.tcpPort (IgConfig ha
           "[unit][config][parse]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000, "tcpPort": 8100 }, )" +
+        kMinimalModel + ", " + kMinimalWindow + "}");
+    EngineChannelConfig cfg;
+    std::string error;
+    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    REQUIRE_FALSE(error.empty());
+}
+
+TEST_CASE("loadEngineChannelConfig rejects leftover igConfig.udpPortSend", "[unit][config][parse]")
+{
+    const TempConfigFile file(
+        std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )" +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -937,7 +949,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.udpPortSend on targe
           "[unit][config][parse]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )") +
+        std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000, "targetUdpPortSend": 8001 }, )" +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
@@ -964,7 +976,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.igConfig.has_value());
-    REQUIRE(cfg.igConfig->udpPortSend == 8000);
+    REQUIRE(cfg.igConfig->udpPortRecv == 8001);
     REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
     REQUIRE(cfg.syncSystem.channelId == 0);
 }
@@ -975,7 +987,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.igConfig->udpPortSend == 8000);
+    REQUIRE(cfg.igConfig->udpPortRecv == 8003);
     REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
 }
 
@@ -985,7 +997,7 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
         R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
         R"("requireConnectedIg": true }, )"
         R"("injectEllipsoidIfMissing": true, )"
-        R"("igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )"
+        R"("igConfig": { "udpPortRecv": 8003, )"
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
         R"("model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
@@ -1030,18 +1042,17 @@ TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit
 
 TEST_CASE("loadHostConfig parses a host-only config file", "[unit][config][sync][host]")
 {
-    const TempConfigFile file(R"({ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } })");
+    const TempConfigFile file(R"({ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } })");
     HostConfig cfg;
     std::string error;
     REQUIRE(loadHostConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.udpPortSend == 8001);
     REQUIRE(cfg.udpPortRecv == 8000);
     REQUIRE(cfg.tcpPort == 8100);
 }
 
 TEST_CASE("loadHostConfig rejects unknown top-level keys", "[unit][config][sync][host]")
 {
-    const TempConfigFile file(R"({ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 }, "igConfig": {} })");
+    const TempConfigFile file(R"({ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 }, "igConfig": {} })");
     HostConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadHostConfig(file.path(), cfg, &error));
@@ -1050,7 +1061,7 @@ TEST_CASE("loadHostConfig rejects unknown top-level keys", "[unit][config][sync]
 
 TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sync][host]")
 {
-    const TempConfigFile file(R"({ "hostConfig": { "udpPortSend": 8001 } })");
+    const TempConfigFile file(R"({ "hostConfig": { "udpPortRecv": 8000 } })");
     HostConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadHostConfig(file.path(), cfg, &error));
@@ -1064,12 +1075,11 @@ TEST_CASE("loadHostConfig rejects partial hostConfig object", "[unit][config][sy
 TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig]")
 {
     const TempConfigFile file(
-        R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8005, )"
+        R"({ "igConfig": { "udpPortRecv": 8005, )"
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } })");
     IgConfig cfg;
     std::string error;
     REQUIRE(loadIgConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.udpPortSend == 8000);
     REQUIRE(cfg.udpPortRecv == 8005);
     REQUIRE(cfg.targetAddr == "127.0.0.1");
     REQUIRE(cfg.targetTcpPort == 8100);
@@ -1079,7 +1089,7 @@ TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig
 TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][ig]")
 {
     const TempConfigFile file(
-        R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8005, )"
+        R"({ "igConfig": { "udpPortRecv": 8005, )"
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
         R"("hostConfig": {} })");
     IgConfig cfg;
@@ -1091,7 +1101,7 @@ TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][i
 TEST_CASE("loadIgConfig rejects partial igConfig object", "[unit][config][sync][ig]")
 {
     const TempConfigFile file(
-        R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8005, )"
+        R"({ "igConfig": { "udpPortRecv": 8005, )"
         R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100 } })");
     IgConfig cfg;
     std::string error;

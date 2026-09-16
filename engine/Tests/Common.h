@@ -73,10 +73,10 @@ struct EntitiesConfig
 
 inline HostConfig makeTestHostConfig(int base)
 {
-    return HostConfig{base + 1, base, base + 100};
+    return HostConfig{base, base + 100};
 }
 
 inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
 {
-    return IgConfig{base, udpRecvPort, "127.0.0.1", base + 100, base};
+    return IgConfig{udpRecvPort, "127.0.0.1", base + 100, base};
 }

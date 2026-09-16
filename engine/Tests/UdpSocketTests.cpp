@@ -17,7 +17,7 @@ namespace
     // 绑定 rcvPort=0（OS 分配）的接收 socket；返回其实际端口。
     bool bindEphemeral(UdpSocket& sock, int& outPort)
     {
-        if (!sock.initialize(0, 0))
+        if (!sock.initialize(0))
             return false;
         outPort = sock.localPort();
         return outPort > 0;
@@ -31,7 +31,7 @@ TEST_CASE("UdpSocket sendTo/recv loopback 自环收发", "[unit]")
     REQUIRE(bindEphemeral(recvSock, port));
 
     UdpSocket sendSock;
-    REQUIRE(sendSock.initialize(0, 0));
+    REQUIRE(sendSock.initialize(0));
 
     const char msg[] = "hello-udp";
     REQUIRE(sendSock.sendTo("127.0.0.1", port, msg, sizeof(msg)) == static_cast<int>(sizeof(msg)));
@@ -52,7 +52,7 @@ TEST_CASE("UdpSocket recvFrom 回填源 IP 与端口", "[unit]")
     REQUIRE(bindEphemeral(recvSock, port));
 
     UdpSocket sendSock;
-    REQUIRE(sendSock.initialize(0, 0));
+    REQUIRE(sendSock.initialize(0));
 
     const char msg[] = "from-test";
     REQUIRE(sendSock.sendTo("127.0.0.1", port, msg, sizeof(msg)) > 0);
@@ -69,7 +69,7 @@ TEST_CASE("UdpSocket recvFrom 回填源 IP 与端口", "[unit]")
 TEST_CASE("UdpSocket sendTo 非法参数返回 -1", "[unit]")
 {
     UdpSocket sock;
-    REQUIRE(sock.initialize(0, 0));
+    REQUIRE(sock.initialize(0));
 
     const char msg[] = "x";
     REQUIRE(sock.sendTo("", 12345, msg, sizeof(msg)) == -1);              // 空 ip
@@ -101,7 +101,7 @@ TEST_CASE("UdpSocket initialize 端口占用冲突返回 false", "[unit]")
 
     UdpSocket second;
     std::string error;
-    REQUIRE_FALSE(second.initialize(0, port, &error));
+    REQUIRE_FALSE(second.initialize(port, &error));
     REQUIRE_FALSE(error.empty());
     REQUIRE_FALSE(second.valid());
 }
@@ -109,7 +109,7 @@ TEST_CASE("UdpSocket initialize 端口占用冲突返回 false", "[unit]")
 TEST_CASE("UdpSocket close 幂等", "[unit]")
 {
     UdpSocket sock;
-    REQUIRE(sock.initialize(0, 0));
+    REQUIRE(sock.initialize(0));
     REQUIRE(sock.valid());
 
     sock.close();

@@ -104,10 +104,25 @@ namespace
 
     std::string makeIgConfigExtra(int base)
     {
-        return std::string(R"("igConfig": { "udpPortSend": )") + std::to_string(base) +
-               R"(, "udpPortRecv": )" + std::to_string(base + 1) +
+        return std::string(R"("igConfig": { "udpPortRecv": )") + std::to_string(base + 1) +
                R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(base + 100) +
                R"(, "targetUdpPortRecv": )" + std::to_string(base) + " }";
+    }
+
+    template<typename PacketT, typename Proc>
+    void subscribe(IgSync& ig, const std::shared_ptr<Proc>& proc)
+    {
+        ig.addCallback<PacketT>([proc](const PacketT& packet) {
+            proc->OnPacketReceived(const_cast<PacketT*>(&packet));
+        });
+    }
+
+    template<typename PacketT, typename Proc>
+    void subscribe(HostSync& host, const std::shared_ptr<Proc>& proc)
+    {
+        host.addCallback<PacketT>([proc](const PacketT& packet) {
+            proc->OnPacketReceived(const_cast<PacketT*>(&packet));
+        });
     }
 
     void sendHostEntityCtrl(HostSync& host, Engine& ig, Cigi_uint16 entityId,
@@ -325,7 +340,7 @@ TEST_CASE("CigiSymbolTextDefV4 packs variable-length Text", "[unit][sync][cmd][w
 }
 
 // =============================================================================
-// 2. E2E：真实 socket 收发（beginWithIgCtrl/flushTcp/registerEventProcessor）
+// 2. E2E：真实 socket 收发（outMsgWithIgCtrlTcp/flushTcp/addCallback）
 // =============================================================================
 
 SCENARIO("Host places an entity pose over TCP via outMsgWithIgCtrlTcp/flushTcp",
@@ -339,8 +354,7 @@ SCENARIO("Host places an entity pose over TCP via outMsgWithIgCtrlTcp/flushTcp",
         setupHostIgPair(hostA, engineA, engineB, 31000);
 
         auto placeProc = std::make_shared<TestPlaceProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
+        subscribe<CigiEntityPositionCtrlV4>(engineB.synchronSystem().igSync(), placeProc);
 
         WHEN("Host assembles EntityPositionCtrlV4 and flushes TCP")
         {
@@ -379,8 +393,7 @@ SCENARIO("Host sends a text command over TCP via SymbolTextDefV4",
         setupHostIgPair(hostA, engineA, engineB, 31150);
 
         auto textProc = std::make_shared<TestTextProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_SYMBOL_TEXT_DEFINITION_PACKET_ID_V4, textProc.get());
+        subscribe<CigiSymbolTextDefV4>(engineB.synchronSystem().igSync(), textProc);
 
         WHEN("Host assembles SymbolTextDefV4 and flushes TCP")
         {
@@ -412,10 +425,8 @@ SCENARIO("Host fans out a command to multiple IGs via flushTcp",
 
         auto procB = std::make_shared<TestPlaceProcessor>();
         auto procC = std::make_shared<TestPlaceProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, procB.get());
-        engineC.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, procC.get());
+        subscribe<CigiEntityPositionCtrlV4>(engineB.synchronSystem().igSync(), procB);
+        subscribe<CigiEntityPositionCtrlV4>(engineC.synchronSystem().igSync(), procC);
 
         WHEN("Host flushes one EntityPositionCtrlV4 to all ready IGs")
         {
@@ -454,8 +465,7 @@ SCENARIO("IG dispatches different text commands by first token",
         setupHostIgPair(hostA, engineA, engineB, 31200);
 
         auto textProc = std::make_shared<TestTextProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_SYMBOL_TEXT_DEFINITION_PACKET_ID_V4, textProc.get());
+        subscribe<CigiSymbolTextDefV4>(engineB.synchronSystem().igSync(), textProc);
 
         WHEN("Host sends two different text commands over TCP")
         {
@@ -496,10 +506,8 @@ SCENARIO("Host sends multiple packets in one message and IG dispatches each by P
 
         auto placeProc = std::make_shared<TestPlaceProcessor>();
         auto textProc = std::make_shared<TestTextProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_SYMBOL_TEXT_DEFINITION_PACKET_ID_V4, textProc.get());
+        subscribe<CigiEntityPositionCtrlV4>(engineB.synchronSystem().igSync(), placeProc);
+        subscribe<CigiSymbolTextDefV4>(engineB.synchronSystem().igSync(), textProc);
 
         WHEN("Host assembles two packets into one TCP message and flushes once")
         {
@@ -535,8 +543,7 @@ SCENARIO("Host streams real-time entity pose over UDP via outMsgWithIgCtrlUdp/fl
         setupHostIgPair(hostA, engineA, engineB, 31500);
 
         auto placeProc = std::make_shared<TestPlaceProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
+        subscribe<CigiEntityPositionCtrlV4>(engineB.synchronSystem().igSync(), placeProc);
 
         WHEN("Host assembles EntityPositionCtrlV4 and flushes UDP each frame")
         {
@@ -641,7 +648,7 @@ TEST_CASE("CigiFrameAssembler keeps a multi-packet message as one frame",
 }
 
 // =============================================================================
-// 5. 双向命令面：IG 发送报文 → Host 注册 processor 处理（HostSync::registerEventProcessor）
+// 5. 双向命令面：IG 发送报文 → Host addCallback 订阅处理
 // =============================================================================
 
 SCENARIO("IG sends a message to Host and Host processor receives it",
@@ -656,8 +663,7 @@ SCENARIO("IG sends a message to Host and Host processor receives it",
 
         // Host 侧对等注册：处理 IG 发来的 CigiIGMsgV4（CCL 原生 IG→Host 报文，§8.1 对等）。
         auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
-        hostA.registerEventProcessor(
-            CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+        subscribe<CigiIGMsgV4>(hostA, hostMsgProc);
 
         WHEN("IG assembles CigiIGMsgV4 and flushes TCP")
         {
@@ -697,11 +703,9 @@ SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
 
         // 双向注册：IG 处理 Host 发来的 CollDetSegDefV4；Host 处理 IG 回发的 CollDetSegRespV4。
         auto igDefProc = std::make_shared<TestCollDetSegDefProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_COLL_DET_SEG_DEF_PACKET_ID_V4, igDefProc.get());
+        subscribe<CigiCollDetSegDefV4>(engineB.synchronSystem().igSync(), igDefProc);
         auto hostRespProc = std::make_shared<TestCollDetSegRespProcessor>();
-        hostA.registerEventProcessor(
-            CIGI_COLL_DET_SEG_RESP_PACKET_ID_V4, hostRespProc.get());
+        subscribe<CigiCollDetSegRespV4>(hostA, hostRespProc);
 
         WHEN("Host sends CollDetSegDefV4 over TCP, IG processes and replies CollDetSegRespV4")
         {
@@ -766,8 +770,7 @@ SCENARIO("IG sends a UDP message and Host processor receives it",
 
         // Host 对等注册：处理 IG 经 UDP 发来的 CigiIGMsgV4（§8.1 对等，收发均支持 TCP/UDP）。
         auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
-        hostA.registerEventProcessor(
-            CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+        subscribe<CigiIGMsgV4>(hostA, hostMsgProc);
 
         WHEN("IG assembles CigiIGMsgV4 and flushes UDP")
         {
@@ -889,8 +892,7 @@ SCENARIO("Host TCP-filled message is not sent via flushUdp",
         setupHostIgPair(hostA, engineA, engineB, 32000);
 
         auto placeProc = std::make_shared<TestPlaceProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
+        subscribe<CigiEntityPositionCtrlV4>(engineB.synchronSystem().igSync(), placeProc);
 
         WHEN("Host fills a TCP outgoing message but flushes UDP")
         {
@@ -929,8 +931,7 @@ SCENARIO("Host TCP-filled message is delivered via flushTcp",
         setupHostIgPair(hostA, engineA, engineB, 32050);
 
         auto placeProc = std::make_shared<TestPlaceProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_ENTITY_POSITION_CTRL_PACKET_ID_V4, placeProc.get());
+        subscribe<CigiEntityPositionCtrlV4>(engineB.synchronSystem().igSync(), placeProc);
 
         WHEN("Host fills a TCP outgoing message and flushes TCP")
         {
@@ -969,7 +970,7 @@ SCENARIO("IG TCP-filled message is not sent via flushUdp",
         setupHostIgPair(hostA, engineA, engineB, 32100);
 
         auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
-        hostA.registerEventProcessor(CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+        subscribe<CigiIGMsgV4>(hostA, hostMsgProc);
 
         WHEN("IG fills a TCP outgoing message but flushes UDP")
         {
@@ -1009,7 +1010,7 @@ SCENARIO("IG TCP-filled message is delivered via flushTcp",
         setupHostIgPair(hostA, engineA, engineB, 32150);
 
         auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
-        hostA.registerEventProcessor(CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+        subscribe<CigiIGMsgV4>(hostA, hostMsgProc);
 
         WHEN("IG fills a TCP outgoing message and flushes TCP")
         {
@@ -1072,8 +1073,7 @@ SCENARIO("Host UDP frames carry valid IGCtrl first packet with timestamp",
         setupHostIgPair(hostA, engineA, engineB, 32200);
 
         auto igCtrlCapture = std::make_shared<TestIgCtrlCapture>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_IG_CTRL_PACKET_ID_V4, igCtrlCapture.get());
+        subscribe<CigiIGCtrlV4>(engineB.synchronSystem().igSync(), igCtrlCapture);
 
         WHEN("Host flushes two UDP data-plane frames")
         {
@@ -1113,8 +1113,7 @@ SCENARIO("Host TCP messages carry IGCtrl first packet with invalid timestamp and
         setupHostIgPair(hostA, engineA, engineB, 32250);
 
         auto igCtrlCapture = std::make_shared<TestIgCtrlCapture>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_IG_CTRL_PACKET_ID_V4, igCtrlCapture.get());
+        subscribe<CigiIGCtrlV4>(engineB.synchronSystem().igSync(), igCtrlCapture);
 
         WHEN("Host flushes two TCP command-plane messages")
         {
@@ -1162,11 +1161,9 @@ SCENARIO("Host can fill multiple packets in one message via repeated outMsgWithI
         setupHostIgPair(hostA, engineA, engineB, 32300);
 
         auto igCtrlCapture = std::make_shared<TestIgCtrlCapture>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_IG_CTRL_PACKET_ID_V4, igCtrlCapture.get());
+        subscribe<CigiIGCtrlV4>(engineB.synchronSystem().igSync(), igCtrlCapture);
         auto textProc = std::make_shared<TestTextProcessor>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_SYMBOL_TEXT_DEFINITION_PACKET_ID_V4, textProc.get());
+        subscribe<CigiSymbolTextDefV4>(engineB.synchronSystem().igSync(), textProc);
 
         WHEN("Host calls outMsgWithIgCtrlTcp multiple times filling three packets, then flushes once")
         {
@@ -1208,8 +1205,7 @@ SCENARIO("Host UDP message carries exactly one IGCtrl across repeated outMsgWith
         setupHostIgPair(hostA, engineA, engineB, 32350);
 
         auto igCtrlCapture = std::make_shared<TestIgCtrlCapture>();
-        engineB.synchronSystem().igSync().registerEventProcessor(
-            CIGI_IG_CTRL_PACKET_ID_V4, igCtrlCapture.get());
+        subscribe<CigiIGCtrlV4>(engineB.synchronSystem().igSync(), igCtrlCapture);
 
         WHEN("Host calls outMsgWithIgCtrlUdp multiple times filling packets, then flushes once")
         {
@@ -1254,7 +1250,7 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
         // Host 捕获 SOF：验证 IG 出站去重——一条消息恰好一个 SOF。
         auto hostSofCapture = std::make_shared<TestIgCtrlCapture>(); // 复用：捕获 SOF 的 FrameCntr
         auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
-        hostA.registerEventProcessor(CIGI_IG_MSG_PACKET_ID_V4, hostMsgProc.get());
+        subscribe<CigiIGMsgV4>(hostA, hostMsgProc);
         // Host 侧基础设施 SofCaptureProc 已注册（双 session）——用 sofReceivedCount 验证只收到 1 条 SOF。
 
         WHEN("IG calls outMsgWithSofTcp multiple times filling three messages, then flushes once")
@@ -1600,8 +1596,7 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
             R"("pose": { "ellipsoid": { "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 }, )"
             R"("eulerYprDeg": [0, 0, 0] } } } ])",
             {}, true,
-            std::string(R"("igConfig": { "udpPortSend": )") + std::to_string(kBase) +
-                R"(, "udpPortRecv": )" + std::to_string(kBase + 1) +
+            std::string(R"("igConfig": { "udpPortRecv": )") + std::to_string(kBase + 1) +
                 R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
                 R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + " }");
 
@@ -1839,7 +1834,7 @@ SCENARIO("linked IG unpacks two hundred EntityCtrl from one Host TCP flush",
 // =============================================================================
 
 SCENARIO("IG sink callback fires once per EntityPositionCtrlV4 over both TCP and UDP",
-         "[acceptance][bdd][sync][cmd][e2e][entity-pose][debug]")
+         "[acceptance][bdd][sync][cmd][e2e][entity-pose]")
 {
     GIVEN("independent Host and two IG-only engines linked over real sockets")
     {
