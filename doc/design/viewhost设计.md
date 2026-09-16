@@ -370,7 +370,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 - 复用 sync 库 `loadHostConfig`，配置形态与 `viewhost.json` 一致（顶层仅 `hostConfig` 块，未知键拒绝）：
 
 ```jsonc
-{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
+{ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } }
 ```
 
 - **坐标系字段**：viewhost（Host 进程）**不配置任何坐标系字段**——同步只 LLA（2026-09 收敛），Host 恒发 LLA，与 IG 侧坐标系**靠人工部署保持一致**（IG 侧由「场景有无 `EllipsoidModel`」决定，见 [lla位姿传输设计.md](./多通道同步/lla位姿传输设计.md) §2.5）。`viewhost.json` 仅含 `hostConfig` 端口块。

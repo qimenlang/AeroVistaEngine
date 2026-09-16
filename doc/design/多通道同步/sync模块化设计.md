@@ -98,11 +98,11 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 - `OffsetDeg`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
-- **`IgConfig` 合并本地收发端口 + 远端 Host 目标**（`udpPortSend`/`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
+- **`IgConfig` 合并本地 UDP 接收端口 + 远端 Host 目标**（`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
 
 ### 3.3 命令面桥
 
-命令面为**业务 processor + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().registerEventProcessor` / `addCallback` 注册业务 processor。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 上行 / F10 发 SOF（IG→Host，与 viewhost testtcp/testudp 下行对称）。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` 已随旧命令面删除。
+命令面为**业务订阅 + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 上行 / F10 发 SOF（IG→Host，与 viewhost testtcp/testudp 下行对称）。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
 
 ### 3.4 Host 任务状态（`HostDataManager`）
 
@@ -124,30 +124,31 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ```jsonc
 // viewhost（Host-only）
-{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
+{ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } }
 
 // engine（IG-only）
 {
   "igConfig": {
-    "udpPortSend": 8000, "udpPortRecv": 8005,   // 本地收发
+    "udpPortRecv": 8005,   // 本地 UDP 接收
     "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000  // 远端 Host
   }
 }
 ```
 
 **字段语义**：
-- `hostConfig`：Host 本地传输参数（`udpPortSend`/`udpPortRecv`/`tcpPort`）。
-- `igConfig`：IG 本地收发端口（`udpPortSend`/`udpPortRecv`）+ 远端 Host 目标（`targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）。
+- `hostConfig`：Host 本地传输参数（`udpPortRecv`/`tcpPort`）。
+- `igConfig`：IG 本地 UDP 接收端口（`udpPortRecv`）+ 远端 Host 目标（`targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）。
 
 **设计理由**：
 - 本地 UDP 接收 / TCP 监听**固定绑定所有网卡**（`INADDR_ANY`，即 `0.0.0.0`）；`targetAddr` 才是可配的远端 Host 目标。
 - 已否决 `bindAddr` 字段：实现从未消费「本地绑定网卡」（接收/监听均写死 `INADDR_ANY`），移除以免误导「改配置即可限网卡」。
+- 已删除 `udpPortSend`：UDP 发送 socket 不 bind，源端口由 OS 分配；JSON 残留为未知键拒绝。
 - IG 侧一个配置块自洽（本地 + 远端），viewhost 侧一个配置块自洽，两端配置简单。
 - 远端字段加 `target` 前缀，避免与本地同名端口字段冲突。
 
-**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
+**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`udpPortSend`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
-**C++ 类型**：`IgConfig`（5 字段）/ `HostConfig`（3 字段）。
+**C++ 类型**：`IgConfig`（4 字段）/ `HostConfig`（2 字段）。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
@@ -182,8 +183,8 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 
 **配置形态**（schema 与 engine 侧块一致，包裹方案）：
 ```jsonc
-{ "hostConfig": { "udpPortSend": 8001, "udpPortRecv": 8000, "tcpPort": 8100 } }
-{ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8005,
+{ "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } }
+{ "igConfig": { "udpPortRecv": 8005,
                 "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
 ```
 
@@ -233,3 +234,21 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 - **`HostEyeStalePolicy` / 双驱动器已删除（2026-09）**：断线门控与 ReuseLast/Freeze 相对收包即合成无生产差异；`CameraDriverBase`/`RawCameraDriver`/`CameraDriver` 三套收成单一 `CameraDriver`。JSON `hostEyeStalePolicy` 为未知键拒绝。
 - **`CameraDriver` 不再回指 Engine（2026-09）**：驱动器只做 CCL 翻译与 compose；写相机由 `Engine::applyLastHostEye`。Engine 以值成员持有驱动器（不再 `unique_ptr`）。
 - **椭球注入对象已否决（2026-08 / 2026-09）**：`SynchronSystem::setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除；`setEllipsoidMode(bool)` 场景模式注入亦随同步只 LLA（2026-09）删除——决策器无需几何对象或模式判据。预留用的 `SyncMath.h`（`EllipsoidTransform` / 其后的 `DVec3`）已删除，不再占公开边界。
+- **`udpPortSend` 已删除（2026-09）**：UDP 发送 socket 不 bind，源端口由 OS 分配；配置残留为未知键拒绝。
+- **`registerEventProcessor` 已删除（2026-09）**：业务订阅只走 `addCallback<PacketT>`；测试不再经 CCL `RegisterEventProcessor` 旁路。
+
+## 6. 问题自查（待讨论）
+
+> 审查发现的未决问题先在此登记。未授权前不改公开接口。
+
+| # | 问题 | 关联章节 | 状态 |
+| --- | --- | --- | --- |
+| 3 | **`cigi_wire::EyePose::entityId` 发送路径不读**：`appendEye` 写死 `EntityID=0`；`parentId` 发送同样写死 0，仅 `unpackHostFrame` 用来丢弃非法眼点。字段对生产发送接口无效。 | §3.0 同步只 LLA | 待讨论 |
+| 4 | **`IncomingFrame` 在 `IgSync.h` 公开，外部零引用**（仅 `IgSync` 内部队列）。是否应收进 private / 源文件。 | IG 收发端点 | 待讨论 |
+| 5 | **`IgSync`「测试接口」分区标错生产方法**：`queueHostTimeStamp` / `resetHostSession` / `simTimeUsAt` / `updateFreeze` 被 `processIncomingUdp` / `connect` / `simTimeUs` / `update` 调用。真正仅测试消费的是 `lastHostSimTimeUs` / `setExtrapolateTimeoutUs` / `frozen` / `status` / `sofSentCount`。 | 时钟消费 / 门面 | 待讨论 |
+| 7 | **`packHostFrame` / `unpackHostFrame` / `unpackSof` 仅线格式测试锚定**：生产收发走 session + CCL。`packSof` 仍被 `IgSync::sendSofPacket` 使用。是否把测试用 pack/unpack 撤出公开头。 | CigiWire 公开面 | 待讨论 |
+| 8 | **`HostSync::sofReceivedCount() const` 会 `drainIncoming()`**：观测 getter 有副作用。viewhost 已每帧 `pollIncoming()`，再读计数会二次 drain。 | Host 收包 push | 待讨论 |
+| 9 | **`IgSync::drainIncoming(bool sendSof)` boolean 入参**：生产 `preFrame` 恒 `true`；`false` 只服务「不回 SOF」测试。是否拆成 `drainIncoming` / `drainIncomingWithoutSof`。 | §3.1 帧循环 | 待讨论 |
+| 10 | **`HostSync::run()` 名实不符**：`initialize` 已起 accept/UDP 线程；`run()` 只把 `_status` 置 `RUNNING`。漏调则握手仍工作，但 `HostDriver::isRunning()` 为假。 | §4.1 生命周期 | 待讨论 |
+| 11 | **`hasReadyIg()` 与 `readyIgCount()` 冗余**：生产（viewhost）只用 count；`hasReadyIg` 仅测试。 | 状态观测 | 待讨论 |
+| 12 | **`SyncSystemConfig::channelId` 仅存储、无运行期读取**（正文已写）。JSON / 公开结构仍暴露该字段。是否从 sync 公开配置拿掉。 | §4.2 | 待讨论 |
