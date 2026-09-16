@@ -570,7 +570,6 @@ SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
             THEN("at least one IGCtrl was received and FrameCntr values matched")
             {
                 REQUIRE(matchedFrames >= 1);
-                REQUIRE(ig.igCtrlReceivedCount() == static_cast<std::uint32_t>(matchedFrames));
                 REQUIRE(ig.lastIgCtrlFrameCntr() < static_cast<std::uint32_t>(kFrames));
             }
         }

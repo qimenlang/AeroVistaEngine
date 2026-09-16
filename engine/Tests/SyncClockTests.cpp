@@ -10,6 +10,7 @@
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SynchronSystem.h>
 
+#include <chrono>
 #include <cstdint>
 #include <thread>
 
@@ -25,6 +26,22 @@ namespace
     {
         auto& omsg = host.outMsgWithIgCtrlUdp();
         host.flushUdp();
+    }
+
+    /// UDP 回环仍可能跨过「同一次 tick」：发送后轮询 drain，直到可观察条件成立。
+    template<typename Pred>
+    bool tickUntil(Engine& engine, Pred ready, int maxAttempts = 50)
+    {
+        for (int i = 0; i < maxAttempts; ++i)
+        {
+            if (ready())
+                return true;
+            engine.tickSync();
+            if (ready())
+                return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return ready();
     }
 } // namespace
 
@@ -490,32 +507,28 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
         WHEN("the Host pauses between frames and then sends the next time stamp")
         {
-            // 预跑 2 帧，让 t0 有基准（保证时间戳从 Host 自计时起）。
-            for (int i = 0; i < 2; ++i)
-            {
-                hostSendFrame(hostA);
-                engineB.tickSync();
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
-            }
-            REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() >= 2);
-            const std::uint64_t t0 = engineB.synchronSystem().igSync().lastHostSimTimeUs();
-            REQUIRE(t0 > 0); // 预热后基准非零
+            IgSync& ig = engineB.synchronSystem().igSync();
 
-            // 暂停 100ms 再发一帧。
+            // 契约只需要两个已确认的 Host 时间戳，中间夹一次墙钟暂停。
+            // 不能「发完立刻 tick 再钉死收包数」：CI 上回环 UDP 经常晚一拍到达。
+            hostSendFrame(hostA);
+            REQUIRE(tickUntil(engineB, [&] { return ig.igCtrlReceivedCount() >= 1; }));
+            const std::uint64_t t0 = ig.lastHostSimTimeUs();
+            REQUIRE(t0 > 0);
+
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             hostSendFrame(hostA);
-            engineB.tickSync();
-            const std::uint64_t t1 = engineB.synchronSystem().igSync().lastHostSimTimeUs();
+            REQUIRE(tickUntil(engineB, [&] { return ig.lastHostSimTimeUs() > t0; }));
+            const std::uint64_t t1 = ig.lastHostSimTimeUs();
 
             THEN("the sim time advance follows the pause (real-time), not a fixed 16.67ms step")
             {
                 REQUIRE(t1 > t0);
                 const std::uint64_t advanceUs = t1 - t0;
 
-                // 引擎 B 的 advance 应 ≈ 暂停 100ms（+一帧误差，含网络接收延迟差）。
-                // HostSync 自计时（steady_clock 连续推进）：advance 应 ≥ 80ms。
+                // HostSync 自计时（steady_clock 连续推进）：advance ≈ 暂停 100ms，不是固定 16.67ms。
                 REQUIRE(advanceUs >= 80000);  // ≥ 80ms（100ms 暂停的 80%）
-                REQUIRE(advanceUs <= 200000); // ≤ 200ms（含网络/调度等波动上限）
+                REQUIRE(advanceUs <= 200000); // ≤ 200ms（含调度波动上限）
             }
         }
     }
