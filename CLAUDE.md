@@ -130,6 +130,17 @@ Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observ
 - Do **not** treat `SCENARIO` / `[bdd]` alone as acceptance.
 - API rulers / CLI parsers → `[unit]`, not `[acceptance]`.
 
+### 验收码 (required)
+
+Authority: `doc/测试用例书写规范.md` §1.1. Prefix → design-doc map: `doc/测试验收码.md` (do **not** copy that table here).
+
+Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as a same-name Catch2 tag (e.g. `[CIGI-ownship-lla]`). One code may cover multiple cases (1:n). Codes are PKs: once assigned, **never** rename, reuse, or reshuffle. Do **not** use serial numbers (`REQ-001`, `TEST-42`).
+
+- **New code** → add a row to the owning design doc’s 「验收要点」 (columns: 码 / 场景 / 验收 / Catch2). Lookup via `doc/测试验收码.md`. That is a **doc-sync** trigger.
+- **Reuse an existing code** when the case is another observable of the same contract; do not invent a sibling number.
+- Product 验收 tables (`ENT-*` / `CLK-*`) stay in their design docs. Do **not** dump unit-test catalogs into those tables.
+- Run one code: `vsgEngineTests.exe "[CIGI-ownship-lla]"`.
+
 ### Scenario narrative (required)
 
 - **One Scenario, one outcome.** Split fail / succeed / disconnect lifecycles.
@@ -145,11 +156,15 @@ Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observ
 ❌ [bdd] on setCameraPose / resolveConfigPath with no [unit]
 ❌ Title: "queue-injected Host eye…"
 ❌ REQUIRE every main.json literal (8000, 640, …) in acceptance tests
+❌ TEST_CASE / SCENARIO with no PREFIX-slug 验收码 tag
+❌ Rename / reuse / reshuffle an assigned 验收码; serial numbers as PK
+❌ Dump unit-test lists into ENT/CLK product 验收 tables
 
 ✅ Split connect-fail / connect-ok / host-offline disconnect
 ✅ [unit][camera] TEST_CASE for LookAt pose helper
 ✅ Title: "linked IG applies Host eye…"; queue in comment
 ✅ Compare to loadEngineChannelConfig / engine.config
+✅ `[CIGI-ownship-lla]` same-name tag; new codes registered in the owning 「验收要点」
 ```
 
 ### AI + tests
@@ -161,9 +176,10 @@ Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observ
 ### Before finishing an edit
 
 1. Tags match real role (`acceptance` / `integration` / `unit`).
-2. One receivable outcome per Scenario.
-3. No technique words in Scenario titles; Then is deterministic.
-4. No new hardcoded config snapshot tables without explicit golden/characterization intent.
+2. Every case has a same-name 验收码 tag; new codes are in the owning design 「验收要点」 (`doc/测试验收码.md`). New/moved 验收 rows → doc-sync.
+3. One receivable outcome per Scenario.
+4. No technique words in Scenario titles; Then is deterministic.
+5. No new hardcoded config snapshot tables without explicit golden/characterization intent.
 
 ---
 

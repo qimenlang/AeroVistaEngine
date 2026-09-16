@@ -19,6 +19,7 @@
 7. [与现有文档关系](#7-与现有文档关系)
 8. [否决与决策记录](#8-否决与决策记录)
 9. [与实现关系](#9-与实现关系)
+10. [验收要点](#10-验收要点)
 
 ---
 
@@ -286,7 +287,7 @@ IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`�
 | --- | --- |
 | ready IG 数 | `readyIgCount()` |
 | IGCtrl 发送轮次 | `igCtrlSentCount()` |
-| SOF 接收数 | `sofReceivedCount()` |
+| SOF 接收数 | `sofReceivedCount()`（须先 `pollIncoming`） |
 | 当前眼点（lat/lon/alt, yaw/pitch/roll） | 键盘累积 `_eye` |
 | 最近摆放实体 | `OnPlaceEntity` 写入的静态文本 |
 | 最近测试报文 | `OnTestTcp` / `OnTestUdp` 写入的静态文本（§4.7） |
@@ -380,7 +381,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 **分层原则**：
 
 - **不测**：MFC UI（`CDialog` 消息循环 / `GetAsyncKeyState` 轮询）。`HostSync` 的握手 / 扇出 / LLA 组包已由 `engine/Tests` 的 `HostIGTests`（`[viewhost]` / `[standalone]`）覆盖。
-- **测（`[unit]`）**：（1）键盘步进→LLA 换算（§4.2，`ViewHostMath`，与示例共源）。（2）`HostDataManager` 权威表：建表 `ENT-04-table-*`；运行期更新 `ENT-04-update-*`；按行组包 `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。`HostDriver` 编排不单独测 MFC；表逻辑在 Manager 上测，发送仍走既有 Host↔IG 用例。
+- **测（`[unit]`）**：（1）键盘步进→LLA 换算（§4.2，`ViewHostMath`，与示例共源；验收码 `VH-*` 见 §10）。（2）`HostDataManager` 权威表：建表 `ENT-04-table-*`；运行期更新 `ENT-04-update-*`；按行组包 `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11）。`HostDriver` 编排不单独测 MFC；表逻辑在 Manager 上测，发送仍走既有 Host↔IG 用例（`CIGI-viewhost-exchange` 见 §10）。
 
 **约束（写死）**：步进换算必须保持**纯 C++**——不依赖 MFC / vsg，只依赖 `cigi_wire::EyePose` 这一 POD 类型（include `CigiWire.h` 即可，不产生链接依赖），否则无法挂入 `engine/Tests`。
 
@@ -398,6 +399,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 2. [sync模块化设计.md](./多通道同步/sync模块化设计.md) §1.3 非目标：改为「不做 Host 独立进程的协议 / 上行改造（viewhost 示例已落地）」。
 3. [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §10 状态表 / §9 P2 / §0 表格 / §5 权威源：标注「Host 本地输入已有 viewhost 示例」，「指定输入 IG 上报」仍属后期；§9 P2 其它报文族进同一 `HostDataManager`。
 4. [sync模块化设计.md](./多通道同步/sync模块化设计.md) §3.4：`HostDataManager` 归 sync 库、不并入 `HostSync`；[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §3.2：实体表内容与广播仍由其规定。IG 实例见 [实体管理设计.md](./引擎基础功能/实体管理设计.md)。
+5. 验收码表：本文 §10（`VH-*` / `CIGI-viewhost-exchange`）；前缀索引 [测试验收码.md](../测试验收码.md)。
 
 ## 8. 否决与决策记录
 
@@ -433,3 +435,27 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 | **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::addCallback<T>` 模板转发；`OnInitDialog` 订阅 16 类 IG→Host TCP 报文 + UI 定时器每帧 pollIncoming + 「最近接收」显示；engine `PacketProbeHandler`（F9 随机 TCP 16 类 / F10 发 SOF）+ HUD「send」行；双构建（clang / MSVC）通过 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |
 | **实体控制 UI 演进（2026-09，§4.8 / §4.0）** | 已实现：Driver 持有 Manager；平级树 + 双击属性面板；Apply 按报文族 `setEntityCtrl` / `setEntityPose` 后一次 `sendEntity`（一次 flushTcp）。重置从表重填草稿。`entities.json` 与 `viewhost.json` 同目录。`broadcastEntityAuthority` 仍待（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §15 #3） |
+
+---
+
+## 10. 验收要点
+
+> 对齐 [测试用例书写规范.md](../测试用例书写规范.md)。§6 分层不变：不测 MFC UI。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。
+>
+> Host 权威表 `ENT-04-*` 见 [实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11。CIGI 命令面见 [状态同步设计初版.md](./多通道同步/状态同步设计初版.md) §10。
+
+| 码 | 场景 | 验收 | Catch2 |
+| --- | --- | --- | --- |
+| `CIGI-viewhost-exchange` | viewhost 联调 | 载入 `hostConfig` 的 viewhost 与一台 IG Engine 交换 CIGI | `[acceptance][bdd][sync][viewhost][cigi][CIGI-viewhost-exchange]` |
+| `VH-step-forward` | 前移 | yaw=0 前进只增纬度（§4.2） | `[unit][viewhost][step][VH-step-forward]` |
+| `VH-step-strafe` | 右移 | yaw=0 右移经度按 `cos(lat)` 缩放 | `[unit][viewhost][step][VH-step-strafe]` |
+| `VH-step-yaw90` | yaw=90 前进 | 向西（经度减小） | `[unit][viewhost][step][VH-step-yaw90]` |
+| `VH-step-yaw-neg90` | yaw=-90 前进 | 向东 | `[unit][viewhost][step][VH-step-yaw-neg90]` |
+| `VH-step-alt` | 升降 | 只改海拔 | `[unit][viewhost][step][VH-step-alt]` |
+| `VH-step-clamp-pitch` | 俯仰钳制 | 累积 yaw/pitch 后 pitch 钳位 | `[unit][viewhost][step][VH-step-clamp-pitch]` |
+| `VH-step-clamp-lat-n` | 北极纬度钳制 | 近北极纬度钳位 | `[unit][viewhost][step][VH-step-clamp-lat-n]` |
+| `VH-step-clamp-lat-s` | 南极纬度钳制 | 近南极纬度钳位 | `[unit][viewhost][step][VH-step-clamp-lat-s]` |
+| `VH-norm-yaw` | yaw 归一化 | yaw ∈ (-180, 180] | `[unit][viewhost][step][VH-norm-yaw]` |
+| `VH-norm-yaw-pos` | 跨 +180 | yaw 越过 +180 后归一化 | `[unit][viewhost][step][VH-norm-yaw-pos]` |
+| `VH-norm-yaw-neg` | 跨 -180 | yaw 越过 -180 后归一化 | `[unit][viewhost][step][VH-norm-yaw-neg]` |
+| `VH-norm-lon` | 经度跨 180 | longitude 跨 180 后归一化 | `[unit][viewhost][step][VH-norm-lon]` |

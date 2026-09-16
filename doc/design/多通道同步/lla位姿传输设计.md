@@ -397,7 +397,7 @@ engine 不再采样出站；viewhost 眼点来自键盘累积、无回灌相机�
 | --- | --- | --- | --- | --- |
 | LLA（唯一） | **Detach** | **0** | **0**（无父；Detach 下必须） | Lat / Lon / Alt |
 
-`appendEye`（`cigi_wire::appendEye(CigiOutgoingMsg&, const EyePose*)`，业务侧组装眼点；IGCtrl 由 `outMsgWithIgCtrlUdp()` 自动前置，2026-08-25 起 `appendHostFrame` 已删）：恒设置 `Detach` + LLA + `ParentID=0`；`unpack` 校验 `ParentID==0`（不符则丢弃眼点）。
+`appendEye`（`cigi_wire::appendEye(CigiOutgoingMsg&, const EyePose*)`，业务侧组装眼点；IGCtrl 由 `outMsgWithIgCtrlUdp()` 自动前置，2026-08-25 起 `appendHostFrame` 已删）：恒设置 `Detach` + LLA + `ParentID=0`。
 
 相机侧闭环仍是：**解包 → LLA → `setCameraPoseLla` 写 LookAt**；不把眼点做成「挂在场景父链上再乘 world Transform」的实体节点。
 
@@ -421,24 +421,33 @@ engine 不再采样出站；viewhost 眼点来自键盘累积、无回灌相机�
 
 ## 7. 验收要点
 
-在现有 `HostIGTests` 风格上增加椭球分支（可用自挂 `EllipsoidModel` + 简单几何，**不强制**在线瓦片）：
+> 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `HostIGTests.cpp`。椭球分支可用自挂 `EllipsoidModel` + 简单几何，**不强制**在线瓦片。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。
+>
+> 命令面 / 帧节拍见 [状态同步设计初版.md](./状态同步设计初版.md) §10；通道握手见 [多通道同步模块设计.md](./多通道同步模块设计.md) §11；注入 / 默认相机 AABB 见 [位姿配置设计.md](./位姿配置设计.md) §7。
+>
+> **已移除、不复用**：本机 LookAt 采样往返（随 `HostPosePublisher` 删除，改由 `CAM-lookat-lla` / `CAM-lla-roundtrip`）；权威窗 `offsetDeg` 全 0；`_lastSent` 换轨。`offsetDeg.pitch/roll≠0`、极区 Trackball **不测**。
 
-| 用例方向 | 期望 |
-| --- | --- |
-| LLA 本机往返 | **已移除**（2026-08 拆进程：依赖 LookAt 采样，随 `HostPosePublisher` 删除；改由 `setCameraPoseLla` 写入 + LookAt 字段断言覆盖） |
-| LLA Host→IG 跟拍 | **跨进程真报文**：viewhost 发布 LLA 眼点 → IG `LookAt.eye`（ECEF）与 Host 同椭球换算一致（Host 无 `offsetDeg`；邻通道另测 ⊕ yaw） |
-| `offsetDeg` | 仅 `yaw` 有定义；Host 眼点可含 pitch/roll，左/右仅 yaw 偏移时仍满足 `R_ig=R_host·Rz(δ)`（各通道 up 轴平行）；`offsetDeg.pitch/roll≠0` → **不测试** |
-| 线契约 | Detach+LLA 打包/解包；**Detach 时 ParentID=0、EntityID=0**（同步只 LLA，无 Attach 路径） |
-| 组包依据 | 恒 Detach+LLA；线上无私有 frame 字段 |
-| 模式装配 | 按 §2：无椭球才看「启 IG 同步 / `injectEllipsoidIfMissing`」注入；模型自带椭球则保留；注入在相机创建前；默认初始相机由 AABB 决定，见 [位姿配置设计.md](./位姿配置设计.md) §4（Ellipsoid fallback 到北京上空，Local fallback 到原点上空） |
-| 范围校验 | Lat/Lon/Pitch 越界不抛穿；丢弃眼点并计数；lon 归一化到 (-180,180] |
-| 权威 offset | **已移除**（2026-08 拆进程：Host 为 viewhost、无 `offsetDeg`；原「权威窗全 0」约束不再适用） |
-| 缓存复位 | `initGraphics` 后眼点缓存清空（不依赖整网 shutdown） |
-| 半径 | 注入为 WGS-84；自带模型不覆盖；装配后日志打印半径；BDD 覆盖 Host/IG 半径不一致（fail 或显式 skip，禁默默通过） |
-| 防回声 / 无新包 | 防回声**已移除**（2026-08 拆进程，§4.4）；无新包复用末次合成位姿 |
-| 场景重建清缓存 | 同进程重载场景：`CameraDriver::_lastApplied` 清空（`resetEyeCaches`） |
-| `_lastSent` 换轨 | **已移除**（2026-08 拆进程：`_lastSent` 随 `HostPosePublisher` 删除，无 Host 重发路径） |
-| 极区 / 任意 Trackball | 不作为第一版必过（可标 skip 或放宽） |
+| 码 | 场景 | 验收 | Catch2 |
+| --- | --- | --- | --- |
+| `CIGI-ownship-lla` | 线契约·ownship 眼点 | Host `appendEye` → IG 解到 Detach+LLA，`EntityID=0`、`ParentID=0`（§5） | `[integration][cigi][wire-contract][lla][CIGI-ownship-lla]` |
+| `CIGI-lla-oor` | LLA 越界仍发 IGCtrl | Lat/Lon/Pitch 越界不抛穿；丢弃眼点，Host 仍发送 IGCtrl（§5） | `[integration][cigi][wire-contract][lla][range][CIGI-lla-oor]` |
+| `CIGI-lon-wrap` | 经度归一化 | IG 收到的 longitude ∈ (-180,180]（§5） | `[integration][cigi][wire-contract][lla][range][CIGI-lon-wrap]` |
+| `CAM-lookat-ypr` | `setCameraPose` | LookAt 由位置 + 欧拉 YPR 写入 | `[unit][camera][CAM-lookat-ypr]` |
+| `CAM-lookat-lla` | `setCameraPoseLla` | ECEF LookAt 由 LLA + 当地 ENU YPR 写入（§4） | `[unit][camera][lla][CAM-lookat-lla]` |
+| `CAM-lla-roundtrip` | LLA 本机往返 | 同一 engine 回读 LLA 与当地 YPR 与写入一致 | `[unit][camera][lla][roundtrip][CAM-lla-roundtrip]` |
+| `LLA-unlinked-apply` | 未连接仍可写相机 | 未握手 IG 仍把已排队 Host 眼点应用到相机 | `[acceptance][bdd][sync][hostctrl][LLA-unlinked-apply]` |
+| `LLA-linked-apply` | 已连接跟拍 | 握手后 IG 把 Host 眼点写到相机 | `[acceptance][bdd][sync][hostctrl][gate][LLA-linked-apply]` |
+| `LLA-reuse-last` | 无新包复用末次 | 无新眼点到达时 `update` 仍套用上次合成位姿（§4） | `[acceptance][bdd][sync][hostctrl][LLA-reuse-last]` |
+| `LLA-keep-after-disconnect` | 断线保末帧 | 断连后相机保持最后一次 Host 眼点 | `[acceptance][bdd][sync][hostctrl][LLA-keep-after-disconnect]` |
+| `LLA-follow-aligned` | 对齐椭球 ECEF 跟拍 | Host LLA → IG `LookAt.eye`（ECEF）与同椭球换算一致 | `[acceptance][bdd][sync][hostctrl][lla][LLA-follow-aligned]` |
+| `LLA-zero-offset` | yaw=0 不改眼点 | `offsetDeg` 全 0 时 IG 眼点与 Host 一致 | `[acceptance][bdd][sync][hostctrl][offset][LLA-zero-offset]` |
+| `LLA-yaw-offset` | 仅 yaw 的 ENU offset | IG 在 ENU 叠 yaw-only offset 后再写 LookAt | `[acceptance][bdd][sync][hostctrl][offset][LLA-yaw-offset]` |
+| `LLA-up-parallel` | up 轴平行 | 仅 yaw 偏移满足 `R_ig=R_host·Rz(δ)`，通道 up 与 Host 平行 | `[acceptance][bdd][sync][hostctrl][offset][LLA-up-parallel]` |
+| `LLA-remote-yaw` | 真链路 yaw offset | 远程 IG 经 CIGI 跟随 Host LLA 并叠通道 yaw | `[acceptance][bdd][sync][hostctrl][e2e][LLA-remote-yaw]` |
+| `LLA-three-up-parallel` | 三通道 roll 后 up 平行 | Host 带 roll 的真链路下三椭球通道 up 仍与 Host 平行 | `[acceptance][bdd][sync][hostctrl][e2e][LLA-three-up-parallel]` |
+| `LLA-radii-match` | 半径一致 | Host/IG `EllipsoidModel` 半径一致，跟拍 ECEF 对齐（§2） | `[acceptance][bdd][sync][ellipsoid][LLA-radii-match]` |
+| `LLA-radii-mismatch` | 半径不一致 | Host readymap vs IG 注入 WGS-84 半径不同 → ECEF 跟拍分叉，禁默默通过（§2） | `[acceptance][bdd][sync][ellipsoid][LLA-radii-mismatch]` |
+| `LLA-cache-reset` | 场景重建清缓存 | `initGraphics` 清空眼点缓存，不依赖整网 shutdown（§4） | `[integration][sync][hostctrl][LLA-cache-reset]` |
 
 ---
 

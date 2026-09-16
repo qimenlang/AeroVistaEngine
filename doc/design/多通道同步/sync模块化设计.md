@@ -236,6 +236,8 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 - **椭球注入对象已否决（2026-08 / 2026-09）**：`SynchronSystem::setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除；`setEllipsoidMode(bool)` 场景模式注入亦随同步只 LLA（2026-09）删除——决策器无需几何对象或模式判据。预留用的 `SyncMath.h`（`EllipsoidTransform` / 其后的 `DVec3`）已删除，不再占公开边界。
 - **`udpPortSend` 已删除（2026-09）**：UDP 发送 socket 不 bind，源端口由 OS 分配；配置残留为未知键拒绝。
 - **`registerEventProcessor` 已删除（2026-09）**：业务订阅只走 `addCallback<PacketT>`；测试不再经 CCL `RegisterEventProcessor` 旁路。
+- **测试用 HostFrame pack/unpack 已删除（2026-09）**：`packHostFrame` / `unpackHostFrame` / `unpackSof` 与 `HostFrame` 不再保留（含内部头）。数据面契约测 `HostSync`/`IgSync` 可观察收发。公开 `CigiWire.h` 保留生产 `packSof` / `appendEye` / `CigiFrameAssembler`。
+- **`sofReceivedCount` 无副作用（2026-09）**：不再内部 `drainIncoming()`；Host 收包 push 模式须先显式 `drainIncoming` / `pollIncoming` 再读计数。
 
 ## 6. 问题自查（待讨论）
 
@@ -243,12 +245,39 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 
 | # | 问题 | 关联章节 | 状态 |
 | --- | --- | --- | --- |
-| 3 | **`cigi_wire::EyePose::entityId` 发送路径不读**：`appendEye` 写死 `EntityID=0`；`parentId` 发送同样写死 0，仅 `unpackHostFrame` 用来丢弃非法眼点。字段对生产发送接口无效。 | §3.0 同步只 LLA | 待讨论 |
-| 4 | **`IncomingFrame` 在 `IgSync.h` 公开，外部零引用**（仅 `IgSync` 内部队列）。是否应收进 private / 源文件。 | IG 收发端点 | 待讨论 |
-| 5 | **`IgSync`「测试接口」分区标错生产方法**：`queueHostTimeStamp` / `resetHostSession` / `simTimeUsAt` / `updateFreeze` 被 `processIncomingUdp` / `connect` / `simTimeUs` / `update` 调用。真正仅测试消费的是 `lastHostSimTimeUs` / `setExtrapolateTimeoutUs` / `frozen` / `status` / `sofSentCount`。 | 时钟消费 / 门面 | 待讨论 |
-| 7 | **`packHostFrame` / `unpackHostFrame` / `unpackSof` 仅线格式测试锚定**：生产收发走 session + CCL。`packSof` 仍被 `IgSync::sendSofPacket` 使用。是否把测试用 pack/unpack 撤出公开头。 | CigiWire 公开面 | 待讨论 |
-| 8 | **`HostSync::sofReceivedCount() const` 会 `drainIncoming()`**：观测 getter 有副作用。viewhost 已每帧 `pollIncoming()`，再读计数会二次 drain。 | Host 收包 push | 待讨论 |
+| 3 | **`cigi_wire::EyePose::entityId` 发送路径不读**：`appendEye` 写死 `EntityID=0`；`parentId` 发送同样写死 0。字段对生产发送接口无效。 | §3.0 同步只 LLA | 待讨论 |
 | 9 | **`IgSync::drainIncoming(bool sendSof)` boolean 入参**：生产 `preFrame` 恒 `true`；`false` 只服务「不回 SOF」测试。是否拆成 `drainIncoming` / `drainIncomingWithoutSof`。 | §3.1 帧循环 | 待讨论 |
 | 10 | **`HostSync::run()` 名实不符**：`initialize` 已起 accept/UDP 线程；`run()` 只把 `_status` 置 `RUNNING`。漏调则握手仍工作，但 `HostDriver::isRunning()` 为假。 | §4.1 生命周期 | 待讨论 |
 | 11 | **`hasReadyIg()` 与 `readyIgCount()` 冗余**：生产（viewhost）只用 count；`hasReadyIg` 仅测试。 | 状态观测 | 待讨论 |
 | 12 | **`SyncSystemConfig::channelId` 仅存储、无运行期读取**（正文已写）。JSON / 公开结构仍暴露该字段。是否从 sync 公开配置拿掉。 | §4.2 | 待讨论 |
+
+---
+
+## 7. 验收要点
+
+> 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `EngineConfigTests.cpp` / `TcpSocketTests.cpp` / `UdpSocketTests.cpp`。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。
+>
+> engine 通道 JSON（window / `igConfig` 嵌在通道文件）见 [多通道同步模块设计.md](./多通道同步模块设计.md) §11。本节只登记 **Host/IG 独立配置入口** 与 **库内套接字**。
+
+| 码 | 场景 | 验收 | Catch2 |
+| --- | --- | --- | --- |
+| `CFG-host-parse-ok` | 解析 host-only | `loadHostConfig` 读出 `udpPortRecv` / `tcpPort`（§4.0） | `[unit][config][sync][host][CFG-host-parse-ok]` |
+| `CFG-host-reject-unknown` | Host 未知顶层键 | 拒绝 | `[unit][config][sync][host][CFG-host-reject-unknown]` |
+| `CFG-host-reject-partial` | 半填 hostConfig | 方案 A：对象出现则子字段全必填 | `[unit][config][sync][host][CFG-host-reject-partial]` |
+| `CFG-ig-parse-ok` | 解析 ig-only | `loadIgConfig` 读出本地 recv + target（§4.0） | `[unit][config][sync][ig][CFG-ig-parse-ok]` |
+| `CFG-ig-reject-unknown` | IG 未知顶层键 | 拒绝 | `[unit][config][sync][ig][CFG-ig-reject-unknown]` |
+| `CFG-ig-reject-partial` | 半填 igConfig | 方案 A | `[unit][config][sync][ig][CFG-ig-reject-partial]` |
+| `TCP-loopback-connect` | TCP 建连 | listen/accept/connect loopback | `[unit][TCP-loopback-connect]` |
+| `TCP-send-recv-all` | TCP 完整收发 | `sendAll`/`recvAll` 双向完整字节 | `[unit][TCP-send-recv-all]` |
+| `TCP-peer-closed` | 对端关闭 | `recv` 返回 `PEER_CLOSED` | `[unit][TCP-peer-closed]` |
+| `TCP-recv-timeout` | 读超时 | 无数据 → `TIMEOUT` | `[unit][TCP-recv-timeout]` |
+| `TCP-connect-fail` | 未监听 | connect 失败 | `[unit][TCP-connect-fail]` |
+| `TCP-accept-peer-ip` | accept 对端 | 回填对端 IPv4 | `[unit][TCP-accept-peer-ip]` |
+| `TCP-close-idempotent` | close 幂等 | 重复 close 安全 | `[unit][TCP-close-idempotent]` |
+| `TCP-wsa-refcount` | WSA 引用计数 | 并发 create/destroy 不破坏引用计数 | `[unit][stress][TCP-wsa-refcount]` |
+| `UDP-loopback` | UDP 自环 | `sendTo`/`recv` loopback | `[unit][UDP-loopback]` |
+| `UDP-recvfrom-peer` | recvFrom 源地址 | 回填源 IP 与端口 | `[unit][UDP-recvfrom-peer]` |
+| `UDP-send-bad-arg` | 非法 sendTo | 非法参数返回 -1 | `[unit][UDP-send-bad-arg]` |
+| `UDP-uninit` | 未初始化 | recv/sendTo 返回 -1 | `[unit][UDP-uninit]` |
+| `UDP-port-busy` | 端口占用 | `initialize` 冲突返回 false | `[unit][UDP-port-busy]` |
+| `UDP-close-idempotent` | close 幂等 | 重复 close 安全 | `[unit][UDP-close-idempotent]` |
