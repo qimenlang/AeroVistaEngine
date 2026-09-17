@@ -102,7 +102,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ### 3.3 命令面桥
 
-命令面为**业务订阅 + 帧头化发送**（状态同步设计初版.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 上行 / F10 发 SOF（IG→Host，与 viewhost testtcp/testudp 下行对称）。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
+命令面为**业务订阅 + 帧头化发送**（状态同步设计.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 上行 / F10 发 SOF（IG→Host，与 viewhost testtcp/testudp 下行对称）。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
 
 ### 3.4 Host 任务状态（`HostDataManager`）
 
@@ -148,7 +148,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`udpPortSend`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
-**C++ 类型**：`IgConfig`（4 字段）/ `HostConfig`（现状 2 字段：`udpPortRecv` / `tcpPort`）。`messageSync` / `masterChannelId` 见 [帧同步设计.md](./帧同步设计.md) §4，**尚未入结构体**；写入 JSON 会因未知键拒绝。
+**C++ 类型**：`IgConfig`（4 字段）/ `HostConfig`（现状 2 字段：`udpPortRecv` / `tcpPort`）。`messageSync` / `masterChannelId` 见 [状态同步设计.md](./状态同步设计.md) §3.1，**尚未入结构体**；写入 JSON 会因未知键拒绝。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
@@ -188,7 +188,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
                 "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
 ```
 
-`hostConfig` 可选 `messageSync` / `masterChannelId`（缺省 FreeRun；会话中途不切）见 [帧同步设计.md](./帧同步设计.md) §4。实现前 JSON 多写这两键会因未知键拒绝。
+`hostConfig` 可选 `messageSync` / `masterChannelId`（缺省 FreeRun；会话中途不切）见 [状态同步设计.md](./状态同步设计.md) §3.1。实现前 JSON 多写这两键会因未知键拒绝。
 
 **解析器分层**：JSON **语法**走 nlohmann/json；**契约辅助**（`parseJsonText`/`find`/`requireInt`/`rejectUnknownKeys` 等）归独立库 `AeroVistaConfig`（`namespace aerovista::config`），engine 与 sync **共用**。`loadHostConfig`/`loadIgConfig`/`parseHostConfig`/`parseIgConfig` 仍归 sync（sync 自己的结构体）；引擎窗口/实体/相机 schema 仍在 `EngineConfig.cpp`。引擎不重复实现 `parseHostConfig`/`parseIgConfig`。
 
@@ -263,7 +263,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 
 | 码 | 场景 | 验收 | Catch2 |
 | --- | --- | --- | --- |
-| `CFG-host-parse-ok` | 解析 host-only | `loadHostConfig` 读出 `udpPortRecv` / `tcpPort`（§4.0）；节拍键落地后由 `MSYNC-*`（[帧同步设计.md](./帧同步设计.md) §6）覆盖，不扩写本行 | `[unit][config][sync][host][CFG-host-parse-ok]` |
+| `CFG-host-parse-ok` | 解析 host-only | `loadHostConfig` 读出 `udpPortRecv` / `tcpPort`（§4.0）；节拍键落地后由 `MSYNC-*`（[状态同步设计.md](./状态同步设计.md) §10）覆盖，不扩写本行 | `[unit][config][sync][host][CFG-host-parse-ok]` |
 | `CFG-host-reject-unknown` | Host 未知顶层键 | 拒绝 | `[unit][config][sync][host][CFG-host-reject-unknown]` |
 | `CFG-host-reject-partial` | 半填 hostConfig | 方案 A：对象出现则子字段全必填 | `[unit][config][sync][host][CFG-host-reject-partial]` |
 | `CFG-ig-parse-ok` | 解析 ig-only | `loadIgConfig` 读出本地 recv + target（§4.0） | `[unit][config][sync][ig][CFG-ig-parse-ok]` |

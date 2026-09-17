@@ -423,7 +423,7 @@ engine 不再采样出站；viewhost 眼点来自键盘累积、无回灌相机�
 
 > 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `HostIGTests.cpp`。椭球分支可用自挂 `EllipsoidModel` + 简单几何，**不强制**在线瓦片。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。
 >
-> 命令面 / 帧节拍见 [状态同步设计初版.md](./状态同步设计初版.md) §10；通道握手见 [多通道同步模块设计.md](./多通道同步模块设计.md) §11；注入 / 默认相机 AABB 见 [位姿配置设计.md](./位姿配置设计.md) §7。
+> 命令面 / 帧节拍见 [状态同步设计.md](./状态同步设计.md) §10；通道握手见 [多通道同步模块设计.md](./多通道同步模块设计.md) §11；注入 / 默认相机 AABB 见 [位姿配置设计.md](./位姿配置设计.md) §7。
 >
 > **已移除、不复用**：本机 LookAt 采样往返（随 `HostPosePublisher` 删除，改由 `CAM-lookat-lla` / `CAM-lla-roundtrip`）；权威窗 `offsetDeg` 全 0；`_lastSent` 换轨。`offsetDeg.pitch/roll≠0`、极区 Trackball **不测**。
 
