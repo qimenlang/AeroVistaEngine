@@ -13,6 +13,7 @@ set(SOURCES
     ViewHostMathTests.cpp
     HostDataManagerTests.cpp
     SofRttTrackerTests.cpp
+    ShaderCubeTests.cpp
     # viewhost 纯 C++ 数值逻辑（测试与示例共用同一份源码，见 viewhost设计.md §6）
     ${CMAKE_SOURCE_DIR}/thirdparty/sync/examples/viewhost/src/ViewHostMath.cpp
 )

@@ -1,0 +1,19 @@
+﻿{
+  "injectEllipsoidIfMissing": true,
+  "entitiesFilePath": "config/entities_scene_ecef.json",
+  "groundGrid": {
+    "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
+    "halfExtentM": 20000,
+    "cellM": 200,
+    "majorEvery": 5
+  },
+  "camera": {
+    "pose": {
+      "ellipsoid": {
+        "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 400.0 },
+        "eulerYprDeg": [0.0, -18.0, 0.0]
+      }
+    }
+  },
+  "window": { "x": 100, "y": 100, "width": 1280, "height": 720 }
+}

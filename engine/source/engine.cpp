@@ -4,6 +4,7 @@
 #include "function/driver/CameraDriver.h"
 #include "function/handler/FrameStatsHandler.h"
 #include "function/handler/PacketProbeHandler.h"
+#include "function/scene/ShaderCube.h"
 
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SynchronSystem.h>
@@ -608,6 +609,36 @@ bool Engine::initSceneFromEntities(const std::vector<EntityConfig>& entities)
     return true;
 }
 
+bool Engine::initSceneFromConfig(const std::vector<EntityConfig>& entities)
+{
+    if (config.shaderCube)
+        return initShaderCubeScene();
+    if (!entities.empty())
+        return initSceneFromEntities(entities);
+    return initSceneMode(vsg::Path(RESOURCE_DIR) / config.model);
+}
+
+bool Engine::initShaderCubeScene()
+{
+    try
+    {
+        if (!setupOptions(_options))
+            return false;
+        const vsg::Path fragmentPath{resolveResourcePath(config.shaderCube->fragment)};
+        _scene = createShaderCube(fragmentPath, _options);
+        if (!_scene)
+            return false;
+        std::cerr << "[shaderCube] GLSL compiled: " << fragmentPath
+                  << " (edit the frag, restart vsgEngine; no C++ rebuild)" << std::endl;
+        return ensureEllipsoidModel();
+    }
+    catch (const vsg::Exception& ve)
+    {
+        std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
+        return false;
+    }
+}
+
 bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
 {
     if (!_mainCamera)
@@ -704,22 +735,21 @@ bool Engine::init()
         }
     }
 
-    if (!entities.empty())
-    {
-        if (!initSceneFromEntities(entities))
-            return false;
-    }
-    else
-    {
-        const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / config.model;
-        if (!initSceneMode(modelPath))
-            return false;
-    }
+    if (!initSceneFromConfig(entities))
+        return false;
 
     if (!initSync(config.igConfig, config.syncSystem))
         return false;
 
-    return finishGraphicsAfterScene(ellipsoidModel());
+    try
+    {
+        return finishGraphicsAfterScene(ellipsoidModel());
+    }
+    catch (const vsg::Exception& ve)
+    {
+        std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
+        return false;
+    }
 }
 
 bool Engine::init(const vsg::Path& modelPath)

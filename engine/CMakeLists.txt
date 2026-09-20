@@ -25,6 +25,7 @@ add_library(vsgEngineLib STATIC
     source/function/driver/CameraDriver.cpp
     source/function/handler/FrameStatsHandler.cpp
     source/function/handler/PacketProbeHandler.cpp
+    source/function/scene/ShaderCube.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)

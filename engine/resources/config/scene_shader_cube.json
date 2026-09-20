@@ -1,0 +1,6 @@
+﻿{
+  "shaderCube": {
+    "fragment": "shaders/debug_cube.frag"
+  },
+  "window": { "x": 100, "y": 100, "width": 1280, "height": 720 }
+}

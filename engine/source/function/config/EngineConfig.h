@@ -71,6 +71,12 @@ struct CameraConfig
     EllipsoidPoseConfig ellipsoidPose{};
 };
 
+/// 调试探针：场景放一个单位立方体，fragment 走运行时 GLSL 编译（引擎加载与渲染.md）。
+struct ShaderCubeConfig
+{
+    std::string fragment;
+};
+
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，多通道同步模块设计.md §3.1）。
 struct EngineChannelConfig
 {
@@ -93,6 +99,9 @@ struct EngineChannelConfig
     /// 实体目录文件路径（entities.json）；空 = 不装实体（单模型）。
     /// engine 通道配置不再内嵌 entities；配置指向独立文件（实体管理设计.md §4）。
     std::string entitiesFilePath;
+
+    /// 调试立方体；nullopt = 不启用。与 `model` / `entitiesFilePath` 互斥。
+    std::optional<ShaderCubeConfig> shaderCube{};
 };
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error = nullptr);

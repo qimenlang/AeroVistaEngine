@@ -213,12 +213,28 @@ namespace
         return camera;
     }
 
+    ShaderCubeConfig parseShaderCube(const Json& obj)
+    {
+        rejectUnknownKeys(obj, {"fragment"});
+        ShaderCubeConfig cube;
+        cube.fragment = requireString(obj, "fragment");
+        if (cube.fragment.empty())
+            throw std::runtime_error("shaderCube.fragment must be non-empty");
+        return cube;
+    }
+
     void parseModelEntityMutex(const Json& root, EngineChannelConfig& cfg)
     {
         const bool hasModelKey = find(root, "model") != nullptr;
         const bool hasEntityKey = find(root, "entity") != nullptr;
+        const bool hasShaderCube = find(root, "shaderCube") != nullptr;
+        const bool hasEntitiesFile = find(root, "entitiesFilePath") != nullptr;
         if (hasEntityKey)
             throw std::runtime_error("singular entity is not supported; use a separate entities file (entitiesFilePath)");
+        if (hasShaderCube && hasModelKey)
+            throw std::runtime_error("shaderCube and model are mutually exclusive");
+        if (hasShaderCube && hasEntitiesFile)
+            throw std::runtime_error("shaderCube and entitiesFilePath are mutually exclusive");
         if (hasModelKey)
             cfg.model = requireString(root, "model");
         if (const Json* v = find(root, "entitiesFilePath"))
@@ -246,7 +262,7 @@ namespace
     {
         // engine 配置含 hostConfig 属未知键拒绝（Host 用 loadHostConfig）。
         rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
-                                 "injectEllipsoidIfMissing", "entitiesFilePath", "camera"});
+                                 "injectEllipsoidIfMissing", "entitiesFilePath", "camera", "shaderCube"});
 
         EngineChannelConfig cfg;
 
@@ -270,6 +286,9 @@ namespace
         }
 
         parseModelEntityMutex(root, cfg);
+
+        if (const Json* v = find(root, "shaderCube"))
+            cfg.shaderCube = parseShaderCube(requireObject(*v, "shaderCube"));
 
         if (const Json* v = find(root, "camera"))
         {

@@ -1,0 +1,29 @@
+﻿{
+  "syncSystem": {
+    "channelId": 2,
+    "offsetDeg": { "yaw": -18.05, "pitch": 0.0, "roll": 0.0 },
+    "requireConnectedIg": false
+  },
+  "igConfig": {
+    "udpPortRecv": 8005,
+    "targetAddr": "127.0.0.1",
+    "targetTcpPort": 8100,
+    "targetUdpPortRecv": 8000
+  },
+  "window": { "x": 1280, "y": 0, "width": 640, "height": 1080 },
+  "entitiesFilePath": "config/entities_scene_ecef.json",
+  "groundGrid": {
+    "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
+    "halfExtentM": 20000,
+    "cellM": 200,
+    "majorEvery": 5
+  },
+  "camera": {
+    "pose": {
+      "ellipsoid": {
+        "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 400.0 },
+        "eulerYprDeg": [0.0, -18.0, 0.0]
+      }
+    }
+  }
+}

@@ -110,6 +110,8 @@ private:
     /// 注册 IG 业务回调（眼点 / 命令实体）；报文自检订阅走 PacketProbeHandler::bindRecvProbes。
     void registerIgCallbacks();
     bool initSceneFromEntities(const std::vector<EntityConfig>& entities);
+    bool initSceneFromConfig(const std::vector<EntityConfig>& entities);
+    bool initShaderCubeScene();
     bool ensureEllipsoidModel();
     void applyCameraPoseFromConfig();
     bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
