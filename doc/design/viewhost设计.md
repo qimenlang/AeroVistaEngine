@@ -79,8 +79,8 @@ viewhost 侧逻辑因此很单纯：持**一个** `HostSync`，把同一个眼�
 
 ## 3. 程序形态与目录
 
-- **形态**：`CFrameWndEx` 主框架 + 客户区 `CFormView`（`IDD_VIEWHOST_DIALOG`）。布局：左侧窄栏场景树；右侧宽栏仪表盘（连接状态 / 眼点 / 报文自检各占一行）+ `IG 连接` 列表 + 底部命令行（Enter 发 `CigiSymbolTextDefV4`）。属性面板仍是模态 `CDialog`。
-- **选型理由**：主窗口用框架，以便后续把树、报文、命令行拆成 `CDockablePane`；当前仍是同一张 FormView 内左右分栏，不先拆停靠。无文档 / 多文档 / 打印，**不**上 `CDocument` / DocTemplate。曾用独立 `CDialog` 作主窗；已改为 Frame + FormView。
+- **形态**：`CFrameWndEx` 主框架 + 客户区 `CFormView` 仪表盘（`IDD_VIEWHOST_DIALOG`：连接状态 / 眼点两行）+ 四周 `CDockablePane`。主窗口**不可拖边改大小、无最大化**（可最小化）。**无菜单栏**；关进程靠标题栏关闭。Pane **位置固定**（不能拖到其它边、不能撕成浮动窗、不能关）：左场景树、顶报文自检、底 `IG 连接`（在命令行之**上**）、底命令行。属性面板仍是模态 `CDialog`。
+- **选型理由**：主窗口用框架，把树 / IG 列表 / 报文自检 / 命令行拆成独立 `CDockablePane`，但按 Host 控制台钉死位置（主窗本身不可改大小，可拖停靠没有复位入口）。中间 FormView 只留主仪表盘。无文档 / 多文档 / 打印，**不**上 `CDocument` / DocTemplate。曾用独立 `CDialog` 作主窗；已改为 Frame + FormView + 停靠条。
 - **目录**（作为 sync 库接入示例，放 `examples/`，与现有 `minimal_viewhost.cpp` 并列）：
 
 ```text
@@ -88,13 +88,19 @@ thirdparty/sync/examples/viewhost/
   CMakeLists.txt              # if(MSVC) 守卫；链接 aerovistaSync
   src/
     ViewHostApp.h/.cpp        # CWinAppEx 派生：LoadFrame 后 return TRUE 进 Run()
-    ViewHostFrame.h/.cpp      # CFrameWndEx：EnableDocking，客户区创建 CFormView
-    ViewHostView.h/.cpp       # CFormView：主控制台控件 + 定时器
+    ViewHostFrame.h/.cpp      # CFrameWndEx：EnableDocking，创建停靠条 + 客户区 CFormView
+    ViewHostView.h/.cpp       # CFormView：仪表盘 + 定时器 + HostDriver
+    ViewHostMessages.h        # WM_APP 自定义消息（刷新树 / 打开属性面板）
+    HudLabel.h/.cpp           # 仪表盘静态文本：离屏绘制，避免 CStatic 擦背景闪烁
+    SceneTreePane.h/.cpp      # CDockablePane：场景树（固定左侧）
+    IgListPane.h/.cpp         # CDockablePane：IG 连接列表（固定底部）
+    PacketProbePane.h/.cpp    # CDockablePane：报文自检（固定顶部）
+    CommandPane.h/.cpp        # CDockablePane：命令行（固定底边）
     EntityPropDlg.h/.cpp      # CDialog：实体属性模态面板
     HostDriver.h/.cpp         # 持有 HostSync + HostDataManager：生命周期 + 帧驱动 + 意图 API
     ViewHostMath.h/.cpp       # 纯 C++：applyManualStep（可测）
   resources/
-    ViewHost.rc / resource.h  # 框架菜单 / 主窗 FormView 模板 / 属性对话框
+    ViewHost.rc / resource.h  # 仪表盘 FormView 模板 / 属性对话框（无菜单栏；关进程靠标题栏）
     viewhost.json             # hostConfig（复用 loadHostConfig）
 ```
 
@@ -116,7 +122,7 @@ Host 进程内三类对象；**权威表不进 `HostSync`，MFC 不组包、不�
 | `HostDriver` | `aerovista::viewhost` | **持有**上二者。意图 API：先写表 → 从表组包 → `HostSync` 发送。后加入 IG ready 全量重放（无 UI）。每帧 ownship 眼点（**不进**权威表）。`pollIncoming` / 报文自检 / 命令行 `sendSymbolText` |
 
 ```text
-ViewHostView  只报意图 / 按 snapshot 刷新树
+ViewHostView  只报意图 / 按 snapshot 刷新树与仪表盘；停靠条只展示 / 转发 UI 事件
     → HostDriver（编排：何时改、何时发、TCP 还是 UDP）
          → HostDataManager 改表、按行填报文
          → HostSync.flushTcp / flushUdp
@@ -197,9 +203,9 @@ alt += dUp
 
 **交互模式（已选定）**：
 
-- 场景树中单击 `eyePoint` 节点（标签/图标）进入眼点键盘操控；单击树上**其它项**、树内空白，或对话框其它控件，退出操控。节点文案在 `eyePoint` / `eyePoint [控制中]` 间切换。
-- 实现：在 `PreTranslateMessage` 里处理 `WM_LBUTTONDOWN`，用 `HitTest` 的 `TVHT_ONITEM*` 判断是否点在 `eyePoint` 上——TreeView 点空白往往**不发** `NM_CLICK`，不能只靠通知。点在树客户区空白、静态文本、分组框或对话框客户区（分组框内部空白其实是对话框 HWND）时：吞掉点击、`SelectItem(null)`，并把焦点放到客户区外的只读 `CEdit` 承接点。不能 `SetFocus` 给对话框本身——`DefDlgProc` 会立刻把焦点交回第一个 `WS_TABSTOP`（就是树），方向键仍会走树。按钮等可持焦控件仍自己接管焦点。
-- 控眼点期间 `PreTranslateMessage` **吞掉**方向键与 WASD/CE，避免焦点仍在树上时 TreeView 也拿方向键换选中项；相机位移仍由定时器 `GetAsyncKeyState` 读取。
+- 场景树中单击 `eyePoint` 节点（标签/图标）进入眼点键盘操控；单击树上**其它项**、树内空白，或其它 Pane / 仪表盘控件，退出操控。节点文案在 `eyePoint` / `eyePoint [控制中]` 间切换。
+- 实现：在 `handleHostInput` 里处理 `WM_LBUTTONDOWN`，用 `HitTest` 的 `TVHT_ONITEM*` 判断是否点在 `eyePoint` 上——TreeView 点空白往往**不发** `NM_CLICK`，不能只靠通知。点在树客户区空白、静态文本、分组框或仪表盘客户区时：吞掉点击、`SelectItem(null)`，并把焦点放到客户区外的只读 `CEdit` 承接点。不能 `SetFocus` 给 FormView 本身——`DefDlgProc` 会立刻把焦点交回第一个 `WS_TABSTOP`，方向键仍会走树。按钮等可持焦控件仍自己接管焦点。停靠条与 FormView 是兄弟窗口，`WalkPreTranslateTree` 到不了 View；Frame 在自己的 `PreTranslateMessage` 里转调 `handleHostInput`（不能转调 `CFormView::PreTranslateMessage`，会再进 Frame 形成递归）。**点在树上时** `handleEyeControlClick` 已写入 `_controlling`：命中 `eyePoint` 进入、点其它项退出；返回 `false` 只表示不吞点击（交给树选中并持焦），调用方不得再清 `_controlling`。
+- 控眼点期间 `handleHostInput` **吞掉**方向键与 WASD/CE，避免焦点仍在树上时 TreeView 也拿方向键换选中项；相机位移仍由定时器 `GetAsyncKeyState` 读取。
 - **无**「开始控制」toggle 按钮；**无**空格热键切换。
 - 语义 = **键盘操控的启用/禁用**：进入后 WASD/CE/方向键生效；退出后键盘不再响应，眼点保持当前值不变。
 - 仅 `_controlling == true` 时才轮询 `GetAsyncKeyState`，避免全局物理键状态与其它输入冲突。
@@ -207,7 +213,7 @@ alt += dUp
 **键盘读取的三个坑（MFC 对话框模板仍适用：`CFormView` 走 `IsDialogMessage`）**：
 
 1. **焦点**：表单含子控件时，`WM_KEYDOWN` 先发给焦点控件而非视图，重写 `OnKeyDown` 常常收不到。→ 用 `GetAsyncKeyState` 轮询物理键状态，与焦点无关。
-2. **Enter / ESC**：主窗无默认按钮，Enter 不再关进程。命令行有焦点时 Enter 发送 `CigiSymbolTextDefV4`（§4.9），其它位置 Enter 无动作。关进程靠框架关闭按钮或菜单「文件 → 退出」。ESC 不再走 `CDialog::OnCancel`。
+2. **Enter / ESC**：主窗无默认按钮，Enter 不再关进程。命令行有焦点时 Enter 由 Frame 转调 `handleHostInput` 发送 `CigiSymbolTextDefV4`（§4.9），其它位置 Enter 无动作。关进程靠标题栏关闭。ESC 不再走 `CDialog::OnCancel`。
 3. **连续按键**：`WM_KEYDOWN` 有按下延迟与重复间隔，「按住持续移动」不跟手。→ 在定时器里每帧 `GetAsyncKeyState` 轮询，算增量。
 
 **并入 §4.3 的 60fps 定时器（同一拍轮询 + 扇出）**：
@@ -250,7 +256,7 @@ void ViewHostView::onTick()
 - `_eye` 构造后**立即初始化**为：初始演示眼点（lat/lon/alt，位于模型群附近），`yaw = 0`、`pitch = roll = 0`。同步只 LLA（2026-09 收敛），`EyePose` 无 frame 字段。
 - 进入手动模式：从「当前 `_eye`」起始累积，保证切入手动瞬间眼点不跳变。
 
-**键盘切换控制（已取消空格热键）**：眼点开关改由场景树单击 `eyePoint` / 其它位置承担（见上）。`PreTranslateMessage` 仅在 `_controlling` 时吞掉相机键，不再用空格切换。关进程走框架菜单「退出」或标题栏关闭，主表单不再放退出按钮。
+**键盘切换控制（已取消空格热键）**：眼点开关改由场景树单击 `eyePoint` / 其它位置承担（见上）。`PreTranslateMessage` 仅在 `_controlling` 时吞掉相机键，不再用空格切换。关进程走标题栏关闭，主表单不再放退出按钮，也无「文件」菜单。
 
 **按键映射（初版写死）**：
 
@@ -282,19 +288,24 @@ IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`�
 
 ### 4.6 UI 状态显示
 
-定时器刷新时从 `HostSync` 读取（线程安全，内部 atomic/mutex）：
+定时器仍约 60fps：按键步进、`HostDriver::update` 扇出、`pollIncoming` 解包都在这一拍。仪表盘**文案**不跟 60fps 绑死——`CStatic::SetWindowText` 每帧会先擦背景再画字（连接状态 / 眼点两行包在 GROUPBOX 里尤其明显）。写死：
+
+- 连接状态、眼点 LLA、报文自检状态、IG 列表约 **10Hz** 刷新；`Ready IG` 变化以及 `testtcp` / `testudp` / 命令行发送立即刷。
+- 连接 / 眼点 / 报文自检走 `CHudLabel`（文案不变不重画；变则离屏画完再上屏）。IG 列表仍是 `ListCtrl` + `LVS_EX_DOUBLEBUFFER`。
+
+从 `HostSync` 读取的指标（线程安全，内部 atomic/mutex）：
 
 | 指标 | 来源 |
 | --- | --- |
 | ready IG 数 / IGCtrl 发送 / SOF 接收 | 同一行：`readyIgCount()` / `igCtrlSentCount()` / `sofReceivedCount()`（SOF 须先 `pollIncoming`） |
 | 当前眼点（lat/lon/alt, yaw/pitch/roll） | 同一行：键盘累积 `_eye` |
-| 最近测试 / 最近接收报文 | 报文自检同一行：`OnTestTcp` / `OnTestUdp` 与上行订阅回调（§4.7） |
-| IG 连接列表 | `igSnapshot()`：每行 Host `clientId`（不是 IG `channelId`）、连接层状态 `ready` / `tcp` / `udp` / `connecting`、`avgRtt`（最近 60 次完成里的匹配平均，窗内满 10 个匹配才有）、`lastRtt`（最近一次匹配）、`lossRate`（同一窗口内超时/完成，满 10 次完成才有）、`sofAge`（距上次 UDP SOF 的墙钟间隔；未收过 SOF 为空）。时长显示为 ms，丢包率为 %。空值为 `--`。规则见 [多通道同步验收测量设计.md](./多通道同步/多通道同步验收测量设计.md) §4.5 |
-| 命令行 | 底部单行编辑框；Enter → `HostDriver::sendSymbolText`（§4.9） |
+| 最近测试 / 最近接收报文 | 报文自检 Pane：`testtcp` / `testudp` 与上行订阅回调（§4.7） |
+| IG 连接列表 | 底部 `CDockablePane`，数据 `igSnapshot()`：每行 Host `clientId`（不是 IG `channelId`）、连接层状态 `ready` / `tcp` / `udp` / `connecting`、`avgRtt`（最近 60 次完成里的匹配平均，窗内满 10 个匹配才有）、`lastRtt`（最近一次匹配）、`lossRate`（同一窗口内超时/完成，满 10 次完成才有）、`sofAge`（距上次 UDP SOF 的墙钟间隔；未收过 SOF 为空）。时长显示为 ms，丢包率为 %。空值为 `--`。规则见 [多通道同步验收测量设计.md](./多通道同步/多通道同步验收测量设计.md) §4.5 |
+| 命令行 | 底边单行编辑框 Pane；Enter → `HostDriver::sendSymbolText`（§4.9） |
 
 ### 4.7 报文自检（testtcp / testudp / F9 / F10）
 
-**下行自检（Host→IG，viewhost 触发）**：在对话框「报文自检」区：`testtcp` / `testudp` 与「测试 / 接收」同一行。点击后：
+**下行自检（Host→IG，viewhost 触发）**：在「报文自检」Pane：`testtcp` / `testudp` 与「测试 / 接收」同一行。点击后：
 
 1. `HostDriver::sendRandomTcpPacket()` / `sendRandomUdpPacket()`——随机构造一个对应链路的测试报文（默认字段，仅 `EntityPositionCtrlV4` 补 `EntityID=7`）经 `outMsgWithIgCtrlTcp/Udp` → `flushTcp/flushUdp` 发送，返回报文类名；
 2. 同行显示「测试: TCP/UDP <类名>」。
@@ -367,7 +378,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 
 ### 4.9 命令行（`CigiSymbolTextDefV4`）
 
-右侧 `IG 连接` 下方单行编辑框。焦点在该框时按 **Enter**：把当前字符串（UTF-8，去首尾空白）作为 `CigiSymbolTextDefV4.Text`，经 `HostDriver::sendSymbolText` → `outMsgWithIgCtrlTcp() << packet` → `flushTcp()` 发给全部 ready IG。空串不发。发送后清空编辑框。
+底部「命令行」Pane 单行编辑框。焦点在该框时按 **Enter**：把当前字符串（UTF-8，去首尾空白）作为 `CigiSymbolTextDefV4.Text`，经 `HostDriver::sendSymbolText` → `outMsgWithIgCtrlTcp() << packet` → `flushTcp()` 发给全部 ready IG。空串不发。发送后清空编辑框。
 
 协议字段与指令编码见 [状态同步设计.md](./多通道同步/状态同步设计.md) §4.1（`SymbolID=0` 默认；`Text` 空格分隔、首 token 为指令名）。**不进**权威表。UI 不 `#include` CCL。
 
@@ -429,22 +440,22 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 - **实体控制 UI 演进（2026-09，§4.8）**：从「手输 Entity ID + 单一摆放表单」（§4.5）升级为**平级树 + 双击属性面板 + Apply / 重置**。Host 读**独立 `entities.json`** 填树（不网络拉取，目录契约见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §4）。否决左侧点选 + 右侧常驻意图分组；否决综合 `applyEntity`；否决右键出面板；否决把重填草稿叫「清空」；否决 Apply 对同一张 `EntityCtrl` 按字段拆开发送。一次性 TCP「填参 → Apply」、持续 UDP「toggle 持续模式」分离。实体加载失败**首版不上报不处理**（无业务层 ready、无重试，见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §7.1）。
 - **初始状态配置 + Standby↔Active 双向切换（2026-09，§4.8）**：实体目录新增 `initialEntityState`（默认 `Active`，可设 `Standby`）；Host 权威表按此与 `pose.ellipsoid` 初始化，广播 `EntityCtrl` 与 `EntityPositionCtrl`；属性面板在 `Standby↔Active` 间改 `state`（Apply → `setEntityCtrl` + `sendEntity`）——IG 侧实例已启动全量预建挂 Switch，切换只是 **Switch 显隐**（[实体管理设计.md](./引擎基础功能/实体管理设计.md) §7）。**不做** `load` 文本指令——调试临时加载需求由「配置 `Standby` + 手动激活」承载，模型路径须预先写进实体目录。
 - **销毁 UI 首版禁用（2026-09，§4.8）**：实体平时在 `Standby↔Active` 间切换，不提供「销毁」按钮——`Destroyed` 是释放资源的破坏性操作（值 2，`Remove`=同值历史别名），UI 误触代价高。**协议层 `Destroyed` 首版降级为 `Standby`**（Switch OFF、保留实例与资源），完整销毁/重建为后续项（见 [实体管理设计.md](./引擎基础功能/实体管理设计.md) §7 / §11）。
-- **主窗口 Frame + FormView（2026-09，§3）**：否决继续用独立 `CDialog` 作主窗。`CFrameWndEx` 便于后续菜单 / 工具栏 / `CDockablePane`；当前控件仍用 `CFormView` 承载对话框模板（左窄场景树、右宽仪表盘），属性面板保持模态 `CDialog`。不上 `CDocument`。
-- **命令行 SymbolTextDefV4（2026-09，§4.9）**：IG 列表下方单行编辑框，Enter 发送，不另做发送按钮。不进权威表。指令名分发仍由 IG 业务层解释（[状态同步设计.md](./多通道同步/状态同步设计.md) §4.1）。
+- **主窗口 Frame + FormView + 停靠条（2026-09，§3）**：否决继续用独立 `CDialog` 作主窗。`CFrameWndEx` 承载菜单占位 / `CDockablePane`；中间 `CFormView` 只留连接状态与眼点仪表盘。场景树 / IG 列表 / 报文自检 / 命令行各一块 Pane，**位置固定**（无 `AFX_CBRS_FLOAT` / `AFX_CBRS_CLOSE`、只允许预定边）。不上 `CDocument`。主窗口去掉 `WS_THICKFRAME` / `WS_MAXIMIZEBOX`。无「文件」菜单栏。停靠布局不写注册表。
+- **命令行 SymbolTextDefV4（2026-09，§4.9）**：底部命令行 Pane 单行编辑框，Enter 发送，不另做发送按钮。不进权威表。指令名分发仍由 IG 业务层解释（[状态同步设计.md](./多通道同步/状态同步设计.md) §4.1）。
 
 ## 9. 与实现关系
 
 | 项 | 状态 |
 | --- | --- |
-| `thirdparty/sync/examples/viewhost/` 工程 + `CFrameWndEx` / `CFormView` 控制台 | 已实现 |
+| `thirdparty/sync/examples/viewhost/` 工程 + `CFrameWndEx` / `CFormView` 仪表盘 + 停靠条 | 已实现 |
 | `HostDriver`（持有 `HostSync` + `HostDataManager`）+ `applyManualStep`（步进换算，纯 C++） | 已实现：写表与 `sendEntity` 分离，Apply 一次 flushTcp；`broadcastEntityAuthority` / peer 去重仍待 |
 | 复用 `loadHostConfig` / `HostSync` 全链路 | 已实现；观测面新增 `igSnapshot()` |
 | **新接口适配（2026-08-24 矛盾 A；2026-08-25 IGCtrl 自动填充）** | `HostDriver::update` 用 `outMsgWithIgCtrlUdp+appendEye+flushUdp`（`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl，帧号/自计时时间戳）；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
 | `engine/Tests/ViewHostMathTests.cpp`：步进换算 `[unit]` 测试 | 已添加 |
 | **实体摆放命令（2026-08；2026-09 改经权威表）** | `HostDriver::setEntityPose` 写 last pose，`sendEntity` 从表组 `EntityPositionCtrl`，与其它脏报文族同一次 `flushTcp`；手输摆放表单已由 §4.8 属性面板取代 |
-| **报文自检（2026-08，§4.7）** | `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket`（随机报文工厂表）+ 对话框「报文自检」一行（testtcp/testudp + 测试/接收）；engine 侧全量 addCallback 探测 + HUD「recv: <类名>」；engine 全量测试通过 + 双构建（clang / MSVC）通过 |
-| **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::addCallback<T>` 模板转发；`OnInitialUpdate` 订阅 16 类 IG→Host TCP 报文 + UI 定时器每帧 pollIncoming + 「接收」显示；engine `PacketProbeHandler`（F9 随机 TCP 16 类 / F10 发 SOF）+ HUD「send」行；双构建（clang / MSVC）通过 |
-| **IG 连接列表（2026-09，§4.6）** | `HostSync::igSnapshot()` + 右侧 ListView：每行 `id`、连接层状态、`avgRtt`、`lastRtt`、`lossRate`、`sofAge` |
+| **报文自检（2026-08，§4.7）** | `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket`（随机报文工厂表）+ 「报文自检」Pane（testtcp/testudp + 测试/接收）；engine 侧全量 addCallback 探测 + HUD「recv: <类名>」；engine 全量测试通过 + 双构建（clang / MSVC）通过 |
+| **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::addCallback<T>` 模板转发；`OnInitialUpdate` 订阅 16 类 IG→Host TCP 报文 + UI 定时器每帧 pollIncoming；「测试/接收」与连接/眼点仪表盘约 10Hz 刷（§4.6）；engine `PacketProbeHandler`（F9 随机 TCP 16 类 / F10 发 SOF）+ HUD「send」行；双构建（clang / MSVC）通过 |
+| **IG 连接列表（2026-09，§4.6）** | `HostSync::igSnapshot()` + 底部 ListView Pane：每行 `id`、连接层状态、`avgRtt`、`lastRtt`、`lossRate`、`sofAge` |
 | **命令行（2026-09，§4.9）** | `HostDriver::sendSymbolText`：Enter 把编辑框原文打成 `CigiSymbolTextDefV4` TCP 下发；空串不发；不进权威表 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |
 | **实体控制 UI 演进（2026-09，§4.8 / §4.0）** | 已实现：Driver 持有 Manager；平级树 + 双击属性面板；Apply 按报文族 `setEntityCtrl` / `setEntityPose` 后一次 `sendEntity`（一次 flushTcp）。重置从表重填草稿。`entities.json` 与 `viewhost.json` 同目录。`broadcastEntityAuthority` 仍待（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §15 #3） |

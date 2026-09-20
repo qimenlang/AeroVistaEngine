@@ -24,7 +24,7 @@ viewhost（`thirdparty/sync/examples/viewhost`）用到的 MFC 基础机制。�
 | `PUSHBUTTON` | 普通按钮 | 需鼠标/聚焦+空格 |
 
 - 每个对话框**最多一个默认按钮**；按 Enter 会转成对默认按钮的点击。
-- viewhost 主表单不再放退出按钮；关进程走框架菜单「文件 → 退出」或标题栏关闭。属性面板仍是普通 `CDialog`。
+- viewhost 主表单不再放退出按钮；关进程走标题栏关闭（无「文件」菜单）。属性面板仍是普通 `CDialog`。
 
 ---
 
@@ -38,8 +38,8 @@ return TRUE;   // 继续 CWinApp::Run()，非模态
 ```
 
 - `CWinAppEx::InitInstance` 返回 TRUE 后进入应用消息循环；关主框架后 `Run` 返回，进程退出。
-- `CWinAppEx` 默认会从注册表恢复主窗口尺寸（`EnableLoadWindowPlacement`）。viewhost 主客户区是固定 DLU 的 `CFormView`，恢复会留下一圈空白；已关掉恢复，并在 `LoadFrame` 之后按表单 `GetTotalSize()` 收外框。
-- 命令行有焦点时 Enter 发 `CigiSymbolTextDefV4`（在 `PreTranslateMessage` 里拦，避免 `IsDialogMessage` 当成默认按钮）。
+- `CWinAppEx` 默认会从注册表恢复主窗口尺寸（`EnableLoadWindowPlacement`）。viewhost 已关掉恢复；`LoadFrame` 之后按仪表盘 `GetTotalSize()` 加上默认停靠条尺寸收外框。主窗口去掉厚边框和最大化。停靠布局 `DisableRestoreDockState`，不从注册表恢复 Pane 开关。
+- 命令行有焦点时 Enter 发 `CigiSymbolTextDefV4`。命令行在独立 `CDockablePane` 上，`WalkPreTranslateTree` 走「编辑框 → Pane → Frame」，**不会**经过中间的 FormView。Frame 在 `PreTranslateMessage` 里转调 View 的 `handleHostInput` 拦截 Enter（不能转调 `CFormView::PreTranslateMessage`，那会再调 Frame 形成递归）。
 - 旧路径是 `CDialog::DoModal()`（`RunModalLoop` 阻塞在 `InitInstance` 里，返回 FALSE 退出）。属性面板仍用 `DoModal()`。
 
 ---
@@ -49,7 +49,7 @@ return TRUE;   // 继续 CWinApp::Run()，非模态
 `CDialog` 默认行为：`OnOK`→`EndDialog(IDOK)`、`OnCancel`→`EndDialog(IDCANCEL)`，**都会关对话框**。
 
 - 实体属性面板：`OnOK` 空重载，避免 Enter 未按 Apply 就关；`OnCancel` 仍 `EndDialog`（ESC / 标题栏关闭）。
-- 主界面已是 `CFormView`，不再靠空 `OnOK`/`OnCancel` 保命；主表单无默认按钮。命令行 Enter 在 `PreTranslateMessage` 里单独处理，其它位置 Enter 不关进程。
+- 主界面已是 `CFormView`，不再靠空 `OnOK`/`OnCancel` 保命；主表单无默认按钮。命令行 Enter 由 Frame 转调 `handleHostInput` 单独处理，其它位置 Enter 不关进程。
 
 ---
 
@@ -72,7 +72,7 @@ flowchart TB
 |------|------|------|
 | **消息映射 `ON_XXX`** | 窗口/控件/菜单/定时器/自定义消息 | `ON_WM_TIMER`、`ON_BN_CLICKED`、`ON_WM_DESTROY` |
 | **覆盖虚函数** | 生命周期钩子 | `OnInitialUpdate`、`OnDestroy`；属性面板 `OnInitDialog` / `OnOK` |
-| **`PreTranslateMessage`** | 消息派发前、全局 | 控眼点时吞掉方向键/WASD；鼠标按下时判定进入/退出控制 |
+| **`PreTranslateMessage`** | 消息派发前、全局 | Frame 转调 `handleHostInput`：控眼点时吞相机键；鼠标按下时判定进入/退出；命令行 Enter |
 | **自定义消息 `ON_MESSAGE(WM_APP+n)`** | 推迟到下一圈消息循环 / 子对话框回传 | 双击实体后弹属性；Apply 后刷新树 |
 
 ---
@@ -89,7 +89,7 @@ flowchart TB
 
 | 机制 | 语义 | 本程序 |
 |------|------|------|
-| `PreTranslateMessage` | **按键/鼠标事件**（派发前拦截） | 控眼点时吞相机键；`WM_LBUTTONDOWN` 判定进入/退出 |
+| `PreTranslateMessage` / `handleHostInput` | **按键/鼠标事件**（派发前拦截） | 控眼点时吞相机键；`WM_LBUTTONDOWN` 判定进入/退出；命令行 Enter |
 | `OnTimer` + `GetAsyncKeyState` | **定时轮询**（每 ~16ms 采样一次） | WASD/CE/方向键 → 持续移动 |
 
 ```text
@@ -102,7 +102,7 @@ flowchart TB
 
 ### 5.2 助记键（`&X`）与操控键的冲突
 
-字母助记键会被 `IsDialogMessage` 直接激活按钮。viewhost 眼点开关不走按钮，故无「开始控制(&S)」与 S=后退的冲突。菜单「退出(&X)」的 X 不与操控键冲突。
+字母助记键会被 `IsDialogMessage` 直接激活按钮。viewhost 眼点开关不走按钮，故无「开始控制(&S)」与 S=后退的冲突。主窗口无菜单栏，关进程靠标题栏。
 
 ---
 
@@ -137,11 +137,12 @@ flowchart TB
 
 | 词 | 基类 | 位置 | 干什么 |
 |------|------|------|------|
-| **View** | `CView` / `CFormView` | 框架**客户区**（中间那块） | 主工作区。viewhost 用 `CFormView` 放仪表盘 + 场景树 |
-| **Pane**（常写成 panel） | `CPane` / `CDockablePane` | 客户区**四周**，可拖、可钉、可关 | 工具侧栏。后续 IG 列表 / 报文 dump / 命令行适合用它 |
+| **View** | `CView` / `CFormView` | 框架**客户区**（中间那块） | 主工作区。viewhost 用 `CFormView` 放连接状态 / 眼点仪表盘 |
+| **Pane**（常写成 panel） | `CPane` / `CDockablePane` | 客户区**四周** | 工具侧栏。MFC 默认可拖、可钉、可关；viewhost **钉死位置且不可关**：左场景树、顶报文自检、底 IG 列表、底命令行 |
 
-- **仪表盘**：主工作区上的状态/控制台面，不是一类 MFC 控件。viewhost 现在是 FormView 右侧「连接状态 / 眼点 / 报文自检」各一行，下面是「IG 连接」列表（id / 状态 / 平均RTT / 最近RTT / 丢包率 / 距上次SOF）和「命令行」（仍在同一张 FormView，还不是停靠 Pane）。
-- 左右分栏可以只改 FormView 的 `.rc` 坐标（当前做法），不必先做成真正的停靠 Pane。真 Pane 是独立窗口，有自己的消息映射，树的焦点逻辑要再迁一次。
+- **仪表盘**：主工作区上的状态面，不是一类 MFC 控件。viewhost 中间 FormView 只留「连接状态 / 眼点」两行；`IG 连接` 列表、命令行、报文自检、场景树是独立 `CDockablePane`。
+- 真 Pane 是独立窗口，有自己的消息映射。`WalkPreTranslateTree` 只沿 HWND 祖先走，停靠条与 FormView 是兄弟——点在树上 / 命令行里时 View **收不到** `PreTranslateMessage`。`CFrameWndEx` 也不会自动把键鼠交给 Active View。viewhost 由 Frame 转调 `handleHostInput` 补上这条路。
+- Pane 上的按钮（`testtcp` / `testudp`）经 `viewHostView()` 找到 FormView 再调 Driver。无文档 SDI 不会走 `InitialUpdateFrame`，未点过仪表盘时 `GetActiveView()` 仍是空；查找要落到 `AFX_IDW_PANE_FIRST`，创建后也要 `SetActiveView`。
 
 ---
 

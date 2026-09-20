@@ -12,11 +12,9 @@ using aerovista::sync::SofRttTracker;
 
 namespace
 {
-    using Clock = SofRttTracker::Clock;
-
-    Clock::time_point atMs(int ms)
+    std::chrono::steady_clock::time_point atMs(int ms)
     {
-        return Clock::time_point{} + std::chrono::milliseconds{ms};
+        return std::chrono::steady_clock::time_point{} + std::chrono::milliseconds{ms};
     }
 } // namespace
 
