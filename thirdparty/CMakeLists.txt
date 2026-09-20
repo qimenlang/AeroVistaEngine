@@ -1,4 +1,7 @@
-﻿add_subdirectory(vsg)
+﻿# VSG 的 find_package(glslang CONFIG) 在 LunarG Windows SDK 上会找不到；先包装 SDK 里的库。
+include(${CMAKE_SOURCE_DIR}/cmake/UseVulkanSdkGlslang.cmake)
+
+add_subdirectory(vsg)
 add_subdirectory(vsgXchange)
 #add_subdirectory(vsgImGui)
 add_subdirectory(cigi)
