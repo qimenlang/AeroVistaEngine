@@ -220,11 +220,11 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 **归属边界**：
 - `syncSystem` 组：`requireConnectedIg` 由 SynchronSystem 消费（connect 失败是否拒绝）；`channelId` 仅存储；`offsetDeg` 由 Engine `CameraDriver` 消费。
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
-- `model`/`window`/`entities`/`camera`/`injectEllipsoidIfMissing` = engine 渲染属性（不进 sync）。
+- `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
 
 **消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)`：`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 仅存储、无运行期读取。engine 传入 `config.igConfig` + `config.syncSystem`；`offsetDeg` 注入 `CameraDriver`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。
 
-> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entities`/`camera`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。`hostEyeStalePolicy` 已删除（未知键拒绝）。
+> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。`hostEyeStalePolicy` 已删除（未知键拒绝）。
 
 ## 5. 否决与决策记录
 

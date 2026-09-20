@@ -145,7 +145,7 @@ injectEllipsoidIfMissing?: bool   // 缺省 = false
 | **摆模** | 口语：把普通本地 `.vsgt` 经 `LocalToWorld` **摆放 / 钉到** 某 LLA（ECEF），便于肉眼看见模型；≠ 建模（做几何） |
 
 - **本迭代不要求摆模**：无摆模时仍可用于单测与 BDD（自挂 `EllipsoidModel` + 断言 ECEF / LLA）。
-- **联调观感**需瓦片（如 `readymap`）或另开摆模工作；画面空不表示 LLA 同步语义错误（见 §1 不保证项）。
+- **联调观感**可用瓦片（如 `readymap`）、摆模，或通道 `groundGrid` 切平面线格（[验收测量设计.md](./多通道同步验收测量设计.md) §4.1）；画面空不表示 LLA 同步语义错误（见 §1 不保证项）。
 
 ---
 
