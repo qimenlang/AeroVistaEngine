@@ -828,51 +828,17 @@ TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli][CFG-c
 
 TEST_CASE("loadEngineChannelConfig rejects unknown top-level keys", "[unit][config][parse][CFG-reject-unknown-top]")
 {
-    const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
+    EngineChannelConfig cfg;
+    std::string error;
+    const TempConfigFile typo(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
                               R"(, "hostLocl": { "addr": "127.0.0.1" }})");
-    EngineChannelConfig cfg;
-    std::string error;
-    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE_FALSE(error.empty());
-}
-
-TEST_CASE("loadEngineChannelConfig parses shaderCube fragment path", "[unit][config][parse][CFG-parse-shader-cube]")
-{
-    const TempConfigFile file(std::string(R"({ "shaderCube": { "fragment": "shaders/debug_cube.frag" }, )") +
-                              kMinimalWindow + "}");
-    EngineChannelConfig cfg;
-    std::string error;
-    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.shaderCube.has_value());
-    REQUIRE(cfg.shaderCube->fragment == "shaders/debug_cube.frag");
-}
-
-TEST_CASE("loadEngineChannelConfig rejects shaderCube mixed with model or entities",
-          "[unit][config][parse][CFG-reject-shader-cube-mutex]")
-{
-    EngineChannelConfig cfg;
-    std::string error;
-    const TempConfigFile withModel(std::string(R"({ "shaderCube": { "fragment": "shaders/debug_cube.frag" }, )") +
-                                   kMinimalModel + ", " + kMinimalWindow + "}");
-    REQUIRE_FALSE(loadEngineChannelConfig(withModel.path(), cfg, &error));
+    REQUIRE_FALSE(loadEngineChannelConfig(typo.path(), cfg, &error));
     REQUIRE_FALSE(error.empty());
 
     error.clear();
-    const TempConfigFile withEntities(
-        std::string(R"({ "shaderCube": { "fragment": "shaders/debug_cube.frag" }, "entitiesFilePath": "config/entities.json", )") +
-        kMinimalWindow + "}");
-    REQUIRE_FALSE(loadEngineChannelConfig(withEntities.path(), cfg, &error));
-    REQUIRE_FALSE(error.empty());
-}
-
-TEST_CASE("loadEngineChannelConfig rejects unknown keys inside shaderCube",
-          "[unit][config][parse][CFG-reject-unknown-shader-cube]")
-{
-    const TempConfigFile file(std::string(R"({ "shaderCube": { "fragment": "shaders/debug_cube.frag", "bogus": 1 }, )") +
-                              kMinimalWindow + "}");
-    EngineChannelConfig cfg;
-    std::string error;
-    REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
+    const TempConfigFile shaderCube(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
+                                    R"(, "shaderCube": { "fragment": "shaders/debug_cube.frag" }})");
+    REQUIRE_FALSE(loadEngineChannelConfig(shaderCube.path(), cfg, &error));
     REQUIRE_FALSE(error.empty());
 }
 

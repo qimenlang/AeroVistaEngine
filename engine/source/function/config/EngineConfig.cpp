@@ -3,6 +3,7 @@
 #include <aerovista/config/ConfigJson.h>
 #include <aerovista/sync/SyncConfig.h>
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -213,28 +214,47 @@ namespace
         return camera;
     }
 
-    ShaderCubeConfig parseShaderCube(const Json& obj)
+    Vec3Config parseLlaObject(const Json& llaObj)
     {
-        rejectUnknownKeys(obj, {"fragment"});
-        ShaderCubeConfig cube;
-        cube.fragment = requireString(obj, "fragment");
-        if (cube.fragment.empty())
-            throw std::runtime_error("shaderCube.fragment must be non-empty");
-        return cube;
+        rejectUnknownKeys(llaObj, {"lat", "lon", "alt"});
+        Vec3Config lla;
+        lla.x = requireNumber(llaObj, "lat");
+        lla.y = requireNumber(llaObj, "lon");
+        lla.z = requireNumber(llaObj, "alt");
+        return lla;
+    }
+
+    GroundGridConfig parseGroundGrid(const Json& obj)
+    {
+        rejectUnknownKeys(obj, {"lla", "halfExtentM", "cellM", "majorEvery"});
+        if (find(obj, "lla") == nullptr)
+            throw std::runtime_error("missing/invalid object: lla");
+        GroundGridConfig grid;
+        grid.lla = parseLlaObject(requireObject(*find(obj, "lla"), "lla"));
+        if (find(obj, "halfExtentM") != nullptr)
+            grid.halfExtentM = requireNumber(obj, "halfExtentM");
+        if (find(obj, "cellM") != nullptr)
+            grid.cellM = requireNumber(obj, "cellM");
+        if (find(obj, "majorEvery") != nullptr)
+            grid.majorEvery = requireInt(obj, "majorEvery");
+        if (!(grid.halfExtentM > 0.0))
+            throw std::runtime_error("groundGrid.halfExtentM must be > 0");
+        if (!(grid.cellM > 0.0))
+            throw std::runtime_error("groundGrid.cellM must be > 0");
+        if (grid.majorEvery < 1)
+            throw std::runtime_error("groundGrid.majorEvery must be >= 1");
+        const int cells = static_cast<int>(std::lround((2.0 * grid.halfExtentM) / grid.cellM));
+        if (cells < 1 || cells > 400)
+            throw std::runtime_error("groundGrid cell count across must be in 1..400");
+        return grid;
     }
 
     void parseModelEntityMutex(const Json& root, EngineChannelConfig& cfg)
     {
         const bool hasModelKey = find(root, "model") != nullptr;
         const bool hasEntityKey = find(root, "entity") != nullptr;
-        const bool hasShaderCube = find(root, "shaderCube") != nullptr;
-        const bool hasEntitiesFile = find(root, "entitiesFilePath") != nullptr;
         if (hasEntityKey)
             throw std::runtime_error("singular entity is not supported; use a separate entities file (entitiesFilePath)");
-        if (hasShaderCube && hasModelKey)
-            throw std::runtime_error("shaderCube and model are mutually exclusive");
-        if (hasShaderCube && hasEntitiesFile)
-            throw std::runtime_error("shaderCube and entitiesFilePath are mutually exclusive");
         if (hasModelKey)
             cfg.model = requireString(root, "model");
         if (const Json* v = find(root, "entitiesFilePath"))
@@ -262,7 +282,7 @@ namespace
     {
         // engine 配置含 hostConfig 属未知键拒绝（Host 用 loadHostConfig）。
         rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
-                                 "injectEllipsoidIfMissing", "entitiesFilePath", "camera", "shaderCube"});
+                                 "injectEllipsoidIfMissing", "entitiesFilePath", "camera", "groundGrid"});
 
         EngineChannelConfig cfg;
 
@@ -287,12 +307,14 @@ namespace
 
         parseModelEntityMutex(root, cfg);
 
-        if (const Json* v = find(root, "shaderCube"))
-            cfg.shaderCube = parseShaderCube(requireObject(*v, "shaderCube"));
-
         if (const Json* v = find(root, "camera"))
         {
             cfg.camera = parseCamera(requireObject(*v, "camera"));
+        }
+
+        if (const Json* v = find(root, "groundGrid"))
+        {
+            cfg.groundGrid = parseGroundGrid(requireObject(*v, "groundGrid"));
         }
 
         validateIgEndpointPairing(cfg, cfg.syncSystem.requireConnectedIg);

@@ -111,8 +111,8 @@ private:
     void registerIgCallbacks();
     bool initSceneFromEntities(const std::vector<EntityConfig>& entities);
     bool initSceneFromConfig(const std::vector<EntityConfig>& entities);
-    bool initShaderCubeScene();
     bool ensureEllipsoidModel();
+    bool attachConfiguredGroundGrid();
     void applyCameraPoseFromConfig();
     bool finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoidModel);
 

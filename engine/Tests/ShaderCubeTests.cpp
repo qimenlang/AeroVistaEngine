@@ -1,11 +1,7 @@
 ﻿#include <catch2/catch_test_macros.hpp>
 
 #include "Common.h"
-#include "engine.h"
 #include "function/scene/ShaderCube.h"
-
-#include <fstream>
-#include <string>
 
 #ifndef RESOURCE_DIR
 #    define RESOURCE_DIR "."
@@ -41,30 +37,4 @@ TEST_CASE("createShaderCube rejects invalid GLSL", "[unit][shader][RND-shader-cu
     const TempConfigFile bad(R"(not a fragment shader)");
     auto cube = createShaderCube(vsg::Path(bad.path()), makeOptions());
     REQUIRE_FALSE(cube);
-}
-
-SCENARIO("shader cube scene compiles GLSL and renders one frame",
-         "[acceptance][bdd][render][shader][RND-shader-cube]")
-{
-    GIVEN("an offscreen Engine and scene_shader_cube.json")
-    {
-        Engine engine;
-        engine.extent = {640, 480};
-        engine.showWindow = false;
-        const std::string configPath = std::string(RESOURCE_DIR) + "/config/scene_shader_cube.json";
-
-        WHEN("the shader cube config is loaded and one frame is rendered")
-        {
-            REQUIRE(engine.loadConfig(configPath));
-            const bool loaded = engine.init();
-            const bool rendered = loaded && engine.tickOnFrame();
-
-            THEN("GLSL compile succeeds, the cube is in the scene, and a frame is produced")
-            {
-                REQUIRE(loaded);
-                REQUIRE(rendered);
-                REQUIRE(sceneIsShaderCube(engine.mainScene()));
-            }
-        }
-    }
 }

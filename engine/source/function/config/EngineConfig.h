@@ -71,10 +71,13 @@ struct CameraConfig
     EllipsoidPoseConfig ellipsoidPose{};
 };
 
-/// 调试探针：场景放一个单位立方体，fragment 走运行时 GLSL 编译（引擎加载与渲染.md）。
-struct ShaderCubeConfig
+/// 接缝目视用 ENU 切平面线网格（验收测量设计 §4.1）。钉到 `lla` 的 LocalToWorld，不是瓦片地球。
+struct GroundGridConfig
 {
-    std::string fragment;
+    Vec3Config lla{}; // lat°, lon°, alt m
+    double halfExtentM = 20000.0;
+    double cellM = 200.0;
+    int majorEvery = 5;
 };
 
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，多通道同步模块设计.md §3.1）。
@@ -100,8 +103,8 @@ struct EngineChannelConfig
     /// engine 通道配置不再内嵌 entities；配置指向独立文件（实体管理设计.md §4）。
     std::string entitiesFilePath;
 
-    /// 调试立方体；nullopt = 不启用。与 `model` / `entitiesFilePath` 互斥。
-    std::optional<ShaderCubeConfig> shaderCube{};
+    /// 可选接缝网格；出现则 `lla` 必填。需要场景 `EllipsoidModel`（注入或自带）。
+    std::optional<GroundGridConfig> groundGrid{};
 };
 
 bool loadEngineChannelConfig(const std::string& path, EngineChannelConfig& out, std::string* error = nullptr);

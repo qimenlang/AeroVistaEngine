@@ -4,7 +4,7 @@
 #include "function/driver/CameraDriver.h"
 #include "function/handler/FrameStatsHandler.h"
 #include "function/handler/PacketProbeHandler.h"
-#include "function/scene/ShaderCube.h"
+#include "function/scene/GroundGrid.h"
 
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SynchronSystem.h>
@@ -611,32 +611,38 @@ bool Engine::initSceneFromEntities(const std::vector<EntityConfig>& entities)
 
 bool Engine::initSceneFromConfig(const std::vector<EntityConfig>& entities)
 {
-    if (config.shaderCube)
-        return initShaderCubeScene();
     if (!entities.empty())
         return initSceneFromEntities(entities);
     return initSceneMode(vsg::Path(RESOURCE_DIR) / config.model);
 }
 
-bool Engine::initShaderCubeScene()
+bool Engine::attachConfiguredGroundGrid()
 {
-    try
+    if (!config.groundGrid)
+        return true;
+    if (!_scene)
+        return false;
+
+    auto ellipsoid = ellipsoidModel();
+    if (!ellipsoid)
     {
-        if (!setupOptions(_options))
-            return false;
-        const vsg::Path fragmentPath{resolveResourcePath(config.shaderCube->fragment)};
-        _scene = createShaderCube(fragmentPath, _options);
-        if (!_scene)
-            return false;
-        std::cerr << "[shaderCube] GLSL compiled: " << fragmentPath
-                  << " (edit the frag, restart vsgEngine; no C++ rebuild)" << std::endl;
-        return ensureEllipsoidModel();
-    }
-    catch (const vsg::Exception& ve)
-    {
-        std::cerr << "[Exception] - " << ve.message << " result = " << ve.result << std::endl;
+        std::cerr << "[config] groundGrid requires EllipsoidModel (inject or igConfig)\n";
         return false;
     }
+
+    auto grid = createPinnedGroundGrid(*ellipsoid, *config.groundGrid);
+    if (auto group = _scene.cast<vsg::Group>())
+    {
+        group->addChild(grid);
+        return true;
+    }
+
+    auto root = vsg::Group::create();
+    root->setObject("EllipsoidModel", ellipsoid);
+    root->addChild(_scene);
+    root->addChild(grid);
+    _scene = root;
+    return true;
 }
 
 bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYprDeg)
@@ -718,7 +724,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 
 bool Engine::init()
 {
-    // 顺序（实体管理设计.md §8）：applyConfig → reset → 场景构建 → initSync → Graphics（compile）。
+    // 顺序（实体管理设计.md §8）：applyConfig → reset → 场景构建 → 接缝网格 → initSync → Graphics。
     // 场景先于 sync，保证收 EntityCtrl 时 _entityMap 已建；Graphics 依赖 _scene，放最后。
     applyConfigToEngine();
     resetGraphicsResources();
@@ -736,6 +742,9 @@ bool Engine::init()
     }
 
     if (!initSceneFromConfig(entities))
+        return false;
+
+    if (!attachConfiguredGroundGrid())
         return false;
 
     if (!initSync(config.igConfig, config.syncSystem))
