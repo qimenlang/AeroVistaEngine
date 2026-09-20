@@ -20,7 +20,7 @@ vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
        ├→ AeroVistaConfig   （JSON 契约辅助：thirdparty/config；语法走 nlohmann/json）
        └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + IG 收发端点）
-            ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / HostSync / IgSync
+            ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / HostSync / IgSync / SofRttTracker
             │           / SyncConfig / SyncProtocol
             ├─ Host 任务状态：HostDataManager（权威表门面，不持 socket）
             ├─ IG 收发端点：SynchronSystem（收包 + IgSync 帧维护 + 连接查询）
@@ -39,7 +39,7 @@ vsgEngine (exe)
 
 ## 2. 库结构
 
-- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - IG 收发端点（`SynchronSystem`）公开接口零 vsg、不依赖 Engine：收包解包 + IgSync 帧维护 + `igLinked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。
 - 配置类型（`OffsetDeg`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
@@ -51,7 +51,7 @@ vsgEngine (exe)
 
 **消除的是对 `Engine`（宿主引擎类）的依赖；公开接口与实现 TU 均零 vsg。** 分两层：
 
-- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - **IG 收发层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。只负责收包解包 + IgSync 帧维护 + 连接状态查询（`igLinked()`）。眼点合成（offset）在 Engine `CameraDriver`（`engine/source/function/driver/`），写相机在 `Engine::applyLastHostEye`；SynchronSystem 不触碰眼点决策，也不承担 Host 采样/扇出（数据流，见 §3.1）。
 
 vsg 的分层：

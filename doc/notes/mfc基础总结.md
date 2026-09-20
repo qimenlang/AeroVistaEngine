@@ -1,4 +1,4 @@
-﻿# MFC 基础机制（viewhost 语境）
+# MFC 基础机制（viewhost 语境）
 
 viewhost（`thirdparty/sync/examples/viewhost`）用到的 MFC 基础机制。项目背景见 [viewhost设计.md](../design/viewhost设计.md)。
 
@@ -24,29 +24,32 @@ viewhost（`thirdparty/sync/examples/viewhost`）用到的 MFC 基础机制。�
 | `PUSHBUTTON` | 普通按钮 | 需鼠标/聚焦+空格 |
 
 - 每个对话框**最多一个默认按钮**；按 Enter 会转成对默认按钮的点击。
-- viewhost：「退出」用 `DEFPUSHBUTTON`（Enter 即退出）；「开始控制」用 `PUSHBUTTON`（**避免被 Enter 误触发**切换）。
+- viewhost 主表单不再放退出按钮；关进程走框架菜单「文件 → 退出」或标题栏关闭。属性面板仍是普通 `CDialog`。
 
 ---
 
-## 2. 启动序列：`m_pMainWnd` + `DoModal()`
+## 2. 启动序列：`m_pMainWnd` + `LoadFrame` + `Run()`
 
 ```cpp
-m_pMainWnd = &dlg;   // 告诉 CWinApp 主窗口是谁（退出/系统消息参照）
-dlg.DoModal();       // 进入模态消息循环，阻塞到对话框关闭
+m_pMainWnd = frame;
+frame->LoadFrame(IDR_MAINFRAME);
+frame->ShowWindow(SW_SHOW);
+return TRUE;   // 继续 CWinApp::Run()，非模态
 ```
 
-- `DoModal()` 内部 `RunModalLoop` 自己跑消息循环，对话框开着时 `InitInstance` 卡在这。
-- 关闭（`EndDialog`）后返回 → `InitInstance` 返回 FALSE → 程序退出。
+- `CWinAppEx::InitInstance` 返回 TRUE 后进入应用消息循环；关主框架后 `Run` 返回，进程退出。
+- `CWinAppEx` 默认会从注册表恢复主窗口尺寸（`EnableLoadWindowPlacement`）。viewhost 主客户区是固定 DLU 的 `CFormView`，恢复会留下一圈空白；已关掉恢复，并在 `LoadFrame` 之后按表单 `GetTotalSize()` 收外框。
+- 命令行有焦点时 Enter 发 `CigiSymbolTextDefV4`（在 `PreTranslateMessage` 里拦，避免 `IsDialogMessage` 当成默认按钮）。
+- 旧路径是 `CDialog::DoModal()`（`RunModalLoop` 阻塞在 `InitInstance` 里，返回 FALSE 退出）。属性面板仍用 `DoModal()`。
 
 ---
 
-## 3. `OnOK` / `OnCancel` 空重载：拦截「默认关闭」
+## 3. `OnOK` / `OnCancel`：属性对话框仍要拦默认关闭
 
 `CDialog` 默认行为：`OnOK`→`EndDialog(IDOK)`、`OnCancel`→`EndDialog(IDCANCEL)`，**都会关对话框**。
 
-- 常驻 Host 程序不应被 Enter/ESC 误关 → **必须重写为空**，覆盖默认关闭。
-- 不是「必须重载才可用」，而是「必须覆盖默认关闭行为」。
-- viewhost 现状：**ESC 安全、Enter 退出**（Enter 走默认按钮 `IDC_EXIT`）。
+- 实体属性面板：`OnOK` 空重载，避免 Enter 未按 Apply 就关；`OnCancel` 仍 `EndDialog`（ESC / 标题栏关闭）。
+- 主界面已是 `CFormView`，不再靠空 `OnOK`/`OnCancel` 保命；主表单无默认按钮。命令行 Enter 在 `PreTranslateMessage` 里单独处理，其它位置 Enter 不关进程。
 
 ---
 
@@ -62,15 +65,15 @@ flowchart TB
     A --> D["控件通知<br/>（如 BN_CLICKED 按钮点击）"]
     B --> E["对话框层全局处理<br/>（与焦点无关）"]
     C --> F["OnKeyDown / OnSize / OnPaint / 自定义消息…"]
-    D --> G["OnToggleControl / OnExit…"]
+    D --> G["testtcp / 树单击…"]
 ```
 
 | 入口 | 触发 | 本程序用途 |
 |------|------|------|
 | **消息映射 `ON_XXX`** | 窗口/控件/菜单/定时器/自定义消息 | `ON_WM_TIMER`、`ON_BN_CLICKED`、`ON_WM_DESTROY` |
-| **覆盖虚函数** | 生命周期钩子 | `OnInitDialog`、`OnDestroy`、`OnOK/OnCancel` |
-| **`PreTranslateMessage`** | 消息派发前、全局 | 空格切换控制 |
-| **自定义消息 `ON_MESSAGE(WM_APP+n)`** | 工作线程→UI 线程 | 高节拍方案的工作线程回传状态 |
+| **覆盖虚函数** | 生命周期钩子 | `OnInitialUpdate`、`OnDestroy`；属性面板 `OnInitDialog` / `OnOK` |
+| **`PreTranslateMessage`** | 消息派发前、全局 | 控眼点时吞掉方向键/WASD；鼠标按下时判定进入/退出控制 |
+| **自定义消息 `ON_MESSAGE(WM_APP+n)`** | 推迟到下一圈消息循环 / 子对话框回传 | 双击实体后弹属性；Apply 后刷新树 |
 
 ---
 
@@ -86,22 +89,20 @@ flowchart TB
 
 | 机制 | 语义 | 本程序 |
 |------|------|------|
-| `PreTranslateMessage` | **按键事件**（边缘触发，下一次消息循环即处理） | 空格 → 切换控制（瞬时动作） |
+| `PreTranslateMessage` | **按键/鼠标事件**（派发前拦截） | 控眼点时吞相机键；`WM_LBUTTONDOWN` 判定进入/退出 |
 | `OnTimer` + `GetAsyncKeyState` | **定时轮询**（每 ~16ms 采样一次） | WASD/CE/方向键 → 持续移动 |
 
 ```text
-瞬时动作（切换）→ 走事件：按一下，立刻切换
+瞬时动作（进入/退出眼点控制）→ 走事件：单击 eyePoint / 单击树上其它项
 持续动作（移动）→ 走轮询：每帧读键，按住持续位移
 ```
 
-- 空格「立即」是相对 16ms 帧而言，本质仍是消息队列调度，非绝对实时。
+- 空格不再切换眼点控制（入口改为场景树单击 `eyePoint`）。
 - 移动不是「延迟响应」，是「按帧采样聚合」，与游戏引擎一致。
 
 ### 5.2 助记键（`&X`）与操控键的冲突
 
-`"开始控制(&S)"` 把 **S 声明为按钮助记键**：焦点不在文本框时直接按 S 会**激活按钮**（切换控制），与「S=后退」冲突。
-
-→ **修复**：toggle 按钮去助记键（纯文字），键盘切换改用空格热键（`PreTranslateMessage` 拦截 `VK_SPACE`，`return TRUE` 吞掉消息避免按钮二次消费）。`退出(&X)` 保留（X 不与操控键冲突）。
+字母助记键会被 `IsDialogMessage` 直接激活按钮。viewhost 眼点开关不走按钮，故无「开始控制(&S)」与 S=后退的冲突。菜单「退出(&X)」的 X 不与操控键冲突。
 
 ---
 
@@ -124,11 +125,23 @@ flowchart TB
 
 | 需求 | 选谁 |
 |------|------|
-| 工具面板 / 控制台 / 参数配置（viewhost） | **`CDialog`**（轻量，控件直排） |
-| 编辑器 / 查看器，需菜单+工具栏+多视图/停靠面板 | **`CFrameWndEx`**（`CView` 宿主） |
+| 工具面板 / 控制台 / 参数配置，且要后续加停靠面板（viewhost） | **`CFrameWndEx` + `CFormView`** |
+| 只要一张固定对话框、无扩展计划 | **`CDialog`**（属性面板仍用这个） |
 | 大型 MDI 应用 | `CMDIFrameWndEx`（MDI 版） |
 
 一句话：**`CDialog` 是「对话框即窗口」，`CFrameWndEx` 是「框架窗口 + 承载视图/面板」**。
+
+### 6.1 View 与 Pane
+
+在 `CFrameWndEx` 里这两个不是同义词：
+
+| 词 | 基类 | 位置 | 干什么 |
+|------|------|------|------|
+| **View** | `CView` / `CFormView` | 框架**客户区**（中间那块） | 主工作区。viewhost 用 `CFormView` 放仪表盘 + 场景树 |
+| **Pane**（常写成 panel） | `CPane` / `CDockablePane` | 客户区**四周**，可拖、可钉、可关 | 工具侧栏。后续 IG 列表 / 报文 dump / 命令行适合用它 |
+
+- **仪表盘**：主工作区上的状态/控制台面，不是一类 MFC 控件。viewhost 现在是 FormView 右侧「连接状态 / 眼点 / 报文自检」各一行，下面是「IG 连接」列表（id / 状态 / 平均RTT / 最近RTT / 丢包率 / 距上次SOF）和「命令行」（仍在同一张 FormView，还不是停靠 Pane）。
+- 左右分栏可以只改 FormView 的 `.rc` 坐标（当前做法），不必先做成真正的停靠 Pane。真 Pane 是独立窗口，有自己的消息映射，树的焦点逻辑要再迁一次。
 
 ---
 
@@ -138,9 +151,9 @@ flowchart TB
 |------|------|
 | `.rc` | 资源脚本，算源码，rc.exe 编译 |
 | 默认按钮 | `DEFPUSHBUTTON` 响应 Enter，每对话框一个 |
-| 启动 | `m_pMainWnd` 标记主窗 + `DoModal()` 模态循环 |
-| `OnOK/OnCancel` | 空重载拦截默认关闭 |
+| 启动 | 主窗 `LoadFrame` + `Run()`；属性面板仍 `DoModal()` |
+| `OnOK/OnCancel` | 属性对话框拦截 Enter 误关；主窗靠框架关闭 |
 | 业务入口 | 消息映射 + 虚函数 + `PreTranslateMessage` 三层 |
 | 对话框键盘 | 用 `PreTranslateMessage`，不用 `OnKeyDown` |
 | 瞬时 vs 持续 | 瞬时动作走事件，持续动作走帧轮询 |
-| 助记键 | 字母助记键与操控键冲突，去之；热键用空格 |
+| 助记键 | 字母助记键与操控键冲突则不要用；眼点开关走树单击 |

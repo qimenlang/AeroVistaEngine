@@ -507,6 +507,44 @@ SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each upda
     }
 }
 
+SCENARIO("Host records a matched IGCtrl-SOF RTT sample",
+         "[integration][sync][meas][MEAS-sof-rtt]")
+{
+    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    {
+        HostSync host;
+        IgSync ig;
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(ig.initialize(makeIgLocal()));
+        REQUIRE(ig.connect(makeIgLocal()));
+
+        WHEN("Host sends IGCtrl frames and IG replies SOF")
+        {
+            host.run();
+            constexpr int kFrames = 10;
+            for (int i = 0; i < kFrames; ++i)
+            {
+                hostSendFrame(host, i * (1000.0 / 60.0));
+                ig.drainIncoming(/*sendSof=*/true);
+                ig.update();
+            }
+
+            THEN("the ready IG has a positive matched RTT sample")
+            {
+                host.drainIncoming();
+                const auto peers = host.igSnapshot();
+                REQUIRE_FALSE(peers.empty());
+                const auto last = host.sofRttLast(peers.front().id);
+                REQUIRE(last.has_value());
+                REQUIRE(*last > std::chrono::microseconds{0});
+                REQUIRE(peers.front().lastRtt == last);
+                REQUIRE(peers.front().sofAge.has_value());
+                REQUIRE(*peers.front().sofAge >= std::chrono::microseconds{0});
+            }
+        }
+    }
+}
+
 SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync][status][sof][cigi][CIGI-sof-echo]")
 {
     GIVEN("a Host and an IG that have completed sync_proto handshake")
