@@ -59,6 +59,16 @@ set_property(TARGET glslang::glslang APPEND PROPERTY
 set_property(TARGET glslang::SPIRV APPEND PROPERTY
     INTERFACE_LINK_LIBRARIES glslang::glslang glslang::SPVRemapper SPIRV-Tools-opt SPIRV-Tools)
 
+# SDK Debug *d.lib 带 LunarG 构建机 PDB 路径，安装包不带 .pdb → LNK4099。继续链 Debug 库。
+# imported INTERFACE_LINK_OPTIONS 会被展成 .lib 路径丢掉，不能挂在 SPIRV-Tools-opt 上。
+# 本文件从 thirdparty/ 引入：add_link_options 覆盖 vsg / 示例；engine/ 是根的下一个子目录，
+# 写到 CMAKE_SOURCE_DIR 的 LINK_OPTIONS，才能在稍后 add_subdirectory(engine) 时继承。
+if(WIN32)
+    set(_aveIgnorePdb "$<$<CONFIG:Debug>:LINKER:/IGNORE:4099>")
+    add_link_options("${_aveIgnorePdb}")
+    set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY LINK_OPTIONS "${_aveIgnorePdb}")
+endif()
+
 set(_aveGlslangDir "${CMAKE_BINARY_DIR}/cmake/glslang")
 file(MAKE_DIRECTORY "${_aveGlslangDir}")
 file(WRITE "${_aveGlslangDir}/glslang-config.cmake"
