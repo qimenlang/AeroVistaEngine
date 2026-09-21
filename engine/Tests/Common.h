@@ -78,5 +78,5 @@ inline HostConfig makeTestHostConfig(int base)
 
 inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
 {
-    return IgConfig{udpRecvPort, "127.0.0.1", base + 100, base};
+    return IgConfig{udpRecvPort, {"127.0.0.1", base + 100, base}};
 }

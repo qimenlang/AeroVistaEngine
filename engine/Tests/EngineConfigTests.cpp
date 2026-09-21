@@ -46,8 +46,8 @@ namespace
     bool igConfigEquals(const IgConfig& a, const IgConfig& b)
     {
         return a.udpPortRecv == b.udpPortRecv &&
-               a.targetAddr == b.targetAddr && a.targetTcpPort == b.targetTcpPort &&
-               a.targetUdpPortRecv == b.targetUdpPortRecv;
+               a.target.addr == b.target.addr && a.target.tcpPort == b.target.tcpPort &&
+               a.target.udpPortRecv == b.target.udpPortRecv;
     }
 
     bool offsetEquals(const OffsetDeg& a, const OffsetDeg& b)
@@ -983,7 +983,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.igConfig.has_value());
     REQUIRE(cfg.igConfig->udpPortRecv == 8001);
-    REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
+    REQUIRE_FALSE(cfg.igConfig->target.addr.empty());
     REQUIRE(cfg.syncSystem.channelId == 0);
 }
 
@@ -994,7 +994,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.igConfig->udpPortRecv == 8003);
-    REQUIRE_FALSE(cfg.igConfig->targetAddr.empty());
+    REQUIRE_FALSE(cfg.igConfig->target.addr.empty());
 }
 
 TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem][CFG-parse-syncsystem]")
@@ -1087,9 +1087,9 @@ TEST_CASE("loadIgConfig parses an ig-only config file", "[unit][config][sync][ig
     std::string error;
     REQUIRE(loadIgConfig(file.path(), cfg, &error));
     REQUIRE(cfg.udpPortRecv == 8005);
-    REQUIRE(cfg.targetAddr == "127.0.0.1");
-    REQUIRE(cfg.targetTcpPort == 8100);
-    REQUIRE(cfg.targetUdpPortRecv == 8000);
+    REQUIRE(cfg.target.addr == "127.0.0.1");
+    REQUIRE(cfg.target.tcpPort == 8100);
+    REQUIRE(cfg.target.udpPortRecv == 8000);
 }
 
 TEST_CASE("loadIgConfig rejects unknown top-level keys", "[unit][config][sync][ig][CFG-ig-reject-unknown]")
