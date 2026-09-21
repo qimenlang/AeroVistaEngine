@@ -11,6 +11,8 @@ Aero Vista Rendering Engine Based on VSG
 | --- | --- | --- |
 | Windows cmd / 双击 | `scripts\run_multichannel.bat` | **薄转发壳**，仅转发到 git-bash 版 |
 | git-bash / MSYS2 | `scripts/run_multichannel.sh` | **单一事实来源**（exe 路径 / IG 名单 / 日志布局都在此） |
+| Windows cmd / 双击 | `scripts\run_seam_grid.bat` | 接缝网格三通道（`scene_seam_grid_ig_*.json`），转发到 `.sh` |
+| git-bash / MSYS2 | `scripts/run_seam_grid.sh` | 同上；端口与 `run_multichannel` 相同，不要同时开 |
 
 两个脚本**一体两面**：`.bat` 只是 `.sh` 的 Windows 转发壳（经 git-bash 调用），不重复维护任何启动逻辑——改动只改 `.sh`，两者不会分叉。`.bat` 与 `.sh` 都复用 `scripts/launch_vsgengine.ps1` 隐藏启动 IG（`-WindowStyle Hidden`，不弹 console）。
 
@@ -21,11 +23,16 @@ scripts/run_multichannel.sh stop       # 停止全部
 
 # Windows cmd
 scripts\run_multichannel.bat stop      # 等价（转发到 sh）
+
+# 接缝网格三通道（scene_seam_grid_ig_{main,left,right}.json）
+scripts/run_seam_grid.sh
+scripts/run_seam_grid.sh stop
 ```
 
 ### 启动内容与日志
 
 - 启动：`aerovistaViewHost.exe` + 3 个 `vsgEngine.exe`（配置 `viewhost_ig_main.json` / `viewhost_ig_left.json` / `viewhost_ig_right.json`）。
+- 接缝网格：`run_seam_grid.sh` 同样 1 Host + 3 IG，配置换成 `scene_seam_grid_ig_{main,left,right}.json`，日志 `logs/ig_seam_grid_<name>.{out,err}.log`。
 - IG 的 console 被隐藏，stdout/stderr 重定向到 `logs/ig_<main|left|right>.{out,err}.log`（该目录已 gitignore）。
 - 调试 IG 日志：`tail -f logs/ig_main.err.log`（git-bash）。
 

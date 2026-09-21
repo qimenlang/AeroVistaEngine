@@ -2,83 +2,72 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace
 {
     constexpr int kMaxCells = 400;
-    constexpr int kMaxImageDim = 2048;
-    constexpr float kQuadBelowOriginM = -0.25f;
-
-    vsg::ubvec4 kGridBackground{20, 24, 32, 255};
-    vsg::ubvec4 kMinorLine{220, 196, 48, 255};
-    vsg::ubvec4 kMajorLine{255, 255, 255, 255};
+    constexpr float kLinesBelowOriginM = -0.25f;
+    const vsg::vec4 kMinorColor{0.863f, 0.769f, 0.188f, 1.0f};
+    const vsg::vec4 kMajorColor{1.0f, 1.0f, 1.0f, 1.0f};
 
     int cellCountAcross(double halfExtentM, double cellM)
     {
         return static_cast<int>(std::lround((2.0 * halfExtentM) / cellM));
     }
 
-    void fillRgba(vsg::ubvec4Array2D& image, const vsg::ubvec4& color)
+    void appendSegment(std::vector<vsg::vec3>& vertices, const vsg::vec3& a, const vsg::vec3& b)
     {
-        const uint32_t width = image.width();
-        const uint32_t height = image.height();
-        for (uint32_t y = 0; y < height; ++y)
-        {
-            for (uint32_t x = 0; x < width; ++x)
-                image.set(x, y, color);
-        }
+        vertices.push_back(a);
+        vertices.push_back(b);
     }
 
-    void stampVertical(vsg::ubvec4Array2D& image, int x, int halfWidth, const vsg::ubvec4& color)
-    {
-        const int width = static_cast<int>(image.width());
-        const int height = static_cast<int>(image.height());
-        const int x0 = std::max(0, x - halfWidth);
-        const int x1 = std::min(width - 1, x + halfWidth);
-        for (int pixelX = x0; pixelX <= x1; ++pixelX)
-        {
-            for (int y = 0; y < height; ++y)
-                image.set(static_cast<uint32_t>(pixelX), static_cast<uint32_t>(y), color);
-        }
-    }
-
-    void stampHorizontal(vsg::ubvec4Array2D& image, int y, int halfWidth, const vsg::ubvec4& color)
-    {
-        const int width = static_cast<int>(image.width());
-        const int height = static_cast<int>(image.height());
-        const int y0 = std::max(0, y - halfWidth);
-        const int y1 = std::min(height - 1, y + halfWidth);
-        for (int pixelY = y0; pixelY <= y1; ++pixelY)
-        {
-            for (int x = 0; x < width; ++x)
-                image.set(static_cast<uint32_t>(x), static_cast<uint32_t>(pixelY), color);
-        }
-    }
-
-    void paintGridLines(vsg::ubvec4Array2D& image, int cells, int pixelsPerCell, int majorEvery)
-    {
-        for (int i = 0; i <= cells; ++i)
-        {
-            const bool isMajor = (i % majorEvery) == 0;
-            const vsg::ubvec4& color = isMajor ? kMajorLine : kMinorLine;
-            const int halfWidth = isMajor ? 1 : 0;
-            const int pixel = i * pixelsPerCell;
-            stampVertical(image, pixel, halfWidth, color);
-            stampHorizontal(image, pixel, halfWidth, color);
-        }
-    }
-
-    vsg::ref_ptr<vsg::ubvec4Array2D> createGridImage(const GroundGridConfig& spec)
+    void collectGridSegments(const GroundGridConfig& spec, std::vector<vsg::vec3>& major,
+                             std::vector<vsg::vec3>& minor)
     {
         const int cells = std::clamp(cellCountAcross(spec.halfExtentM, spec.cellM), 1, kMaxCells);
-        const int pixelsPerCell = std::max(1, kMaxImageDim / cells);
-        const uint32_t dim = static_cast<uint32_t>(cells * pixelsPerCell + 1);
-        vsg::Data::Properties props{VK_FORMAT_R8G8B8A8_UNORM};
-        props.mipLevels = 1;
-        auto image = vsg::ubvec4Array2D::create(dim, dim, props);
-        fillRgba(*image, kGridBackground);
-        paintGridLines(*image, cells, pixelsPerCell, spec.majorEvery);
-        return image;
+        const auto half = static_cast<float>(spec.halfExtentM);
+        const float step = (2.0f * half) / static_cast<float>(cells);
+        const int majorEvery = std::max(1, spec.majorEvery);
+
+        for (int n = 0; n <= cells; ++n)
+        {
+            const float t = -half + static_cast<float>(n) * step;
+            auto& dest = ((n % majorEvery) == 0) ? major : minor;
+            appendSegment(dest, {t, -half, kLinesBelowOriginM}, {t, half, kLinesBelowOriginM});
+            appendSegment(dest, {-half, t, kLinesBelowOriginM}, {half, t, kLinesBelowOriginM});
+        }
+    }
+
+    vsg::ref_ptr<vsg::vec3Array> toVec3Array(const std::vector<vsg::vec3>& src)
+    {
+        auto vertices = vsg::vec3Array::create(static_cast<uint32_t>(src.size()));
+        for (uint32_t i = 0; i < vertices->size(); ++i)
+            vertices->set(i, src[i]);
+        return vertices;
+    }
+
+    vsg::ref_ptr<vsg::VertexIndexDraw> createSolidLineDraw(const std::vector<vsg::vec3>& segments,
+                                                           const vsg::vec4& color)
+    {
+        if (segments.empty())
+            return {};
+
+        auto vertices = toVec3Array(segments);
+        const uint32_t count = vertices->size();
+        auto normals = vsg::vec3Array::create(count, vsg::vec3(0.0f, 0.0f, 1.0f));
+        auto texcoords = vsg::vec2Array::create(count, vsg::vec2(0.0f, 0.0f));
+        auto colors = vsg::vec4Array::create({color});
+        auto indices = vsg::ushortArray::create(count);
+        for (uint32_t i = 0; i < count; ++i)
+            indices->set(i, static_cast<uint16_t>(i));
+
+        auto vid = vsg::VertexIndexDraw::create();
+        vid->assignArrays({vertices, normals, texcoords, colors});
+        vid->assignIndices(indices);
+        vid->indexCount = count;
+        vid->instanceCount = 1;
+        return vid;
     }
 } // namespace
 
@@ -89,19 +78,23 @@ int groundGridLineCount(double halfExtentM, double cellM)
 
 vsg::ref_ptr<vsg::Node> createEnuGroundGrid(const GroundGridConfig& spec)
 {
+    std::vector<vsg::vec3> major;
+    std::vector<vsg::vec3> minor;
+    collectGridSegments(spec, major, minor);
+
     auto builder = vsg::Builder::create();
     vsg::StateInfo state;
-    state.image = createGridImage(spec);
     state.lighting = false;
-    state.two_sided = true;
+    state.wireframe = true;
+    auto stateGroup = builder->createStateGroup(state);
+    if (!stateGroup)
+        return {};
 
-    vsg::GeometryInfo geom;
-    const auto extent = static_cast<float>(2.0 * spec.halfExtentM);
-    geom.position.set(0.0f, 0.0f, kQuadBelowOriginM);
-    geom.dx.set(extent, 0.0f, 0.0f);
-    geom.dy.set(0.0f, extent, 0.0f);
-    geom.dz.set(0.0f, 0.0f, 1.0f);
-    return builder->createQuad(geom, state);
+    if (auto draw = createSolidLineDraw(minor, kMinorColor))
+        stateGroup->addChild(draw);
+    if (auto draw = createSolidLineDraw(major, kMajorColor))
+        stateGroup->addChild(draw);
+    return stateGroup;
 }
 
 vsg::ref_ptr<vsg::MatrixTransform> createPinnedGroundGrid(const vsg::EllipsoidModel& ellipsoid,
