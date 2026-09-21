@@ -69,7 +69,7 @@ TCP 服务端：`listen` **一个**端口，`accept` 出 **N 条连接**；不�
 
 - 服务器对外监听 → bind `0.0.0.0`；只准本机连 → bind `127.0.0.1`。
 - 客户端**连接目标**不能用 `0.0.0.0`：本机服务用 `127.0.0.1`，跨机器用对端局域网 IP。
-- 本项目：Host/IG 本地 UDP 接收、Host TCP 监听**固定 `0.0.0.0`（INADDR_ANY）**；`bindAddr` 配置已移除（从未被消费）。IG 跨机器连 Host 靠 `igConfig.targetAddr` 填 Host 局域网 IP，见 [sync模块化设计.md](../design/多通道同步/sync模块化设计.md) §4.0。
+- 本项目：Host/IG 本地 UDP 接收、Host TCP 监听**固定 `0.0.0.0`（INADDR_ANY）**；`bindAddr` 配置已移除（从未被消费）。IG 跨机器连 Host 靠 JSON `targetAddr`（C++ `IgConfig::target.addr`）填 Host 局域网 IP，见 [sync模块化设计.md](../design/多通道同步/sync模块化设计.md) §4.0。
 
 ---
 

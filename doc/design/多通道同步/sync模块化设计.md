@@ -42,7 +42,7 @@ vsgEngine (exe)
 - 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - IG 收发端点（`SynchronSystem`）公开接口零 vsg、不依赖 Engine：收包解包 + IgSync 帧维护 + `igLinked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。
-- 配置类型（`OffsetDeg`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
+- 配置类型（`OffsetDeg`/`IgConfig`/`HostTarget`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
 ## 3. 关键设计决策
@@ -96,9 +96,9 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ### 3.2 配置结构归属
 
-- `OffsetDeg`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
+- `OffsetDeg`、`IgConfig`、`HostTarget`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
-- **`IgConfig` 合并本地 UDP 接收端口 + 远端 Host 目标**（`udpPortRecv` + `targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）；配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
+- **`IgConfig` = 本地 UDP 接收端口 + 远端 `HostTarget`**（`udpPortRecv` + `target.{addr,tcpPort,udpPortRecv}`）；JSON 仍扁平 `targetAddr` / `targetTcpPort` / `targetUdpPortRecv`。配置只有 `hostConfig` 与 `igConfig` 两块。见 §4。
 
 ### 3.3 命令面桥
 
@@ -137,7 +137,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **字段语义**：
 - `hostConfig`：Host 本地传输参数（`udpPortRecv`/`tcpPort`）。
-- `igConfig`：IG 本地 UDP 接收端口（`udpPortRecv`）+ 远端 Host 目标（`targetAddr`/`targetTcpPort`/`targetUdpPortRecv`）。
+- `igConfig`：IG 本地 UDP 接收端口（`udpPortRecv`）+ 远端 Host 目标（JSON：`targetAddr`/`targetTcpPort`/`targetUdpPortRecv` → C++ `HostTarget`）。
 
 **设计理由**：
 - 本地 UDP 接收 / TCP 监听**固定绑定所有网卡**（`INADDR_ANY`，即 `0.0.0.0`）；`targetAddr` 才是可配的远端 Host 目标。
@@ -148,7 +148,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`udpPortSend`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
-**C++ 类型**：`IgConfig`（4 字段）/ `HostConfig`（现状 2 字段：`udpPortRecv` / `tcpPort`）。`messageSync` / `masterChannelId` 见 [状态同步设计.md](./状态同步设计.md) §3.1，**尚未入结构体**；写入 JSON 会因未知键拒绝。
+**C++ 类型**：`HostTarget`（`addr` / `tcpPort` / `udpPortRecv`）嵌在 `IgConfig::target`；JSON 键仍扁平 `targetAddr` / `targetTcpPort` / `targetUdpPortRecv`（避免与本端 `udpPortRecv` 撞名）。`HostConfig` 现状 2 字段：`udpPortRecv` / `tcpPort`。`messageSync` / `masterChannelId` 见 [状态同步设计.md](./状态同步设计.md) §3.1，**尚未入结构体**；写入 JSON 会因未知键拒绝。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
