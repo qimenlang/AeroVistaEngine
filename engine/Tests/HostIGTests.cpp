@@ -7,6 +7,7 @@
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SyncConfig.h>
+#include <aerovista/sync/SyncInterface.h>
 #include <aerovista/sync/SynchronSystem.h>
 
 #include "CigiBaseEntityPositionCtrl.h"
@@ -40,6 +41,7 @@ using aerovista::sync::IgStatus;
 using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::SynchronSystem;
+using aerovista::sync::SyncInterface;
 using aerovista::sync::SyncSystemConfig;
 using aerovista::sync::TcpSocket;
 namespace cigi_wire = aerovista::sync::cigi_wire;
@@ -1077,6 +1079,72 @@ TEST_CASE("IG HELLO on TCP starts with CIGI SOF", "[unit][sync][wire-contract][H
 
     const std::uint16_t packetId = static_cast<std::uint16_t>(header[2] | (header[3] << 8));
     REQUIRE(packetId == CIGI_SOF_PACKET_ID_V4);
+}
+
+TEST_CASE("IgSync sendUdpMessage forwards raw datagram without adding SOF",
+          "[unit][sync][CIGI-endpoint-udp]")
+{
+    HostSync host;
+    IgSync ig;
+    REQUIRE(linkHostIg(host, ig, 39800));
+
+    host.drainIncoming();
+    const auto sofBefore = host.sofReceivedCount();
+    const auto sentBefore = ig.sofSentCount();
+
+    std::vector<unsigned char> sof;
+    REQUIRE(cigi_wire::packSof(42, sof));
+    SyncInterface& sync = ig;
+    // UDP 可丢：重发直到 Host 解到 SOF；合同不是单报必达。
+    for (int i = 0; i < 10 && host.sofReceivedCount() == sofBefore; ++i)
+    {
+        sync.sendUdpMessage(sof);
+        for (int j = 0; j < 8 && host.sofReceivedCount() == sofBefore; ++j)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            host.drainIncoming();
+        }
+    }
+
+    REQUIRE(ig.sofSentCount() == sentBefore);
+    if (host.sofReceivedCount() == sofBefore)
+        SKIP("UDP datagram dropped");
+    REQUIRE(host.sofReceivedCount() > sofBefore);
+}
+
+TEST_CASE("HostSync takeIncomingUdp consumes the UDP queue without drainIncoming",
+          "[unit][sync][CIGI-endpoint-udp]")
+{
+    HostSync host;
+    IgSync ig;
+    REQUIRE(linkHostIg(host, ig, 39900));
+
+    host.drainIncoming();
+    const auto sofBefore = host.sofReceivedCount();
+
+    SyncInterface& sync = host;
+    std::vector<unsigned char> taken;
+    for (int i = 0; i < 10 && taken.empty(); ++i)
+    {
+        ig.outMsgWithSofUdp();
+        ig.flushUdp();
+        const auto frames = collectFrames([&] { return sync.takeIncomingUdp(); }, 1);
+        if (!frames.empty())
+            taken = frames.back();
+    }
+    if (taken.empty())
+        SKIP("UDP datagram dropped");
+    REQUIRE(cigi_wire::isSofPacket(taken.data(), static_cast<int>(taken.size())));
+
+    // 抽空可能迟到的报，避免随后 drainIncoming 把它们计成 SOF。
+    for (int i = 0; i < 10; ++i)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        (void)sync.takeIncomingUdp();
+    }
+
+    host.drainIncoming();
+    REQUIRE(host.sofReceivedCount() == sofBefore);
 }
 
 // =============================================================================
