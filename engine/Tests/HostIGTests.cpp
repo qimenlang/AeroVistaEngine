@@ -4,6 +4,7 @@
 #include "engine.h"
 #include <aerovista/sync/CigiIncludes.h>
 #include <aerovista/sync/CigiWire.h>
+#include <aerovista/sync/HostDriver.h>
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SyncConfig.h>
@@ -32,9 +33,9 @@
 #include <vector>
 
 #include "Common.h"
-#include "HostDriver.h"
 
 using aerovista::sync::HostConfig;
+using aerovista::sync::HostDriver;
 using aerovista::sync::HostStatus;
 using aerovista::sync::HostSync;
 using aerovista::sync::IgConfig;
@@ -45,7 +46,6 @@ using aerovista::sync::SynchronSystem;
 using aerovista::sync::SyncInterface;
 using aerovista::sync::SyncSystemConfig;
 using aerovista::sync::TcpSocket;
-using aerovista::viewhost::HostDriver;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
 // 协议分层（测试约定）：

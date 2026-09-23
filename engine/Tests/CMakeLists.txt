@@ -15,9 +15,8 @@ set(SOURCES
     SofRttTrackerTests.cpp
     ShaderCubeTests.cpp
     GroundGridTests.cpp
-    # viewhost 纯 C++（测试与示例共用；见 viewhost设计.md §6）
+    # viewhost 纯 C++ 数值逻辑（测试与示例共用同一份源码，见 viewhost设计.md §6）
     ${CMAKE_SOURCE_DIR}/thirdparty/sync/examples/viewhost/src/ViewHostMath.cpp
-    ${CMAKE_SOURCE_DIR}/thirdparty/sync/examples/viewhost/src/HostDriver.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})
