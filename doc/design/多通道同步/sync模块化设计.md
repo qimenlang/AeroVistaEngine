@@ -36,6 +36,7 @@ vsgEngine (exe)
 - 不改变握手 / 数据面协议与线格式（`sync_proto`、CIGI V4）。
 - 不改变线程模型与命令面时序（主线程执行场景、命令读循环线程收包入队）。
 - 不做 Host 独立进程的协议 / 上行改造（独立 Host 进程已有 viewhost 示例，见 [viewhost设计.md](../viewhost设计.md)；「指定输入 IG 上行」仍属后期）。
+- 不把 `IgSync` 改名为 `ClientSync`。平台正式跑同一个 `HostSync`；viewhost 中继不另养一套用来解包重组出站的 CIGI IG Session（握手可复用 `connect`；虚 IG 回 SOF 用 `packSof` 读头）。见 [平台同步设计.md](../平台同步设计.md)。
 
 ## 2. 库结构
 
@@ -218,11 +219,11 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 ```
 
 **归属边界**：
-- `syncSystem` 组：`requireConnectedIg` 由 SynchronSystem 消费（connect 失败是否拒绝）；`channelId` 仅存储；`offsetDeg` 由 Engine `CameraDriver` 消费。
+- `syncSystem` 组：`requireConnectedIg` 由 SynchronSystem 消费（connect 失败是否拒绝）；`channelId` 由 IgSync **HELLO 上报**（= 本端 `syncSystem.channelId`；[平台同步设计.md](../平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)`：`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 仅存储、无运行期读取。engine 传入 `config.igConfig` + `config.syncSystem`；`offsetDeg` 注入 `CameraDriver`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。
+**消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)`：`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 存下后由 `IgSync` 填入 HELLO（现网尚未读；**待实现**）。engine 传入 `config.igConfig` + `config.syncSystem`；`offsetDeg` 注入 `CameraDriver`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。`hostEyeStalePolicy` 已删除（未知键拒绝）。
 
@@ -251,7 +252,6 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 | 9 | **`IgSync::drainIncoming(bool sendSof)` boolean 入参**：生产 `preFrame` 恒 `true`；`false` 只服务「不回 SOF」测试。是否拆成 `drainIncoming` / `drainIncomingWithoutSof`。 | §3.1 帧循环 | 待讨论 |
 | 10 | **`HostSync::run()` 名实不符**：`initialize` 已起 accept/UDP 线程；`run()` 只把 `_status` 置 `RUNNING`。漏调则握手仍工作，但 `HostDriver::isRunning()` 为假。 | §4.1 生命周期 | 待讨论 |
 | 11 | **`hasReadyIg()` 与 `readyIgCount()` 冗余**：生产（viewhost）只用 count；`hasReadyIg` 仅测试。 | 状态观测 | 待讨论 |
-| 12 | **`SyncSystemConfig::channelId` 仅存储、无运行期读取**（正文已写）。JSON / 公开结构仍暴露该字段。是否从 sync 公开配置拿掉。 | §4.2 | 待讨论 |
 
 ---
 

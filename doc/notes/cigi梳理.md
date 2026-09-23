@@ -13,6 +13,8 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 - **链路按发送频率选择**：**持续 / 每帧下发走 UDP**（丢包自愈、周期覆盖）；**一次性 / 配置 / 请求走 TCP**（传输层可靠送达，无业务回执）。
 - **方向决定注册端点**：Host→IG 报文在 `IgSync` 注册收包 processor，IG→Host 报文在 `HostSync` 注册。
 
+**Platform**：正式各 IG 直连平台 `HostSync`。真模拟器调试经 viewhost **透传**完整 CIGI 消息（TCP 两向切齐入队整条 `sendAll`：下行 `IGCtrl` / 回程 TCP `SOF`；数据面 UDP IGCtrl 入队后 `packSof` 回平台，真实 IG 的 UDP SOF 不转；可附加独立 TCP 调试包），方向表仍是 Host↔IG，中间不改 IGCtrl 头。多通道时 Host→IG 的 `Req` 可扇出全体，仅 `channelId==0` 回 `Resp`。契约见 [平台同步设计.md](../design/平台同步设计.md)。
+
 > 语义说明：CIGI 报文名后缀 `Ctrl` 为控制、`Def` 为定义（一次配置）、`Req` 为请求、`Resp` 为响应、`XResp` 为扩展响应、`SOF` 为帧起始。分组按功能归类，**不含具体字段内容**。
 
 ---
@@ -196,5 +198,5 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 ## 状态数据权威
 
-Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（通常只问一台），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver` 编排、UI 只调 Driver（[viewhost设计.md](../design/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。IG 几何与实例见 [实体管理设计.md](../design/引擎基础功能/实体管理设计.md)。
+Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（多通道时扇出全体，仅 master `channelId==0` 回 `Resp`），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver` 编排、UI 只调 Driver（[viewhost设计.md](../design/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。IG 几何与实例见 [实体管理设计.md](../design/引擎基础功能/实体管理设计.md)。
 
