@@ -21,7 +21,7 @@ vsgEngine (exe)
        ├→ AeroVistaConfig   （JSON 契约辅助：thirdparty/config；语法走 nlohmann/json）
        └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + IG 收发端点）
             ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / HostSync / IgSync / SofRttTracker
-            │           / SyncConfig / SyncProtocol
+            │           / SyncConfig
             ├─ Host 任务状态：HostDataManager（权威表门面，不持 socket）
             ├─ IG 收发端点：SynchronSystem（收包 + IgSync 帧维护 + 连接查询）
             └─ 外部依赖：cigicl-static、AeroVistaConfig、ws2_32
@@ -29,18 +29,18 @@ vsgEngine (exe)
 
 - 库含传输层、**Host 任务状态**（`HostDataManager`）与 IG 收发端点；Host 扇出由宿主进程（viewhost）的 `HostDriver` 持有 `HostSync` + `HostDataManager` 完成，不经 `SynchronSystem`。engine 仅 IG。
 - 库公开接口零 vsg；sync 实现 TU 不 `#include <vsg/...>`（眼点数学在 engine `CameraDriver`）。不依赖 `Engine`。vsg 依赖策略见 §3.0。
-- **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire`/`sync_proto` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON 契约辅助在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。
+- **命名空间**：所有类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON 契约辅助在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。
 
 ### 1.3 非目标
 
-- 不改变握手 / 数据面协议与线格式（`sync_proto`、CIGI V4）。
+- 不改变数据面协议与线格式（CIGI V4）。握手为 CIGI 信封（§4.2 / [平台同步设计.md](../平台同步设计.md) §6.3）。
 - 不改变线程模型与命令面时序（主线程执行场景、命令读循环线程收包入队）。
 - 不做 Host 独立进程的协议 / 上行改造（独立 Host 进程已有 viewhost 示例，见 [viewhost设计.md](../viewhost设计.md)；「指定输入 IG 上行」仍属后期）。
 - 不把 `IgSync` 改名为 `ClientSync`。平台正式跑同一个 `HostSync`；viewhost 中继不另养一套用来解包重组出站的 CIGI IG Session（握手可复用 `connect`；虚 IG 回 SOF 用 `packSof` 读头）。见 [平台同步设计.md](../平台同步设计.md)。
 
 ## 2. 库结构
 
-- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`/`SyncProtocol`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - IG 收发端点（`SynchronSystem`）公开接口零 vsg、不依赖 Engine：收包解包 + IgSync 帧维护 + `igLinked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。
 - 配置类型（`OffsetDeg`/`IgConfig`/`HostTarget`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
@@ -52,7 +52,7 @@ vsgEngine (exe)
 
 **消除的是对 `Engine`（宿主引擎类）的依赖；公开接口与实现 TU 均零 vsg。** 分两层：
 
-- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`/`SyncProtocol`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - **IG 收发层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。只负责收包解包 + IgSync 帧维护 + 连接状态查询（`igLinked()`）。眼点合成（offset）在 Engine `CameraDriver`（`engine/source/function/driver/`），写相机在 `Engine::applyLastHostEye`；SynchronSystem 不触碰眼点决策，也不承担 Host 采样/扇出（数据流，见 §3.1）。
 
 vsg 的分层：
@@ -143,7 +143,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 **设计理由**：
 - 本地 UDP 接收 / TCP 监听**固定绑定所有网卡**（`INADDR_ANY`，即 `0.0.0.0`）；`targetAddr` 才是可配的远端 Host 目标。
 - 已否决 `bindAddr` 字段：实现从未消费「本地绑定网卡」（接收/监听均写死 `INADDR_ANY`），移除以免误导「改配置即可限网卡」。
-- 已删除 `udpPortSend`：UDP 发送 socket 不 bind，源端口由 OS 分配；JSON 残留为未知键拒绝。
+- 已删除 `udpPortSend`：发送走已 bind 的接收 socket，源端口 = `udpPortRecv`（CIGI UDP_SYNC 用 fromPort 对 HELLO）；JSON 残留为未知键拒绝。
 - IG 侧一个配置块自洽（本地 + 远端），viewhost 侧一个配置块自洽，两端配置简单。
 - 远端字段加 `target` 前缀，避免与本地同名端口字段冲突。
 
@@ -223,7 +223,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)`：`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 存下后由 `IgSync` 填入 HELLO（现网尚未读；**待实现**）。engine 传入 `config.igConfig` + `config.syncSystem`；`offsetDeg` 注入 `CameraDriver`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。
+**消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)`：`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 由 `IgSync` 填入 CIGI HELLO。engine 传入 `config.igConfig` + `config.syncSystem`；`offsetDeg` 注入 `CameraDriver`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。`hostEyeStalePolicy` 已删除（未知键拒绝）。
 
@@ -237,7 +237,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 - **`HostEyeStalePolicy` / 双驱动器已删除（2026-09）**：断线门控与 ReuseLast/Freeze 相对收包即合成无生产差异；`CameraDriverBase`/`RawCameraDriver`/`CameraDriver` 三套收成单一 `CameraDriver`。JSON `hostEyeStalePolicy` 为未知键拒绝。
 - **`CameraDriver` 不再回指 Engine（2026-09）**：驱动器只做 CCL 翻译与 compose；写相机由 `Engine::applyLastHostEye`。Engine 以值成员持有驱动器（不再 `unique_ptr`）。
 - **椭球注入对象已否决（2026-08 / 2026-09）**：`SynchronSystem::setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除；`setEllipsoidMode(bool)` 场景模式注入亦随同步只 LLA（2026-09）删除——决策器无需几何对象或模式判据。预留用的 `SyncMath.h`（`EllipsoidTransform` / 其后的 `DVec3`）已删除，不再占公开边界。
-- **`udpPortSend` 已删除（2026-09）**：UDP 发送 socket 不 bind，源端口由 OS 分配；配置残留为未知键拒绝。
+- **`udpPortSend` 已删除（2026-09）**：发送走已 bind 的接收 socket，源端口 = `udpPortRecv`；配置残留为未知键拒绝。
 - **`registerEventProcessor` 已删除（2026-09）**：业务订阅只走 `addCallback<PacketT>`；测试不再经 CCL `RegisterEventProcessor` 旁路。
 - **测试用 HostFrame pack/unpack 已删除（2026-09）**：`packHostFrame` / `unpackHostFrame` / `unpackSof` 与 `HostFrame` 不再保留（含内部头）。数据面契约测 `HostSync`/`IgSync` 可观察收发。公开 `CigiWire.h` 保留生产 `packSof` / `appendEye` / `CigiFrameAssembler`。
 - **`sofReceivedCount` 无副作用（2026-09）**：不再内部 `drainIncoming()`；Host 收包 push 模式须先显式 `drainIncoming` / `pollIncoming` 再读计数。

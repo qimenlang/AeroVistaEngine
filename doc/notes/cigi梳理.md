@@ -48,7 +48,7 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 | --- | --- | --- | --- | --- |
 | `CigiIGCtrlV4` | Host → IG | UDP | 每帧 | 会话级控制报文，每帧必发：携带帧计数、CIGI 版本、数据库 ID、IG 模式等，是所有 Host→IG 报文的起始报文 |
 | `CigiSOFV4` | IG → Host | UDP | 每帧 | 帧起始报文，IG 每帧返回：携带帧计数、时间戳，标识一帧开始，是 IG→Host 报文的起始报文 |
-| `CigiIGMsgV4` | Host ↔ IG | TCP | 事件性 | 通用自由文本消息通道，用于双方传递 ASCII 字符串 |
+| `CigiIGMsgV4` | Host ↔ IG | TCP | 事件性 | 通用自由文本。本项目另用于 IG→Host **HELLO**（`MsgID=1`，`Msg`=`udpRecvPort channelId`；无 TCP ACK）。见 [平台同步设计.md](../design/平台同步设计.md) §6.3 |
 | `CigiEventNotificationV4` | IG → Host | TCP | 事件性 | 事件通知：IG 主动上报异步事件（如进入区域、命中指定目标等） |
 | `CigiAnimationStopV4` | IG → Host | TCP | 事件性 | 动画播放结束通知：实体动画自然播放完毕后由 IG 上报 |
 
@@ -178,6 +178,7 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 | --- | --- | --- | --- |
 | `CigiIGCtrlV4` | UDP | 每帧 | 数据面帧启动报文（`outMsgWithIgCtrlUdp()` 自动前置，`engine` / 测试） |
 | `CigiEntityPositionCtrlV4` | UDP（数据面眼点）/ TCP（命令面摆放） | 每帧 / 一次性 | 数据面 ownship 眼点（EntityID=0）；命令面实体摆放（EntityID≠0，`place` 命令，§4.1 过滤） |
+| `CigiIGMsgV4` | TCP | 一次性 | **扩展复用**：IG→Host HELLO（`MsgID=1`，端口 + `channelId`） |
 | `CigiSymbolTextDefV4` | TCP | 一次性 | **扩展复用**：作为通用文本命令载体（见 `doc/design/多通道同步/状态同步设计.md` §4.1） |
 | `CigiCollDetVolDefV4` / `CigiCollDetVolRespV4` | TCP | 一次性 / 一次性响应 | 碰撞检测体积定义（Host→IG）与响应（IG→Host），基础设施 processor 已支持 |
 | `CigiSOFV4` | UDP | 每帧 | IG 数据面每帧回显帧号（IG TCP 上报消息头也是 SOF，Host 双 session 注册） |
