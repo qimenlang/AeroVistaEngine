@@ -1,12 +1,34 @@
 ﻿---
-description: Catch2 ATDD/BDD test writing rules for engine/Tests, including 验收码 tags (from doc/测试用例书写规范.md)
-globs: engine/Tests/**/*.{cpp,h,hpp}
-alwaysApply: false
+description: ATDD process gates (red tests reviewed before production) plus Catch2 form rules. Authority: doc/测试用例书写规范.md
+alwaysApply: true
 ---
 
 # Engine tests (ATDD / Catch2)
 
 Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observable contracts over implementation details.
+
+**Process gates always apply** (even when the current edit is not a test file). Form/tag rules apply whenever writing or changing `engine/Tests`.
+
+## Process gates (hard)
+
+ATDD is two turns. Do not collapse them.
+
+1. **Review-tests turn**（新验收 / 新码 / 「补测试」）  
+   Only `engine/Tests` and the owning design-doc 「验收要点」 table. Stop. Wait for the human to review Then.  
+   Do **not** change production behavior in this turn.
+
+2. **Implement turn**  
+   Production (`engine/source`, `thirdparty/sync`, `thirdparty/config`, and headers that change executable behavior) starts only after the user says **「开始实施」** or **「测试没问题」** (or an equivalent explicit go-ahead).
+
+3. **Same-turn ban**  
+   Red/new acceptance tests and production implementation must **not** ship in the same turn.  
+   If a new test cannot compile without a missing symbol: add an **empty** declaration/stub, say so in the reply（「仅编译切口，未实现」）, and do **not** fill in the logic.
+
+Trigger phrases: 「补测试 / 补验收 / 先写测试」→ gate 1. 「开始实施 / 测试没问题」→ gate 2. Ambiguous 「帮我实现」with no reviewed tests → gate 1 first, do not skip to production.
+
+Exceptions: typo; fix compile of an **existing** case (no new contract); user explicitly says 「不用 ATDD / 直接实现 / 你决定就好」.
+
+This overrides the urge to deliver green in one shot. A review-tests turn may end with failing tests; do not call that slice done. Implement turn must still verify green (`anti-hallucination`).
 
 ## Role → form → tags (required)
 
@@ -41,6 +63,9 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 ## Hard bans
 
 ```text
+❌ New 验收/tests and production logic in the same turn
+❌ Implement engine/source or thirdparty/sync|config before 「开始实施」/「测试没问题」
+❌ Fill in stub APIs while writing the tests that need them (except empty compile-only seams, declared)
 ❌ One SCENARIO: connect fails THEN succeeds THEN disconnects
 ❌ [bdd] on setCameraPose / resolveConfigPath with no [unit]
 ❌ Title: "queue-injected Host eye…"
@@ -50,6 +75,9 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 ❌ Dump unit-test lists into ENT/CLK product 验收 tables
 ❌ Reading config files from engine/resources/config/ in tests — tests must be self-contained
 
+✅ Review-tests turn: engine/Tests + 验收要点 only; stop for Then review
+✅ Implement turn: after explicit go-ahead; then make green
+✅ Empty stub + 「仅编译切口，未实现」 if the red test cannot compile
 ✅ Split connect-fail / connect-ok / host-offline disconnect
 ✅ [unit][camera] TEST_CASE for LookAt pose helper
 ✅ Title: "linked IG applies Host eye…"; queue in comment
@@ -60,14 +88,16 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 
 ## AI + tests
 
-- Human writes/reviews acceptance and critical Then assertions.
+- Human writes/reviews acceptance and critical Then assertions **before** production.
 - **Do not** weaken or rewrite Then meanings to make tests green.
 - Prefer few stable acceptance contracts + integration for protocol + many fast unit tests.
 
 ## Before finishing an edit
 
-1. Tags match real role (`acceptance` / `integration` / `unit`).
-2. Every case has a same-name 验收码 tag; new codes are in the owning design 「验收要点」 (`doc/测试验收码.md`). New/moved 验收 rows → doc-sync.
-3. One receivable outcome per Scenario.
-4. No technique words in Scenario titles; Then is deterministic.
-5. No new hardcoded config snapshot tables without explicit golden/characterization intent.
+1. If this turn added new 验收/tests: production files unchanged (empty compile seams declared); stopped for review.
+2. If this turn changed production: user already approved the tests this slice.
+3. Tags match real role (`acceptance` / `integration` / `unit`).
+4. Every case has a same-name 验收码 tag; new codes are in the owning design 「验收要点」 (`doc/测试验收码.md`). New/moved 验收 rows → doc-sync.
+5. One receivable outcome per Scenario.
+6. No technique words in Scenario titles; Then is deterministic.
+7. No new hardcoded config snapshot tables without explicit golden/characterization intent.

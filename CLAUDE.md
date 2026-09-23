@@ -116,8 +116,18 @@ bool Engine::createVulkanDevice(int& queueFamily);
 
 ## 3. Engine tests (ATDD / Catch2)
 
-**Scope:** `engine/Tests/**/*.{cpp,h,hpp}` (opt-in — apply when touching tests)
+**Scope:** Process gates **always**. Form/tags when writing `engine/Tests/**/*.{cpp,h,hpp}`.
 Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observable contracts over implementation details.
+
+### Process gates (hard)
+
+ATDD is two turns. Do not collapse them. Authority: `doc/测试用例书写规范.md` §6.
+
+1. **Review-tests turn**（新验收 / 新码 / 「补测试」）：only `engine/Tests` + owning 「验收要点」. Stop for Then review. No production in this turn.
+2. **Implement turn**：`engine/source` / `thirdparty/sync` / `thirdparty/config` (and behavior-changing headers) only after **「开始实施」** or **「测试没问题」**.
+3. **Same-turn ban**：new/red acceptance tests and production must not ship together. Compile-only empty stubs allowed if declared（「仅编译切口，未实现」）; do not fill in logic.
+
+Ambiguous 「帮我实现」with no reviewed tests → gate 1 first. Exceptions: typo; existing-case compile fix; user says 「不用 ATDD / 直接实现 / 你决定就好」. Review-tests turn may end red (not “done”). Implement turn must verify green.
 
 ### Role → form → tags (required)
 
@@ -152,6 +162,9 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 ### Hard bans
 
 ```text
+❌ New 验收/tests and production logic in the same turn
+❌ Implement engine/source or thirdparty/sync|config before 「开始实施」/「测试没问题」
+❌ Fill in stub APIs while writing the tests that need them (except empty compile-only seams, declared)
 ❌ One SCENARIO: connect fails THEN succeeds THEN disconnects
 ❌ [bdd] on setCameraPose / resolveConfigPath with no [unit]
 ❌ Title: "queue-injected Host eye…"
@@ -160,6 +173,9 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 ❌ Rename / reuse / reshuffle an assigned 验收码; serial numbers as PK
 ❌ Dump unit-test lists into ENT/CLK product 验收 tables
 
+✅ Review-tests turn: engine/Tests + 验收要点 only; stop for Then review
+✅ Implement turn: after explicit go-ahead; then make green
+✅ Empty stub + 「仅编译切口，未实现」 if the red test cannot compile
 ✅ Split connect-fail / connect-ok / host-offline disconnect
 ✅ [unit][camera] TEST_CASE for LookAt pose helper
 ✅ Title: "linked IG applies Host eye…"; queue in comment
@@ -169,17 +185,19 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 
 ### AI + tests
 
-- Human writes/reviews acceptance and critical Then assertions.
+- Human writes/reviews acceptance and critical Then assertions **before** production.
 - **Do not** weaken or rewrite Then meanings to make tests green.
 - Prefer few stable acceptance contracts + integration for protocol + many fast unit tests.
 
 ### Before finishing an edit
 
-1. Tags match real role (`acceptance` / `integration` / `unit`).
-2. Every case has a same-name 验收码 tag; new codes are in the owning design 「验收要点」 (`doc/测试验收码.md`). New/moved 验收 rows → doc-sync.
-3. One receivable outcome per Scenario.
-4. No technique words in Scenario titles; Then is deterministic.
-5. No new hardcoded config snapshot tables without explicit golden/characterization intent.
+1. If this turn added new 验收/tests: production files unchanged (empty compile seams declared); stopped for review.
+2. If this turn changed production: user already approved the tests this slice.
+3. Tags match real role (`acceptance` / `integration` / `unit`).
+4. Every case has a same-name 验收码 tag; new codes are in the owning design 「验收要点」 (`doc/测试验收码.md`). New/moved 验收 rows → doc-sync.
+5. One receivable outcome per Scenario.
+6. No technique words in Scenario titles; Then is deterministic.
+7. No new hardcoded config snapshot tables without explicit golden/characterization intent.
 
 ---
 
