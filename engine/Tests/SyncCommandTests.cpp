@@ -494,6 +494,99 @@ SCENARIO("IG dispatches different text commands by first token",
     }
 }
 
+SCENARIO("consecutive Host TCP flushes arrive in enqueue order",
+         "[acceptance][bdd][sync][cmd][e2e][CMD-fifo-send]")
+{
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        HostSync hostA;
+        setupHostIgPair(hostA, engineA, engineB, 34200);
+
+        auto textProc = std::make_shared<TestTextProcessor>();
+        subscribe<CigiSymbolTextDefV4>(engineB.synchronSystem().igSync(), textProc);
+
+        WHEN("Host flushes two complete TCP messages in sequence")
+        {
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiSymbolTextDefV4 first("first");
+                tcp << first;
+                hostA.flushTcp();
+            }
+            {
+                auto& tcp = hostA.outMsgWithIgCtrlTcp();
+                CigiSymbolTextDefV4 second("second");
+                tcp << second;
+                hostA.flushTcp();
+            }
+            for (int i = 0; i < 20 && textProc->count() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                engineB.tickSync();
+            }
+
+            THEN("IG received both messages in that order after main-thread unpack")
+            {
+                const auto texts = textProc->texts();
+                REQUIRE(texts.size() == 2);
+                REQUIRE(texts.at(0) == "first");
+                REQUIRE(texts.at(1) == "second");
+            }
+        }
+    }
+}
+
+SCENARIO("consecutive IG TCP flushes arrive in enqueue order",
+         "[acceptance][bdd][sync][cmd][e2e][CMD-fifo-send]")
+{
+    GIVEN("independent Host and Engine B as IG-only linked over real sockets")
+    {
+        Engine engineA;
+        Engine engineB;
+        HostSync hostA;
+        setupHostIgPair(hostA, engineA, engineB, 34250);
+
+        auto hostMsgProc = std::make_shared<TestIgMsgProcessor>();
+        subscribe<CigiIGMsgV4>(hostA, hostMsgProc);
+
+        WHEN("IG flushes two complete TCP messages in sequence")
+        {
+            {
+                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                CigiIGMsgV4 a;
+                a.SetMsgID(0x2001);
+                a.SetMsg("first");
+                tcp << a;
+                engineB.synchronSystem().igSync().flushTcp();
+            }
+            {
+                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                CigiIGMsgV4 b;
+                b.SetMsgID(0x2002);
+                b.SetMsg("second");
+                tcp << b;
+                engineB.synchronSystem().igSync().flushTcp();
+            }
+            for (int i = 0; i < 20 && hostMsgProc->count() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                hostA.drainIncoming();
+            }
+
+            THEN("Host received both messages in that order after drainIncoming")
+            {
+                REQUIRE(hostMsgProc->count() == 2);
+                REQUIRE(hostMsgProc->messages().at(0).first == 0x2001);
+                REQUIRE(hostMsgProc->messages().at(0).second == "first");
+                REQUIRE(hostMsgProc->messages().at(1).first == 0x2002);
+                REQUIRE(hostMsgProc->messages().at(1).second == "second");
+            }
+        }
+    }
+}
+
 SCENARIO("Host sends multiple packets in one message and IG dispatches each by PacketID",
          "[integration][sync][cmd][e2e][CMD-multi-packet]")
 {

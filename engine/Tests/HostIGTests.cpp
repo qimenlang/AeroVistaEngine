@@ -12,12 +12,18 @@
 #include "CigiBaseEntityPositionCtrl.h"
 #include "CigiEntityPositionCtrlV4.h"
 #include "CigiHostSession.h"
+#include "CigiIGCtrlV4.h"
 #include "CigiIGSession.h"
 #include "CigiSOFV4.h"
+#include "CigiSymbolTextDefV4.h"
+
+#include "CigiIGMsgV4.h"
+#include "CigiWeatherCtrlV4.h"
 
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -100,6 +106,28 @@ namespace
             return false;
         host.run();
         return true;
+    }
+
+    std::vector<std::vector<unsigned char>> collectFrames(
+        const std::function<std::vector<std::vector<unsigned char>>()>& take, std::size_t minCount)
+    {
+        std::vector<std::vector<unsigned char>> frames;
+        for (int i = 0; i < 40 && frames.size() < minCount; ++i)
+        {
+            auto more = take();
+            frames.insert(frames.end(), more.begin(), more.end());
+            if (frames.size() < minCount)
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return frames;
+    }
+
+    std::vector<unsigned char> concatFrames(const std::vector<unsigned char>& a,
+                                            const std::vector<unsigned char>& b)
+    {
+        std::vector<unsigned char> out = a;
+        out.insert(out.end(), b.begin(), b.end());
+        return out;
     }
 
     struct OwnshipEyeCapture
@@ -528,6 +556,497 @@ SCENARIO("Host rejects a later IG HELLO that reuses channelId",
                 const auto peers = host.igSnapshot();
                 REQUIRE(peers.size() == 1);
                 REQUIRE(peers.front().channelId == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("relayed platform TCP command keeps the original payload",
+         "[acceptance][bdd][platform][PLT-tcp-pass]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 36000));
+        REQUIRE(linkHostIg(viewhost, realIg, 36200));
+
+        bool igTimeStampValid = true;
+        std::string igText;
+        realIg.addCallback<CigiIGCtrlV4>([&](const CigiIGCtrlV4& ctrl) {
+            igTimeStampValid = ctrl.GetTimeStampValid();
+        });
+        realIg.addCallback<CigiSymbolTextDefV4>([&](const CigiSymbolTextDefV4& txt) {
+            igText = const_cast<CigiSymbolTextDefV4&>(txt).GetText();
+        });
+
+        WHEN("the platform sends a TCP command and the relay forwards the framed bytes")
+        {
+            {
+                auto& tcp = platform.outMsgWithIgCtrlTcp();
+                CigiSymbolTextDefV4 cmd("pass");
+                tcp << cmd;
+                platform.flushTcp();
+            }
+
+            const auto frames = collectFrames([&] { return virtualIg.takeIncomingTcp(); }, 1);
+            REQUIRE_FALSE(frames.empty());
+            viewhost.sendTcpMessage(frames.back());
+
+            for (int i = 0; i < 40 && igText.empty(); ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
+
+            THEN("the real IG sees the platform payload and TimeStampValid, not a rewritten header")
+            {
+                REQUIRE(igText == "pass");
+                REQUIRE(igTimeStampValid == false);
+            }
+        }
+    }
+}
+
+SCENARIO("relay splits two Host TCP messages glued in one sendAll",
+         "[acceptance][bdd][platform][PLT-frame-msg]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 36400));
+        REQUIRE(linkHostIg(viewhost, realIg, 36600));
+
+        std::vector<std::uint32_t> igFrames;
+        realIg.addCallback<CigiIGCtrlV4>([&](const CigiIGCtrlV4& ctrl) {
+            igFrames.push_back(ctrl.GetFrameCntr());
+        });
+
+        WHEN("platform sends two complete IGCtrl messages in one TCP write and the relay forwards each framed vector")
+        {
+            std::vector<unsigned char> first;
+            std::vector<unsigned char> second;
+            REQUIRE(cigi_wire::packIgCtrl(10, first));
+            REQUIRE(cigi_wire::packIgCtrl(11, second));
+            platform.sendTcpMessage(concatFrames(first, second));
+
+            const auto frames = collectFrames([&] { return virtualIg.takeIncomingTcp(); }, 2);
+            REQUIRE(frames.size() >= 2);
+            viewhost.sendTcpMessage(frames[0]);
+            viewhost.sendTcpMessage(frames[1]);
+
+            for (int i = 0; i < 40 && igFrames.size() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
+
+            THEN("the real IG receives two separate TCP messages")
+            {
+                REQUIRE(igFrames.size() == 2);
+                REQUIRE(igFrames[0] == 10);
+                REQUIRE(igFrames[1] == 11);
+            }
+        }
+    }
+}
+
+SCENARIO("relay splits two IG TCP messages glued in one sendAll",
+         "[acceptance][bdd][platform][PLT-frame-msg]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 36800));
+        REQUIRE(linkHostIg(viewhost, realIg, 37000));
+
+        std::vector<std::uint32_t> platformSof;
+        platform.addCallback<CigiSOFV4>([&](const CigiSOFV4& sof) {
+            platformSof.push_back(sof.GetFrameCntr());
+        });
+
+        WHEN("the real IG sends two complete SOF messages in one TCP write and the relay forwards each framed vector")
+        {
+            std::vector<unsigned char> first;
+            std::vector<unsigned char> second;
+            REQUIRE(cigi_wire::packSof(20, first));
+            REQUIRE(cigi_wire::packSof(21, second));
+            realIg.sendTcpMessage(concatFrames(first, second));
+
+            const auto frames = collectFrames([&] { return viewhost.takeIncomingTcp(); }, 2);
+            REQUIRE(frames.size() >= 2);
+            virtualIg.sendTcpMessage(frames[0]);
+            virtualIg.sendTcpMessage(frames[1]);
+
+            for (int i = 0; i < 40 && platformSof.size() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                platform.drainIncoming();
+            }
+
+            THEN("the platform receives two separate TCP messages")
+            {
+                REQUIRE(platformSof.size() == 2);
+                REQUIRE(platformSof[0] == 20);
+                REQUIRE(platformSof[1] == 21);
+            }
+        }
+    }
+}
+
+SCENARIO("viewhost TCP weather is a separate message from the relayed platform command",
+         "[acceptance][bdd][platform][PLT-splice-cmd]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 37200));
+        REQUIRE(linkHostIg(viewhost, realIg, 37400));
+
+        std::vector<std::uint32_t> igFrames;
+        std::vector<bool> igTimeStampValid;
+        bool gotWeather = false;
+        realIg.addCallback<CigiIGCtrlV4>([&](const CigiIGCtrlV4& ctrl) {
+            igFrames.push_back(ctrl.GetFrameCntr());
+            igTimeStampValid.push_back(ctrl.GetTimeStampValid());
+        });
+        realIg.addCallback<CigiWeatherCtrlV4>([&](const CigiWeatherCtrlV4&) { gotWeather = true; });
+
+        WHEN("the relay forwards a platform TCP command and viewhost then flushes its own weather TCP")
+        {
+            {
+                auto& tcp = platform.outMsgWithIgCtrlTcp();
+                CigiSymbolTextDefV4 cmd("pass");
+                tcp << cmd;
+                platform.flushTcp();
+            }
+            const auto frames = collectFrames([&] { return virtualIg.takeIncomingTcp(); }, 1);
+            REQUIRE_FALSE(frames.empty());
+            viewhost.sendTcpMessage(frames.back());
+
+            {
+                auto& tcp = viewhost.outMsgWithIgCtrlTcp();
+                CigiWeatherCtrlV4 weather;
+                weather.SetSeverity(1);
+                tcp << weather;
+                viewhost.flushTcp();
+            }
+
+            for (int i = 0; i < 40 && (igFrames.size() < 2 || !gotWeather); ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
+
+            THEN("the IG sees an independent command-plane weather message")
+            {
+                REQUIRE(igFrames.size() == 2);
+                REQUIRE(igTimeStampValid.size() == 2);
+                REQUIRE(igTimeStampValid[0] == false);
+                REQUIRE(gotWeather);
+                REQUIRE(igTimeStampValid[1] == false);
+            }
+        }
+    }
+}
+
+SCENARIO("relayed IG TCP report keeps the original payload",
+         "[acceptance][bdd][platform][PLT-tcp-return]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 37600));
+        REQUIRE(linkHostIg(viewhost, realIg, 37800));
+
+        std::uint16_t platformMsgId = 0;
+        std::string platformMsg;
+        platform.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            platformMsgId = msg.GetMsgID();
+            platformMsg = const_cast<CigiIGMsgV4&>(msg).GetMsg();
+        });
+
+        WHEN("the real IG reports on TCP and the relay forwards the framed bytes")
+        {
+            {
+                auto& tcp = realIg.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3001);
+                report.SetMsg("up");
+                tcp << report;
+                realIg.flushTcp();
+            }
+
+            const auto frames = collectFrames([&] { return viewhost.takeIncomingTcp(); }, 1);
+            REQUIRE_FALSE(frames.empty());
+            virtualIg.sendTcpMessage(frames.back());
+
+            for (int i = 0; i < 40 && platformMsg.empty(); ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                platform.drainIncoming();
+            }
+
+            THEN("the platform sees the IG message, not a virtual-IG rewrite")
+            {
+                REQUIRE(platformMsgId == 0x3001);
+                REQUIRE(platformMsg == "up");
+            }
+        }
+    }
+}
+
+SCENARIO("relayed platform UDP IGCtrl keeps the original header",
+         "[acceptance][bdd][platform][PLT-filter-igctrl]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 38000));
+        REQUIRE(linkHostIg(viewhost, realIg, 38200));
+
+        std::uint32_t igFrameCntr = 0xffffffffu;
+        std::uint32_t igTimeStamp = 0;
+        bool igTimeStampValid = false;
+        realIg.addCallback<CigiIGCtrlV4>([&](const CigiIGCtrlV4& ctrl) {
+            igFrameCntr = ctrl.GetFrameCntr();
+            igTimeStamp = ctrl.GetTimeStamp();
+            igTimeStampValid = ctrl.GetTimeStampValid();
+        });
+
+        WHEN("the platform sends UDP IGCtrl after two earlier frames and the relay forwards the datagram")
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                platform.outMsgWithIgCtrlUdp();
+                platform.flushUdp();
+            }
+
+            const auto dgrams = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 3);
+            REQUIRE(dgrams.size() >= 3);
+            const auto& last = dgrams.back();
+            CigiIGCtrlV4 sent;
+            REQUIRE(sent.Unpack(const_cast<unsigned char*>(last.data()), false, nullptr) >= 0);
+            viewhost.sendUdpMessage(last);
+
+            for (int i = 0; i < 40 && igFrameCntr == 0xffffffffu; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
+
+            THEN("the real IG sees the platform data-plane FrameCntr and TimeStamp, and viewhost did not add another IGCtrl")
+            {
+                REQUIRE(igFrameCntr == sent.GetFrameCntr());
+                REQUIRE(igTimeStamp == sent.GetTimeStamp());
+                REQUIRE(igTimeStampValid);
+                REQUIRE(realIg.igCtrlReceivedCount() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("virtual IG packSof after UDP forward is the only SOF the platform sees",
+         "[acceptance][bdd][platform][PLT-relay-sof]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 38400));
+        REQUIRE(linkHostIg(viewhost, realIg, 38600));
+
+        std::uint32_t platformSof = 0xffffffffu;
+        platform.addCallback<CigiSOFV4>([&](const CigiSOFV4& sof) { platformSof = sof.GetFrameCntr(); });
+
+        WHEN("the relay forwards one platform UDP IGCtrl, echos SOF from the virtual IG, and the real IG replies SOF to viewhost")
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                platform.outMsgWithIgCtrlUdp();
+                platform.flushUdp();
+            }
+            const auto dgrams = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 3);
+            REQUIRE(dgrams.size() >= 3);
+            const auto& last = dgrams.back();
+            CigiIGCtrlV4 sent;
+            REQUIRE(sent.Unpack(const_cast<unsigned char*>(last.data()), false, nullptr) >= 0);
+            viewhost.sendUdpMessage(last);
+            virtualIg.sendSofForIgCtrl(last);
+
+            for (int i = 0; i < 40 && realIg.igCtrlReceivedCount() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(true);
+            }
+            for (int i = 0; i < 40 && platform.sofReceivedCount() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                platform.drainIncoming();
+            }
+            for (int i = 0; i < 40 && viewhost.sofReceivedCount() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                viewhost.drainIncoming();
+            }
+
+            THEN("the platform receives one matching SOF from the virtual IG, not the real IG SOF")
+            {
+                REQUIRE(platform.sofReceivedCount() == 1);
+                REQUIRE(platformSof == sent.GetFrameCntr());
+                REQUIRE(viewhost.sofReceivedCount() == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("relay forwards multiple platform TCP and UDP messages to the IG",
+         "[acceptance][bdd][platform][PLT-multi-down]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 38800));
+        REQUIRE(linkHostIg(viewhost, realIg, 39000));
+
+        std::vector<std::string> igTexts;
+        std::vector<std::uint32_t> igUdpFrames;
+        realIg.addCallback<CigiSymbolTextDefV4>([&](const CigiSymbolTextDefV4& txt) {
+            igTexts.push_back(const_cast<CigiSymbolTextDefV4&>(txt).GetText());
+        });
+        realIg.addCallback<CigiIGCtrlV4>([&](const CigiIGCtrlV4& ctrl) {
+            if (ctrl.GetTimeStampValid())
+                igUdpFrames.push_back(ctrl.GetFrameCntr());
+        });
+
+        WHEN("the platform sends two TCP commands and two UDP IGCtrl and the relay forwards each")
+        {
+            auto sendTcpText = [&](const char* text) {
+                auto& tcp = platform.outMsgWithIgCtrlTcp();
+                CigiSymbolTextDefV4 cmd(text);
+                tcp << cmd;
+                platform.flushTcp();
+            };
+            sendTcpText("tcp-0");
+            sendTcpText("tcp-1");
+            platform.outMsgWithIgCtrlUdp();
+            platform.flushUdp();
+            platform.outMsgWithIgCtrlUdp();
+            platform.flushUdp();
+
+            const auto tcpFrames = collectFrames([&] { return virtualIg.takeIncomingTcp(); }, 2);
+            REQUIRE(tcpFrames.size() >= 2);
+            viewhost.sendTcpMessage(tcpFrames[0]);
+            viewhost.sendTcpMessage(tcpFrames[1]);
+
+            const auto udpFrames = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 2);
+            REQUIRE(udpFrames.size() >= 2);
+            viewhost.sendUdpMessage(udpFrames[0]);
+            viewhost.sendUdpMessage(udpFrames[1]);
+
+            for (int i = 0; i < 40 && (igTexts.size() < 2 || igUdpFrames.size() < 2); ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
+
+            THEN("the real IG receives every TCP payload and every UDP data-plane IGCtrl in order")
+            {
+                REQUIRE(igTexts.size() == 2);
+                REQUIRE(igTexts[0] == "tcp-0");
+                REQUIRE(igTexts[1] == "tcp-1");
+                REQUIRE(igUdpFrames.size() == 2);
+                REQUIRE(igUdpFrames[0] == 0);
+                REQUIRE(igUdpFrames[1] == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("relay forwards multiple IG TCP reports; IG UDP SOF stays on viewhost",
+         "[acceptance][bdd][platform][PLT-multi-up]")
+{
+    GIVEN("a platform Host linked to a virtual IG, and a viewhost Host linked to a real IG")
+    {
+        HostSync platform;
+        IgSync virtualIg;
+        HostSync viewhost;
+        IgSync realIg;
+        REQUIRE(linkHostIg(platform, virtualIg, 39200));
+        REQUIRE(linkHostIg(viewhost, realIg, 39400));
+
+        std::vector<std::pair<std::uint16_t, std::string>> platformMsgs;
+        platform.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            platformMsgs.emplace_back(msg.GetMsgID(), const_cast<CigiIGMsgV4&>(msg).GetMsg());
+        });
+
+        WHEN("the real IG sends two TCP reports and two UDP SOF, and the relay forwards only TCP")
+        {
+            auto sendIgTcp = [&](std::uint16_t msgId, const char* text) {
+                auto& tcp = realIg.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(msgId);
+                report.SetMsg(text);
+                tcp << report;
+                realIg.flushTcp();
+            };
+            sendIgTcp(0x3001, "up-0");
+            sendIgTcp(0x3002, "up-1");
+
+            const auto tcpFrames = collectFrames([&] { return viewhost.takeIncomingTcp(); }, 2);
+            REQUIRE(tcpFrames.size() >= 2);
+            virtualIg.sendTcpMessage(tcpFrames[0]);
+            virtualIg.sendTcpMessage(tcpFrames[1]);
+
+            for (int i = 0; i < 40 && platformMsgs.size() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                platform.drainIncoming();
+            }
+            const auto platformSofAfterTcp = platform.sofReceivedCount();
+
+            realIg.outMsgWithSofUdp();
+            realIg.flushUdp();
+            realIg.outMsgWithSofUdp();
+            realIg.flushUdp();
+            for (int i = 0; i < 40 && viewhost.sofReceivedCount() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                viewhost.drainIncoming();
+            }
+            platform.drainIncoming();
+
+            THEN("the platform receives both TCP reports and none of the real IG UDP SOF")
+            {
+                REQUIRE(platformMsgs.size() == 2);
+                REQUIRE(platformMsgs[0].first == 0x3001);
+                REQUIRE(platformMsgs[0].second == "up-0");
+                REQUIRE(platformMsgs[1].first == 0x3002);
+                REQUIRE(platformMsgs[1].second == "up-1");
+                REQUIRE(viewhost.sofReceivedCount() == 2);
+                REQUIRE(platform.sofReceivedCount() == platformSofAfterTcp);
             }
         }
     }
