@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "Common.h"
+#include "HostDriver.h"
 
 using aerovista::sync::HostConfig;
 using aerovista::sync::HostStatus;
@@ -44,6 +45,7 @@ using aerovista::sync::SynchronSystem;
 using aerovista::sync::SyncInterface;
 using aerovista::sync::SyncSystemConfig;
 using aerovista::sync::TcpSocket;
+using aerovista::viewhost::HostDriver;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
 // 协议分层（测试约定）：
@@ -62,6 +64,24 @@ namespace
     IgConfig makeIgLocal(int udpRecvPort = 8001)
     {
         return IgConfig{udpRecvPort, {"127.0.0.1", 8100, 8000}};
+    }
+
+    HostConfig makeRelayViewhostConfig(int viewhostBase, int platformBase, int expectedIgCount)
+    {
+        HostConfig cfg = makeTestHostConfig(viewhostBase);
+        cfg.relay.enable = true;
+        cfg.relay.expectedIgCount = expectedIgCount;
+        cfg.igConfig = makeTestIgConfig(platformBase + 2, platformBase);
+        return cfg;
+    }
+
+    void tickRelay(HostDriver& viewhost, int ticks = 20)
+    {
+        for (int i = 0; i < ticks; ++i)
+        {
+            viewhost.pollRelay();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
     }
 
     // UDP 可丢：actual 落在 [expected-slack, expected]
@@ -558,6 +578,97 @@ SCENARIO("Host rejects a later IG HELLO that reuses channelId",
                 const auto peers = host.igSnapshot();
                 REQUIRE(peers.size() == 1);
                 REQUIRE(peers.front().channelId == 1);
+            }
+        }
+    }
+}
+
+SCENARIO("virtual IG does not join the platform before real IGs have gathered",
+         "[acceptance][bdd][platform][PLT-ig-first]")
+{
+    GIVEN("a platform Host and a viewhost relay expecting two real IGs")
+    {
+        constexpr int kPlatform = 41000;
+        constexpr int kViewhost = 41200;
+        HostSync platform;
+        REQUIRE(platform.initialize(makeTestHostConfig(kPlatform)));
+        platform.run();
+
+        HostDriver viewhost;
+        REQUIRE(viewhost.initialize(makeRelayViewhostConfig(kViewhost, kPlatform, 2)));
+
+        AND_GIVEN("only one real IG is ready")
+        {
+            IgSync realIg;
+            const IgConfig realCfg = makeTestIgConfig(kViewhost + 1, kViewhost);
+            REQUIRE(realIg.initialize(realCfg.udpPortRecv, 0));
+            REQUIRE(realIg.connect(realCfg.target));
+            REQUIRE(viewhost.readyIgCount() == 1);
+
+            WHEN("the relay keeps ticking")
+            {
+                tickRelay(viewhost);
+
+                THEN("the virtual IG has not connected and the platform has no ready IG")
+                {
+                    REQUIRE_FALSE(viewhost.virtualIgLinked());
+                    REQUIRE(platform.readyIgCount() == 0);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("gathered real IGs let the virtual IG join the platform without becoming a viewhost peer",
+         "[acceptance][bdd][platform][PLT-not-peer]")
+{
+    GIVEN("a platform Host and a viewhost relay expecting two real IGs")
+    {
+        constexpr int kPlatform = 41400;
+        constexpr int kViewhost = 41600;
+        HostSync platform;
+        REQUIRE(platform.initialize(makeTestHostConfig(kPlatform)));
+        platform.run();
+
+        HostDriver viewhost;
+        REQUIRE(viewhost.initialize(makeRelayViewhostConfig(kViewhost, kPlatform, 2)));
+
+        AND_GIVEN("both real IGs are ready")
+        {
+            IgSync real0;
+            IgSync real1;
+            const IgConfig cfg0 = makeTestIgConfig(kViewhost + 1, kViewhost);
+            const IgConfig cfg1 = makeTestIgConfig(kViewhost + 3, kViewhost);
+            REQUIRE(real0.initialize(cfg0.udpPortRecv, 0));
+            REQUIRE(real1.initialize(cfg1.udpPortRecv, 1));
+            REQUIRE(real0.connect(cfg0.target));
+            REQUIRE(real1.connect(cfg1.target));
+            REQUIRE(viewhost.readyIgCount() == 2);
+
+            WHEN("the relay ticks after gather")
+            {
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+                while ((!viewhost.virtualIgLinked() || platform.readyIgCount() != 1) &&
+                       std::chrono::steady_clock::now() < deadline)
+                {
+                    viewhost.pollRelay();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+
+                THEN("the platform has one ready IG on channel 0, and viewhost snapshot lists only the real IGs")
+                {
+                    REQUIRE(viewhost.virtualIgLinked());
+                    REQUIRE(platform.readyIgCount() == 1);
+                    const auto platformPeers = platform.igSnapshot();
+                    REQUIRE(platformPeers.size() == 1);
+                    REQUIRE(platformPeers.front().channelId == 0);
+
+                    const auto realPeers = viewhost.igSnapshot();
+                    REQUIRE(realPeers.size() == 2);
+                    REQUIRE((realPeers[0].channelId == 0 || realPeers[1].channelId == 0));
+                    REQUIRE((realPeers[0].channelId == 1 || realPeers[1].channelId == 1));
+                    REQUIRE(realPeers[0].channelId != realPeers[1].channelId);
+                }
             }
         }
     }
