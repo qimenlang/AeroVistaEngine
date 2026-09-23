@@ -12,6 +12,7 @@
 
 using aerovista::sync::HostConfig;
 using aerovista::sync::IgConfig;
+using aerovista::sync::SyncSystemConfig;
 
 class TempConfigFile
 {
@@ -79,4 +80,12 @@ inline HostConfig makeTestHostConfig(int base)
 inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
 {
     return IgConfig{udpRecvPort, {"127.0.0.1", base + 100, base}};
+}
+
+inline SyncSystemConfig makeTestSyncSystem(int channelId, bool requireConnectedIg = true)
+{
+    SyncSystemConfig syncSystem;
+    syncSystem.channelId = channelId;
+    syncSystem.requireConnectedIg = requireConnectedIg;
+    return syncSystem;
 }

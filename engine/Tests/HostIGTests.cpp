@@ -13,6 +13,7 @@
 #include "CigiEntityPositionCtrlV4.h"
 #include "CigiHostSession.h"
 #include "CigiIGSession.h"
+#include "CigiSOFV4.h"
 
 #include <chrono>
 #include <cmath>
@@ -34,10 +35,11 @@ using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::SynchronSystem;
 using aerovista::sync::SyncSystemConfig;
+using aerovista::sync::TcpSocket;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
 // 协议分层（测试约定）：
-// - 握手 / 动态端口：仍为自建 sync_proto WireMsg（HELLO / UDP_SYNC）——§1 用例覆盖，本文件不改其方向。
+// - 握手：CIGI HELLO（SOF+IGMsg，无 TCP ACK）+ UDP_SYNC / ACK —— §1 / PLT-hello-ch。
 // - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。
 //   数据面契约走 HostSync/IgSync 可观察收发（[wire-contract]）；CCL 首包约束仍为 session 负向单测。
 
@@ -170,7 +172,7 @@ namespace
 SCENARIO("linked IG receives Host ownship eye as Detach LLA EntityID 0",
          "[integration][sync][cigi][wire-contract][lla][CIGI-ownship-lla]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -209,7 +211,7 @@ SCENARIO("linked IG receives Host ownship eye as Detach LLA EntityID 0",
 SCENARIO("linked IG receives IGCtrl when Host sends a frame without eye",
          "[integration][sync][cigi][wire-contract][CIGI-igctrl-no-eye]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -290,7 +292,7 @@ TEST_CASE("CIGI Host rejects a message whose first packet is not SOF",
 }
 
 // =============================================================================
-// 1. 连接面（集成；握手仍为自建 sync_proto，非 CIGI）
+// 1. 连接面（集成；握手为 CIGI HELLO + UDP_SYNC）
 // =============================================================================
 
 SCENARIO("Host initializes with no ready IG", "[integration][sync][initialize][HS-host-init-empty]")
@@ -451,8 +453,8 @@ SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync]
         {
             IgSync ig1;
             IgSync ig2;
-            REQUIRE(ig1.initialize(makeIgLocal(8001).udpPortRecv));
-            REQUIRE(ig2.initialize(makeIgLocal(8003).udpPortRecv));
+            REQUIRE(ig1.initialize(makeIgLocal(8001).udpPortRecv, 0));
+            REQUIRE(ig2.initialize(makeIgLocal(8003).udpPortRecv, 1));
 
             REQUIRE(ig1.connect(makeIgLocal(8001).target));
             REQUIRE(ig2.connect(makeIgLocal(8003).target));
@@ -469,15 +471,104 @@ SCENARIO("Host accepts multiple co-located IG connections", "[integration][sync]
     }
 }
 
+SCENARIO("Host snapshot records the channelId from IG HELLO",
+         "[acceptance][bdd][platform][PLT-hello-ch]")
+{
+    GIVEN("a Host waiting for IGs")
+    {
+        HostSync host;
+        REQUIRE(host.initialize(makeHostLocal()));
+
+        AND_GIVEN("an IG initialized as channel 2")
+        {
+            IgSync ig;
+            REQUIRE(ig.initialize(makeIgLocal().udpPortRecv, 2));
+
+            WHEN("the IG connects")
+            {
+                REQUIRE(ig.connect(makeIgLocal().target));
+
+                THEN("igSnapshot carries channelId 2")
+                {
+                    REQUIRE(host.readyIgCount() == 1);
+                    const auto peers = host.igSnapshot();
+                    REQUIRE(peers.size() == 1);
+                    REQUIRE(peers.front().channelId == 2);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("Host rejects a later IG HELLO that reuses channelId",
+         "[acceptance][bdd][platform][PLT-hello-ch]")
+{
+    GIVEN("a Host with one ready IG on channel 1")
+    {
+        HostSync host;
+        IgSync first;
+        REQUIRE(host.initialize(makeHostLocal()));
+        REQUIRE(first.initialize(makeIgLocal(8001).udpPortRecv, 1));
+        REQUIRE(first.connect(makeIgLocal(8001).target));
+        REQUIRE(host.readyIgCount() == 1);
+
+        WHEN("a second IG connects with the same channelId")
+        {
+            IgSync second;
+            REQUIRE(second.initialize(makeIgLocal(8003).udpPortRecv, 1));
+            const bool connected = second.connect(makeIgLocal(8003).target);
+
+            THEN("the later HELLO is refused and the first peer stays")
+            {
+                REQUIRE_FALSE(connected);
+                REQUIRE_FALSE(second.tcpConnected());
+                REQUIRE_FALSE(second.udpSynced());
+                REQUIRE(first.tcpConnected());
+                REQUIRE(host.readyIgCount() == 1);
+                const auto peers = host.igSnapshot();
+                REQUIRE(peers.size() == 1);
+                REQUIRE(peers.front().channelId == 1);
+            }
+        }
+    }
+}
+
+TEST_CASE("IG HELLO on TCP starts with CIGI SOF", "[unit][sync][wire-contract][HS-hello-cigi]")
+{
+    TcpSocket listener;
+    REQUIRE(listener.listen(0));
+    const int tcpPort = listener.localPort();
+    REQUIRE(tcpPort > 0);
+
+    IgSync ig;
+    REQUIRE(ig.initialize(19117, 2));
+
+    std::thread connecting([&] { ig.connect({"127.0.0.1", tcpPort, 19118}); });
+
+    TcpSocket accepted;
+    for (int i = 0; i < 100 && !listener.accept(accepted); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    REQUIRE(accepted.valid());
+
+    unsigned char header[4]{};
+    REQUIRE(accepted.recvAll(header, 4, 1000));
+    accepted.close();
+    listener.close();
+    connecting.join();
+
+    const std::uint16_t packetId = static_cast<std::uint16_t>(header[2] | (header[3] << 8));
+    REQUIRE(packetId == CIGI_SOF_PACKET_ID_V4);
+}
+
 // =============================================================================
-// 2. 帧节拍：CIGI IGCtrl / SOF / FreeRun（集成；握手仍为 sync_proto）
+// 2. 帧节拍：CIGI IGCtrl / SOF / FreeRun（集成；握手为 CIGI HELLO + UDP_SYNC）
 // 数据面线格式契约：IGCtrlV4 (+ 可选 EntityPositionCtrlV4) / SOFV4 —— 见 [wire-contract]。
 // =============================================================================
 
 SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each update",
          "[integration][sync][status][cigi][CIGI-running-igctrl]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -510,7 +601,7 @@ SCENARIO("connected Host and IG enter RUNNING and exchange CIGI IGCtrl each upda
 SCENARIO("Host records a matched IGCtrl-SOF RTT sample",
          "[integration][sync][meas][MEAS-sof-rtt]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -547,7 +638,7 @@ SCENARIO("Host records a matched IGCtrl-SOF RTT sample",
 
 SCENARIO("IG replies with one CIGI SOF per received IGCtrl", "[integration][sync][status][sof][cigi][CIGI-sof-echo]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -613,7 +704,7 @@ SCENARIO("Host keeps sending CIGI IGCtrl when IG never replies SOF",
 SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
          "[integration][sync][status][frame][cigi][CIGI-frame-cntr]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -655,7 +746,7 @@ SCENARIO("IG last received CIGI FrameCntr matches Host frame numbers",
 }
 
 // =============================================================================
-// 3. Engine + SynchronSystem 集成（CIGI 帧交换契约；握手仍为 sync_proto）
+// 3. Engine + SynchronSystem 集成（CIGI 帧交换契约；握手为 CIGI HELLO + UDP_SYNC）
 // =============================================================================
 
 SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
@@ -716,9 +807,9 @@ SCENARIO("three IG Engines exchange CIGI frame control across one independent Ho
         engineA.extent = engineB.extent = engineC.extent = {1920, 1080};
         engineA.showWindow = engineB.showWindow = engineC.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase)));
-        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
-        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase)));
+        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase), makeTestSyncSystem(0)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestSyncSystem(1)));
+        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase), makeTestSyncSystem(2)));
         REQUIRE(host.sync.readyIgCount() == 3);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
@@ -1216,10 +1307,10 @@ namespace
             REQUIRE(c.loadConfig(igCFile.path()));
             REQUIRE(a.init());
             // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
-            REQUIRE(b.initSync(b.config.igConfig, b.config.syncSystem.requireConnectedIg));
+            REQUIRE(b.initSync(b.config.igConfig, b.config.syncSystem));
             REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
             b.cameraDriver().setOffsetDeg(b.config.syncSystem.offsetDeg);
-            REQUIRE(c.initSync(c.config.igConfig, c.config.syncSystem.requireConnectedIg));
+            REQUIRE(c.initSync(c.config.igConfig, c.config.syncSystem));
             REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
             c.cameraDriver().setOffsetDeg(c.config.syncSystem.offsetDeg);
 
@@ -1316,8 +1407,8 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestSyncSystem(0)));
+        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestSyncSystem(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1494,8 +1585,8 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestSyncSystem(0)));
+        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestSyncSystem(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1583,8 +1674,8 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase)));
+        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestSyncSystem(0)));
+        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestSyncSystem(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1665,7 +1756,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
         // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
-        REQUIRE(engineB.initSync(engineB.config.igConfig, engineB.config.syncSystem.requireConnectedIg));
+        REQUIRE(engineB.initSync(engineB.config.igConfig, engineB.config.syncSystem));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
         engineB.cameraDriver().setOffsetDeg(engineB.config.syncSystem.offsetDeg);
 
@@ -1725,7 +1816,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
 SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
          "[integration][sync][cigi][wire-contract][lla][range][CIGI-lla-oor]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;
@@ -1770,7 +1861,7 @@ SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
 SCENARIO("linked IG receives Host longitude wrapped into (-180,180]",
          "[integration][sync][cigi][wire-contract][lla][range][CIGI-lon-wrap]")
 {
-    GIVEN("a Host and an IG that have completed sync_proto handshake")
+    GIVEN("a Host and an IG that have completed CIGI handshake")
     {
         HostSync host;
         IgSync ig;

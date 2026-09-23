@@ -779,7 +779,7 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
     // 写入 config.igConfig，供场景装配（ensureEllipsoidModel）按「有无 igConfig」注入椭球。
     config.igConfig = igConfig;
     // offset 由 CameraDriver 持有；写相机在 update / stepSync。
-    // SynchronSystem 用 requireConnectedIg 决定 connect 失败是否拒绝；channelId 仅存储。
+    // SynchronSystem 用 requireConnectedIg 决定 connect 失败是否拒绝；channelId 写入 IgSync HELLO。
     _cameraDriver.resetEyeCaches();
     _cameraDriver.setOffsetDeg(syncSystem.offsetDeg);
 
