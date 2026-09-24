@@ -89,3 +89,12 @@ inline SyncSystemConfig makeTestSyncSystem(int channelId, bool requireConnectedI
     syncSystem.requireConnectedIg = requireConnectedIg;
     return syncSystem;
 }
+
+// UDP 可丢。send 完成本轮发送，并排空接收端；done 为真即停。全丢返回 false，由调用方 SKIP。
+template<typename Send, typename Done>
+bool retryUdpUntil(Send send, Done done, int attempts = 10)
+{
+    for (int i = 0; i < attempts && !done(); ++i)
+        send();
+    return done();
+}

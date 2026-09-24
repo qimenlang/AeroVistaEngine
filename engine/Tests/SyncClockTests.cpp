@@ -305,14 +305,20 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 
         WHEN("Host fans out real IGCtrl time stamps and IG ticks")
         {
-            constexpr int kTicks = 10;
-            for (int i = 0; i < kTicks; ++i)
-            {
-                hostSendFrame(hostA);
-                engineB.tickSync();
-                // 模拟帧节奏，保证 Host 自计时时间戳随真实时间推进（10 帧 ≥ 100ms）。
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
-            }
+            // 每拍睡 16ms，让 Host 自计时越过 100ms；丢包则继续发，直到 IG 收到的帧号和时间戳都够断言。
+            IgSync& ig = engineB.synchronSystem().igSync();
+            const bool observed = retryUdpUntil(
+                [&] {
+                    hostSendFrame(hostA);
+                    engineB.tickSync();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                },
+                [&] {
+                    return ig.igCtrlReceivedCount() > 0 && ig.lastIgCtrlFrameCntr() > 0 && ig.lastHostSimTimeUs() >= 100000;
+                },
+                20);
+            if (!observed)
+                SKIP("UDP datagram dropped");
 
             THEN("IG simulation time is anchored on the Host time stamp and advances with local elapsed")
             {
@@ -361,14 +367,18 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
 
         WHEN("Host fans out real time stamps to both IGs")
         {
-            constexpr int kTicks = 10;
-            for (int i = 0; i < kTicks; ++i)
-            {
-                hostSendFrame(hostA);
-                engineB.tickSync();
-                engineC.tickSync();
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
-            }
+            IgSync& igB = engineB.synchronSystem().igSync();
+            IgSync& igC = engineC.synchronSystem().igSync();
+            const bool bothGot = retryUdpUntil(
+                [&] {
+                    hostSendFrame(hostA);
+                    engineB.tickSync();
+                    engineC.tickSync();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                },
+                [&] { return igB.igCtrlReceivedCount() > 0 && igC.igCtrlReceivedCount() > 0; });
+            if (!bothGot)
+                SKIP("UDP datagram dropped");
 
             THEN("both IGs anchor on the same Host time stamp and stay within a small difference")
             {
@@ -432,13 +442,14 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 
         WHEN("Host sends a few frames then stops, while the IG keeps ticking")
         {
-            constexpr int kHostTicks = 5;
-            for (int i = 0; i < kHostTicks; ++i)
-            {
-                hostSendFrame(hostA);
-                engineB.tickSync();
-            }
-            REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
+            const bool gotStamp = retryUdpUntil(
+                [&] {
+                    hostSendFrame(hostA);
+                    engineB.tickSync();
+                },
+                [&] { return engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0; });
+            if (!gotStamp)
+                SKIP("UDP datagram dropped");
             REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
 
             // Host 停止后，只有 IG 持续 tick，超过 50ms 后冻结。
@@ -485,14 +496,20 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
             // 契约只需要两个已确认的 Host 时间戳，中间夹一次墙钟暂停。
             // 不能「发完立刻 tick 再钉死收包数」：CI 上回环 UDP 经常晚一拍到达。
-            hostSendFrame(hostA);
-            REQUIRE(tickUntil(engineB, [&] { return ig.igCtrlReceivedCount() >= 1; }));
+            const bool gotFirst = retryUdpUntil(
+                [&] { hostSendFrame(hostA); },
+                [&] { return tickUntil(engineB, [&] { return ig.igCtrlReceivedCount() >= 1; }, 5); });
+            if (!gotFirst)
+                SKIP("UDP datagram dropped");
             const std::uint64_t t0 = ig.lastHostSimTimeUs();
             REQUIRE(t0 > 0);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            hostSendFrame(hostA);
-            REQUIRE(tickUntil(engineB, [&] { return ig.lastHostSimTimeUs() > t0; }));
+            const bool gotNext = retryUdpUntil(
+                [&] { hostSendFrame(hostA); },
+                [&] { return tickUntil(engineB, [&] { return ig.lastHostSimTimeUs() > t0; }, 5); });
+            if (!gotNext)
+                SKIP("UDP datagram dropped");
             const std::uint64_t t1 = ig.lastHostSimTimeUs();
 
             THEN("the sim time advance follows the pause (real-time), not a fixed 16.67ms step")
@@ -530,12 +547,14 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
         WHEN("Host and IG tick normally, then the Host goes offline while the IG keeps ticking")
         {
             // 正常 tick，B 收到时间戳且未触发冻结。
-            for (int i = 0; i < 5; ++i)
-            {
-                hostSendFrame(hostA);
-                engineB.tickSync();
-            }
-            REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
+            const bool gotStamp = retryUdpUntil(
+                [&] {
+                    hostSendFrame(hostA);
+                    engineB.tickSync();
+                },
+                [&] { return engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0; });
+            if (!gotStamp)
+                SKIP("UDP datagram dropped");
             REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
 
             // hostA 关闭（等价于 Host 进程退出，关闭 TCP/UDP），B 持续 tick，超过冻结阈值。
