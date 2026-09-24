@@ -51,7 +51,7 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 // 协议分层（测试约定）：
 // - 握手：CIGI HELLO（SOF+IGMsg，无 TCP ACK）+ UDP_SYNC / ACK —— §1 / PLT-hello-ch。
 // - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。
-//   数据面契约走 HostSync/IgSync 可观察收发（[wire-contract]）；CCL 首包约束仍为 session 负向单测。
+//   数据面契约走 HostSync/IgSync 可观察收发（[wire-contract]）；CCL 首包约束仍为 session 反向用例单测。
 
 namespace
 {
@@ -110,6 +110,44 @@ namespace
         if (!realIg.connect(realCfg.target))
             return false;
         return waitVirtualIgLinked(viewhost, platform);
+    }
+
+    bool startHostDriverRelayTwoIgs(HostSync& platform, HostDriver& viewhost, IgSync& master, IgSync& side,
+                                    int platformBase, int viewhostBase)
+    {
+        if (!platform.initialize(makeTestHostConfig(platformBase)))
+            return false;
+        platform.run();
+        if (!viewhost.initialize(makeRelayViewhostConfig(viewhostBase, platformBase, 2)))
+            return false;
+        const IgConfig masterCfg = makeTestIgConfig(viewhostBase + 1, viewhostBase);
+        const IgConfig sideCfg = makeTestIgConfig(viewhostBase + 3, viewhostBase);
+        if (!master.initialize(masterCfg.udpPortRecv, 0))
+            return false;
+        if (!side.initialize(sideCfg.udpPortRecv, 1))
+            return false;
+        if (!master.connect(masterCfg.target))
+            return false;
+        if (!side.connect(sideCfg.target))
+            return false;
+        return waitVirtualIgLinked(viewhost, platform);
+    }
+
+    bool startHostTwoIgs(HostSync& host, IgSync& master, IgSync& side, int base)
+    {
+        if (!host.initialize(makeTestHostConfig(base)))
+            return false;
+        const IgConfig masterCfg = makeTestIgConfig(base + 1, base);
+        const IgConfig sideCfg = makeTestIgConfig(base + 3, base);
+        if (!master.initialize(masterCfg.udpPortRecv, 0))
+            return false;
+        if (!side.initialize(sideCfg.udpPortRecv, 1))
+            return false;
+        if (!master.connect(masterCfg.target))
+            return false;
+        if (!side.connect(sideCfg.target))
+            return false;
+        return host.readyIgCount() == 2;
     }
 
     void drainIgUntil(IgSync& ig, const std::function<bool()>& done, bool sendSof = false)
@@ -657,6 +695,176 @@ SCENARIO("Host rejects a later IG HELLO that reuses channelId",
     }
 }
 
+SCENARIO("relay forwards only the master IG TCP report to the platform",
+         "[acceptance][bdd][platform][PLT-hello-ch]")
+{
+    GIVEN("a platform Host, a viewhost relay, and two ready real IGs on channel 0 and 1")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync master;
+        IgSync side;
+        REQUIRE(startHostDriverRelayTwoIgs(platform, viewhost, master, side, 46000, 46200));
+
+        std::vector<std::string> platformMsgs;
+        platform.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            platformMsgs.emplace_back(const_cast<CigiIGMsgV4&>(msg).GetMsg());
+        });
+
+        WHEN("both IGs send distinct TCP reports and the relay ticks")
+        {
+            // 两条独立 flush；握手后仅 master TCP 入队，不认 PacketID。
+            {
+                auto& tcp = master.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3101);
+                report.SetMsg("master");
+                tcp << report;
+                master.flushTcp();
+            }
+            {
+                auto& tcp = side.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3102);
+                report.SetMsg("side");
+                tcp << report;
+                side.flushTcp();
+            }
+            tickRelay(viewhost);
+            drainHostUntil(platform, [&] { return !platformMsgs.empty(); });
+            drainHostUntil(platform, [&] { return platformMsgs.size() >= 2; });
+
+            THEN("the platform receives only the master payload")
+            {
+                REQUIRE(platformMsgs.size() == 1);
+                REQUIRE(platformMsgs.front() == "master");
+            }
+        }
+    }
+}
+
+SCENARIO("relay does not forward a side-channel IG TCP report to the platform",
+         "[acceptance][bdd][platform][PLT-hello-ch]")
+{
+    GIVEN("a platform Host, a viewhost relay, and two ready real IGs on channel 0 and 1")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync master;
+        IgSync side;
+        REQUIRE(startHostDriverRelayTwoIgs(platform, viewhost, master, side, 48000, 48200));
+
+        std::vector<std::string> platformMsgs;
+        platform.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            platformMsgs.emplace_back(const_cast<CigiIGMsgV4&>(msg).GetMsg());
+        });
+
+        WHEN("only the side IG sends a TCP report and the relay ticks")
+        {
+            // 反向用例：master 在线但不发；侧通道 TCP 不入队，不认 PacketID。
+            {
+                auto& tcp = side.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3103);
+                report.SetMsg("side-only");
+                tcp << report;
+                side.flushTcp();
+            }
+            tickRelay(viewhost);
+            drainHostUntil(platform, [&] { return !platformMsgs.empty(); });
+
+            THEN("the platform receives no IG TCP report")
+            {
+                REQUIRE(platformMsgs.empty());
+            }
+        }
+    }
+}
+
+SCENARIO("Host unpacks only the master IG TCP report when both IGs send",
+         "[acceptance][bdd][platform][PLT-hello-ch]")
+{
+    GIVEN("a Host and two ready IGs on channel 0 and 1")
+    {
+        HostSync host;
+        IgSync master;
+        IgSync side;
+        REQUIRE(startHostTwoIgs(host, master, side, 48600));
+
+        std::vector<std::string> hostMsgs;
+        host.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            hostMsgs.emplace_back(const_cast<CigiIGMsgV4&>(msg).GetMsg());
+        });
+
+        WHEN("both IGs send distinct TCP reports")
+        {
+            // 握手后仅 master TCP 入队；侧通道仍 recv，不入队。
+            {
+                auto& tcp = master.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3104);
+                report.SetMsg("master");
+                tcp << report;
+                master.flushTcp();
+            }
+            {
+                auto& tcp = side.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3105);
+                report.SetMsg("side");
+                tcp << report;
+                side.flushTcp();
+            }
+            drainHostUntil(host, [&] { return !hostMsgs.empty(); });
+            drainHostUntil(host, [&] { return hostMsgs.size() >= 2; });
+
+            THEN("Host callbacks receive only the master payload")
+            {
+                REQUIRE(hostMsgs.size() == 1);
+                REQUIRE(hostMsgs.front() == "master");
+                REQUIRE(host.readyIgCount() == 2);
+            }
+        }
+    }
+}
+
+SCENARIO("Host does not unpack a side-channel IG TCP report",
+         "[acceptance][bdd][platform][PLT-hello-ch]")
+{
+    GIVEN("a Host and two ready IGs on channel 0 and 1")
+    {
+        HostSync host;
+        IgSync master;
+        IgSync side;
+        REQUIRE(startHostTwoIgs(host, master, side, 48800));
+
+        std::vector<std::string> hostMsgs;
+        host.addCallback<CigiIGMsgV4>([&](const CigiIGMsgV4& msg) {
+            hostMsgs.emplace_back(const_cast<CigiIGMsgV4&>(msg).GetMsg());
+        });
+
+        WHEN("only the side IG sends a TCP report")
+        {
+            // 反向用例：master 在线但不发；侧通道 TCP 不入队。
+            {
+                auto& tcp = side.outMsgWithSofTcp();
+                CigiIGMsgV4 report;
+                report.SetMsgID(0x3106);
+                report.SetMsg("side-only");
+                tcp << report;
+                side.flushTcp();
+            }
+            drainHostUntil(host, [&] { return !hostMsgs.empty(); });
+
+            THEN("Host callbacks receive no IG TCP report")
+            {
+                REQUIRE(hostMsgs.empty());
+                REQUIRE(host.readyIgCount() == 2);
+            }
+        }
+    }
+}
+
 SCENARIO("virtual IG does not join the platform before real IGs have gathered",
          "[acceptance][bdd][platform][PLT-ig-first]")
 {
@@ -922,6 +1130,45 @@ SCENARIO("HostDriver relay forwards an IG TCP report to the platform",
             {
                 REQUIRE(platformMsgId == 0x3001);
                 REQUIRE(platformMsg == "up");
+            }
+        }
+    }
+}
+
+SCENARIO("relay keeps real IG UDP SOF from both channels on viewhost",
+         "[acceptance][bdd][platform][PLT-relay-sof]")
+{
+    GIVEN("a platform Host, a viewhost relay, and two ready real IGs on channel 0 and 1")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync master;
+        IgSync side;
+        REQUIRE(startHostDriverRelayTwoIgs(platform, viewhost, master, side, 47600, 47800));
+
+        const auto platformSofBefore = platform.sofReceivedCount();
+        const auto viewhostSofBefore = viewhost.sofReceivedCount();
+
+        WHEN("both IGs send UDP SOF and the relay ticks")
+        {
+            const bool observed = retryUdpUntil(
+                [&] {
+                    master.outMsgWithSofUdp();
+                    master.flushUdp();
+                    side.outMsgWithSofUdp();
+                    side.flushUdp();
+                    tickRelay(viewhost, 5);
+                    drainDriverUntil(viewhost, [&] { return viewhost.sofReceivedCount() > viewhostSofBefore; });
+                    drainHostUntil(platform, [&] { return platform.sofReceivedCount() > platformSofBefore; });
+                },
+                [&] { return viewhost.sofReceivedCount() > viewhostSofBefore; });
+            if (!observed)
+                SKIP("UDP datagram dropped");
+
+            THEN("the platform does not receive those SOF")
+            {
+                REQUIRE(viewhost.sofReceivedCount() > viewhostSofBefore);
+                REQUIRE(platform.sofReceivedCount() == platformSofBefore);
             }
         }
     }

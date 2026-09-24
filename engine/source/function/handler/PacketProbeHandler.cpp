@@ -1,4 +1,4 @@
-﻿#include "PacketProbeHandler.h"
+#include "PacketProbeHandler.h"
 
 // IG→Host 方向可达报文头（cigi梳理.md 链路矩阵；HostSync 侧对应注册，状态同步设计.md §8.1）。
 #include "CigiAerosolRespV4.h"
@@ -134,7 +134,7 @@ void PacketProbeHandler::apply(vsg::KeyPressEvent& keyPress)
 
     if (keyPress.keyBase == vsg::KEY_F10)
     {
-        // IG→Host UDP 仅 SOF 一种（cigi梳理.md 链路矩阵）：outMsgWithSofUdp 自动前置 SOF，flushUdp 发出。
+        // 契约：IG→Host UDP = SOF + 非一次性上报（cigi梳理.md）；现网 F10 仍只发 SOF，碰撞 Notification 待改。
         ig->outMsgWithSofUdp();
         ig->flushUdp();
         *lastSentName = "CigiSOFV4";

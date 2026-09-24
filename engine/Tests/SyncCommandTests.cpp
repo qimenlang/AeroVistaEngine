@@ -1,6 +1,6 @@
 ﻿// 状态同步设计.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
 // 命令面全绿：线格式契约 + E2E（TCP/UDP 收发对等）+ 分帧单测。
-// §7 双 session 隔离：2 负向（flushUdp 不打包 TCP 缓冲 → 收不到）+ 2 正向（flushTcp 正常送达）。
+// §7 双 session 隔离：2 条反向用例（flushUdp 不打包 TCP 缓冲 → 收不到）+ 2 条正向（flushTcp 正常送达）。
 
 #include <aerovista/sync/CigiIncludes.h>
 
@@ -554,20 +554,20 @@ SCENARIO("consecutive IG TCP flushes arrive in enqueue order",
         WHEN("IG flushes two complete TCP messages in sequence")
         {
             {
-                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
                 CigiIGMsgV4 a;
                 a.SetMsgID(0x2001);
                 a.SetMsg("first");
                 tcp << a;
-                engineB.synchronSystem().igSync().flushTcp();
+                engineA.synchronSystem().igSync().flushTcp();
             }
             {
-                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
                 CigiIGMsgV4 b;
                 b.SetMsgID(0x2002);
                 b.SetMsg("second");
                 tcp << b;
-                engineB.synchronSystem().igSync().flushTcp();
+                engineA.synchronSystem().igSync().flushTcp();
             }
             for (int i = 0; i < 20 && hostMsgProc->count() < 2; ++i)
             {
@@ -760,12 +760,12 @@ SCENARIO("IG sends a message to Host and Host processor receives it",
 
         WHEN("IG assembles CigiIGMsgV4 and flushes TCP")
         {
-            auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+            auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
             CigiIGMsgV4 status;
             status.SetMsgID(0x1001);
             status.SetMsg("status ok");
             tcp << status;
-            engineB.synchronSystem().igSync().flushTcp();
+            engineA.synchronSystem().igSync().flushTcp();
 
             // Host 收包为 push 模式：等待 peer 线程收包分帧入队后，主线程 drain 解包。
             for (int i = 0; i < 20 && hostMsgProc->count() == 0; ++i)
@@ -826,12 +826,12 @@ SCENARIO("Host sends CollDetSegDef and IG replies CollDetSegResp over TCP",
 
             // IG → Host：碰撞检测段响应。
             {
-                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
                 CigiCollDetSegRespV4 resp;
                 resp.SetEntityID(igDefProc->entityId);
                 resp.SetMaterial(0xABC);
                 tcp << resp;
-                engineB.synchronSystem().igSync().flushTcp();
+                engineA.synchronSystem().igSync().flushTcp();
             }
 
             // Host push 模式：等待 peer 线程收包入队后，主线程 drain 解包。
@@ -943,12 +943,12 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
 
             // IG → Host：碰撞检测体积响应（首版默认值填充）。
             {
-                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
                 CigiCollDetVolRespV4 resp;
                 resp.SetEntityID(static_cast<std::uint16_t>(igDef->GetEntityID()));
                 resp.SetCollType(CigiBaseCollDetVolResp::Entity);
                 tcp << resp;
-                engineB.synchronSystem().igSync().flushTcp();
+                engineA.synchronSystem().igSync().flushTcp();
             }
 
             // Host push 模式：等待 peer 线程收包入队后，主线程 drain 解包，经订阅投递。
@@ -971,7 +971,7 @@ SCENARIO("Host sends CollDetVolDef and IG replies CollDetVolResp over TCP",
 // =============================================================================
 // 7. 双 session 隔离（状态同步设计初版.md §5.1/§7.1/§8.1 验收）：
 //    outMsgWithIgCtrlTcp/flushTcp 只操作 _tcpSession、outMsgWithIgCtrlUdp/flushUdp 只操作 _udpSession——
-//    命令面内容被 flushUdp 误发时对端收不到。双 session 隔离已实现，负向为回归绿测。
+//    命令面内容被 flushUdp 误发时对端收不到。双 session 隔离已实现，反向用例为回归绿测。
 // =============================================================================
 
 SCENARIO("Host TCP-filled message is not sent via flushUdp",
@@ -1067,12 +1067,12 @@ SCENARIO("IG TCP-filled message is not sent via flushUdp",
 
         WHEN("IG fills a TCP outgoing message but flushes UDP")
         {
-            auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+            auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
             CigiIGMsgV4 status;
             status.SetMsgID(0x1001);
             status.SetMsg("status ok");
             tcp << status;
-            engineB.synchronSystem().igSync().flushUdp(); // 误用：TCP 缓冲走 UDP flush
+            engineA.synchronSystem().igSync().flushUdp(); // 误用：TCP 缓冲走 UDP flush
 
             // 若误发，Host 的 UDP I/O 线程会收到 → drain 解包触发 processor（单 session 下即红）；
             // 双 session 后 flushUdp 打包空的 _udpSession（无内容）→ 不发 → Host 无报文可解。
@@ -1107,12 +1107,12 @@ SCENARIO("IG TCP-filled message is delivered via flushTcp",
 
         WHEN("IG fills a TCP outgoing message and flushes TCP")
         {
-            auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+            auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
             CigiIGMsgV4 status;
             status.SetMsgID(0x1001);
             status.SetMsg("status ok");
             tcp << status;
-            engineB.synchronSystem().igSync().flushTcp();
+            engineA.synchronSystem().igSync().flushTcp();
 
             for (int i = 0; i < 20 && hostMsgProc->count() == 0; ++i)
             {
@@ -1348,22 +1348,22 @@ SCENARIO("IG can fill multiple packets in one message via repeated outMsgWithSof
 
         WHEN("IG calls outMsgWithSofTcp multiple times filling three messages, then flushes once")
         {
-            auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+            auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
             CigiIGMsgV4 a;
             a.SetMsgID(0x1001);
             a.SetMsg("a");
             tcp << a;
-            auto& tcp2 = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+            auto& tcp2 = engineA.synchronSystem().igSync().outMsgWithSofTcp();
             CigiIGMsgV4 b;
             b.SetMsgID(0x1002);
             b.SetMsg("b");
             tcp2 << b;
-            auto& tcp3 = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+            auto& tcp3 = engineA.synchronSystem().igSync().outMsgWithSofTcp();
             CigiIGMsgV4 c;
             c.SetMsgID(0x1003);
             c.SetMsg("c");
             tcp3 << c;
-            engineB.synchronSystem().igSync().flushTcp();
+            engineA.synchronSystem().igSync().flushTcp();
 
             for (int i = 0; i < 20 && hostMsgProc->count() < 3; ++i)
             {
@@ -1593,12 +1593,12 @@ SCENARIO("Host subscribes an IG→Host CigiIGMsgV4 over TCP",
             });
 
             {
-                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
                 CigiIGMsgV4 status;
                 status.SetMsgID(0x3001);
                 status.SetMsg("all-packets ok");
                 tcp << status;
-                engineB.synchronSystem().igSync().flushTcp();
+                engineA.synchronSystem().igSync().flushTcp();
             }
 
             // Host push 模式：等待 peer 线程收包入队后，主线程 drain 解包，经订阅投递。
@@ -1638,12 +1638,12 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
             });
 
             {
-                auto& tcp = engineB.synchronSystem().igSync().outMsgWithSofTcp();
+                auto& tcp = engineA.synchronSystem().igSync().outMsgWithSofTcp();
                 CigiIGMsgV4 status;
                 status.SetMsgID(0x4001);
                 status.SetMsg("subscribe ok");
                 tcp << status;
-                engineB.synchronSystem().igSync().flushTcp();
+                engineA.synchronSystem().igSync().flushTcp();
             }
 
             // Host push 模式：drainIncoming 内同步投递回调。
@@ -1672,7 +1672,7 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
 // =============================================================================
 
 // Ellipsoid 正向摆放回归保护（实体与运动控制设计.md §4.2 / lla位姿传输设计.md §2.1）。
-// 注意：本用例**不**验证「坐标系由场景判据决定」的新语义——那是负向拒收用例的职责
+// 注意：本用例**不**验证「坐标系由场景判据决定」的新语义——那是反向用例（拒收）的职责
 // （Host 填 Attach/XYZ 但 IG 是椭球场景 → 拒收 + entityPoseRejectedByFrameMismatch +1，暂缓实现）。
 // 这里的 SetAttachState(Detach) 是 CCL 线格式硬约束：CigiBaseEntityPositionCtrl 的
 // LatOrXoff/LonOrYoff/AltOrZoff 是同一组 union 成员，要发 LLA 就必须置 Detach（否则被
