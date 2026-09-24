@@ -139,6 +139,15 @@ namespace
         }
     }
 
+    // UDP 可丢：重发直到观察到；全丢由调用方 SKIP。
+    template<typename Send>
+    bool retryUdpUntil(Send send, const std::function<bool()>& done, int attempts = 10)
+    {
+        for (int i = 0; i < attempts && !done(); ++i)
+            send();
+        return done();
+    }
+
     bool framesIncreasing(const std::vector<std::uint32_t>& frames)
     {
         for (std::size_t i = 1; i < frames.size(); ++i)
@@ -249,29 +258,24 @@ namespace
         });
     }
 
-    // 重发直到本轮 IGCtrl 到达。眼点被范围拒绝时 IGCtrl 仍应到，ownship 回调保持未置位。
-    bool pumpIgCtrlFrames(HostSync& host, IgSync& ig)
+    void pumpIgCtrlFrames(HostSync& host, IgSync& ig, int frames = 5)
     {
-        const auto before = ig.igCtrlReceivedCount();
-        return retryUdpUntil(
-            [&] {
-                hostSendFrame(host, 0);
-                ig.drainIncoming();
-                ig.update();
-            },
-            [&] { return ig.igCtrlReceivedCount() > before; });
+        for (int i = 0; i < frames; ++i)
+        {
+            hostSendFrame(host, i * 16.667);
+            ig.drainIncoming();
+            ig.update();
+        }
     }
 
-    bool pumpOwnshipEyeFrames(HostSync& host, IgSync& ig, const cigi_wire::EyePose& eye)
+    void pumpOwnshipEyeFrames(HostSync& host, IgSync& ig, const cigi_wire::EyePose& eye, int frames = 5)
     {
-        const auto before = ig.igCtrlReceivedCount();
-        return retryUdpUntil(
-            [&] {
-                hostSendEyePose(host, eye);
-                ig.drainIncoming();
-                ig.update();
-            },
-            [&] { return ig.igCtrlReceivedCount() > before; });
+        for (int i = 0; i < frames; ++i)
+        {
+            hostSendEyePose(host, eye);
+            ig.drainIncoming();
+            ig.update();
+        }
     }
 
     // 独立 Host 端点（测试用）：持 HostSync，RAII 生命周期。
@@ -309,8 +313,7 @@ SCENARIO("linked IG receives Host ownship eye as Detach LLA EntityID 0",
             eye.z = 500.0;
             eye.yawDeg = 30.0;
             eye.pitchDeg = 10.0;
-            if (!pumpOwnshipEyeFrames(host, ig, eye))
-                SKIP("UDP datagram dropped");
+            pumpOwnshipEyeFrames(host, ig, eye);
 
             THEN("IG unpacks Detach LLA ownship at EntityID 0 ParentID 0")
             {
@@ -343,8 +346,7 @@ SCENARIO("linked IG receives IGCtrl when Host sends a frame without eye",
 
         WHEN("Host sends IGCtrl with no ownship eye")
         {
-            if (!pumpIgCtrlFrames(host, ig))
-                SKIP("UDP datagram dropped");
+            pumpIgCtrlFrames(host, ig);
 
             THEN("IG received IGCtrl and no ownship EntityPosition")
             {
@@ -1387,35 +1389,31 @@ SCENARIO("relayed platform UDP IGCtrl keeps the original header",
 
         WHEN("the platform sends UDP IGCtrl after two earlier frames and the relay forwards the datagram")
         {
-            std::vector<std::vector<unsigned char>> dgrams;
-            const bool took = retryUdpUntil(
-                [&] {
-                    platform.outMsgWithIgCtrlUdp();
-                    platform.flushUdp();
-                    auto more = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 1);
-                    dgrams.insert(dgrams.end(), more.begin(), more.end());
-                },
-                [&] { return dgrams.size() >= 3; });
-            if (!took)
-                SKIP("UDP datagram dropped");
+            for (int i = 0; i < 3; ++i)
+            {
+                platform.outMsgWithIgCtrlUdp();
+                platform.flushUdp();
+            }
+
+            const auto dgrams = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 3);
+            REQUIRE(dgrams.size() >= 3);
             const auto& last = dgrams.back();
             CigiIGCtrlV4 sent;
             REQUIRE(sent.Unpack(const_cast<unsigned char*>(last.data()), false, nullptr) >= 0);
-            const bool forwarded = retryUdpUntil(
-                [&] {
-                    viewhost.sendUdpMessage(last);
-                    drainIgUntil(realIg, [&] { return igFrameCntr != 0xffffffffu; });
-                },
-                [&] { return igFrameCntr != 0xffffffffu; });
-            if (!forwarded)
-                SKIP("UDP datagram dropped");
+            viewhost.sendUdpMessage(last);
+
+            for (int i = 0; i < 40 && igFrameCntr == 0xffffffffu; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
 
             THEN("the real IG sees the platform data-plane FrameCntr and TimeStamp, and viewhost did not add another IGCtrl")
             {
                 REQUIRE(igFrameCntr == sent.GetFrameCntr());
                 REQUIRE(igTimeStamp == sent.GetTimeStamp());
                 REQUIRE(igTimeStampValid);
-                REQUIRE(realIg.igCtrlReceivedCount() >= 1);
+                REQUIRE(realIg.igCtrlReceivedCount() == 1);
             }
         }
     }
@@ -1438,43 +1436,40 @@ SCENARIO("virtual IG packSof after UDP forward is the only SOF the platform sees
 
         WHEN("the relay forwards one platform UDP IGCtrl, echos SOF from the virtual IG, and the real IG replies SOF to viewhost")
         {
-            std::vector<std::vector<unsigned char>> dgrams;
-            const bool took = retryUdpUntil(
-                [&] {
-                    platform.outMsgWithIgCtrlUdp();
-                    platform.flushUdp();
-                    auto more = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 1);
-                    dgrams.insert(dgrams.end(), more.begin(), more.end());
-                },
-                [&] { return dgrams.size() >= 1; });
-            if (!took)
-                SKIP("UDP datagram dropped");
+            for (int i = 0; i < 3; ++i)
+            {
+                platform.outMsgWithIgCtrlUdp();
+                platform.flushUdp();
+            }
+            const auto dgrams = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 3);
+            REQUIRE(dgrams.size() >= 3);
             const auto& last = dgrams.back();
             CigiIGCtrlV4 sent;
             REQUIRE(sent.Unpack(const_cast<unsigned char*>(last.data()), false, nullptr) >= 0);
-            const bool forwarded = retryUdpUntil(
-                [&] {
-                    viewhost.sendUdpMessage(last);
-                    drainIgUntil(realIg, [&] { return realIg.igCtrlReceivedCount() > 0; }, true);
-                },
-                [&] { return realIg.igCtrlReceivedCount() > 0; });
-            if (!forwarded)
-                SKIP("UDP datagram dropped");
-            const bool sofed = retryUdpUntil(
-                [&] {
-                    virtualIg.sendSofForIgCtrl(last);
-                    drainHostUntil(platform, [&] { return platform.sofReceivedCount() > 0; });
-                    drainHostUntil(viewhost, [&] { return viewhost.sofReceivedCount() > 0; });
-                },
-                [&] { return platform.sofReceivedCount() > 0 && viewhost.sofReceivedCount() > 0; });
-            if (!sofed)
-                SKIP("UDP datagram dropped");
+            viewhost.sendUdpMessage(last);
+            virtualIg.sendSofForIgCtrl(last);
+
+            for (int i = 0; i < 40 && realIg.igCtrlReceivedCount() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(true);
+            }
+            for (int i = 0; i < 40 && platform.sofReceivedCount() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                platform.drainIncoming();
+            }
+            for (int i = 0; i < 40 && viewhost.sofReceivedCount() == 0; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                viewhost.drainIncoming();
+            }
 
             THEN("the platform receives one matching SOF from the virtual IG, not the real IG SOF")
             {
-                REQUIRE(platform.sofReceivedCount() >= 1);
+                REQUIRE(platform.sofReceivedCount() == 1);
                 REQUIRE(platformSof == sent.GetFrameCntr());
-                REQUIRE(viewhost.sofReceivedCount() >= 1);
+                REQUIRE(viewhost.sofReceivedCount() == 1);
             }
         }
     }
@@ -1564,40 +1559,35 @@ SCENARIO("relay forwards multiple platform TCP and UDP messages to the IG",
             };
             sendTcpText("tcp-0");
             sendTcpText("tcp-1");
+            platform.outMsgWithIgCtrlUdp();
+            platform.flushUdp();
+            platform.outMsgWithIgCtrlUdp();
+            platform.flushUdp();
 
             const auto tcpFrames = collectFrames([&] { return virtualIg.takeIncomingTcp(); }, 2);
             REQUIRE(tcpFrames.size() >= 2);
             viewhost.sendTcpMessage(tcpFrames[0]);
             viewhost.sendTcpMessage(tcpFrames[1]);
 
-            std::vector<std::vector<unsigned char>> udpFrames;
-            const bool tookUdp = retryUdpUntil(
-                [&] {
-                    platform.outMsgWithIgCtrlUdp();
-                    platform.flushUdp();
-                    auto more = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 1);
-                    udpFrames.insert(udpFrames.end(), more.begin(), more.end());
-                },
-                [&] { return udpFrames.size() >= 2; });
-            if (!tookUdp)
-                SKIP("UDP datagram dropped");
-            const bool forwarded = retryUdpUntil(
-                [&] {
-                    viewhost.sendUdpMessage(udpFrames[0]);
-                    viewhost.sendUdpMessage(udpFrames[1]);
-                    drainIgUntil(realIg, [&] { return igTexts.size() >= 2 && igUdpFrames.size() >= 2; });
-                },
-                [&] { return igTexts.size() >= 2 && igUdpFrames.size() >= 2; });
-            if (!forwarded)
-                SKIP("UDP datagram dropped");
+            const auto udpFrames = collectFrames([&] { return virtualIg.takeIncomingUdp(); }, 2);
+            REQUIRE(udpFrames.size() >= 2);
+            viewhost.sendUdpMessage(udpFrames[0]);
+            viewhost.sendUdpMessage(udpFrames[1]);
+
+            for (int i = 0; i < 40 && (igTexts.size() < 2 || igUdpFrames.size() < 2); ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                realIg.drainIncoming(false);
+            }
 
             THEN("the real IG receives every TCP payload and every UDP data-plane IGCtrl in order")
             {
                 REQUIRE(igTexts.size() == 2);
                 REQUIRE(igTexts[0] == "tcp-0");
                 REQUIRE(igTexts[1] == "tcp-1");
-                REQUIRE(igUdpFrames.size() >= 2);
-                REQUIRE(framesIncreasing(igUdpFrames));
+                REQUIRE(igUdpFrames.size() == 2);
+                REQUIRE(igUdpFrames[0] == 0);
+                REQUIRE(igUdpFrames[1] == 1);
             }
         }
     }
@@ -1645,15 +1635,15 @@ SCENARIO("relay forwards multiple IG TCP reports; IG UDP SOF stays on viewhost",
             }
             const auto platformSofAfterTcp = platform.sofReceivedCount();
 
-            const bool sofArrived = retryUdpUntil(
-                [&] {
-                    realIg.outMsgWithSofUdp();
-                    realIg.flushUdp();
-                    drainHostUntil(viewhost, [&] { return viewhost.sofReceivedCount() >= 2; });
-                },
-                [&] { return viewhost.sofReceivedCount() >= 2; });
-            if (!sofArrived)
-                SKIP("UDP datagram dropped");
+            realIg.outMsgWithSofUdp();
+            realIg.flushUdp();
+            realIg.outMsgWithSofUdp();
+            realIg.flushUdp();
+            for (int i = 0; i < 40 && viewhost.sofReceivedCount() < 2; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                viewhost.drainIncoming();
+            }
             platform.drainIncoming();
 
             THEN("the platform receives both TCP reports and none of the real IG UDP SOF")
@@ -1663,7 +1653,7 @@ SCENARIO("relay forwards multiple IG TCP reports; IG UDP SOF stays on viewhost",
                 REQUIRE(platformMsgs[0].second == "up-0");
                 REQUIRE(platformMsgs[1].first == 0x3002);
                 REQUIRE(platformMsgs[1].second == "up-1");
-                REQUIRE(viewhost.sofReceivedCount() >= 2);
+                REQUIRE(viewhost.sofReceivedCount() == 2);
                 REQUIRE(platform.sofReceivedCount() == platformSofAfterTcp);
             }
         }
@@ -1711,16 +1701,20 @@ TEST_CASE("IgSync sendUdpMessage forwards raw datagram without adding SOF",
     std::vector<unsigned char> sof;
     REQUIRE(cigi_wire::packSof(42, sof));
     SyncInterface& sync = ig;
-    const bool observed = retryUdpUntil(
-        [&] {
-            sync.sendUdpMessage(sof);
-            drainHostUntil(host, [&] { return host.sofReceivedCount() > sofBefore; });
-        },
-        [&] { return host.sofReceivedCount() > sofBefore; });
-    if (!observed)
-        SKIP("UDP datagram dropped");
+    // UDP 可丢：重发直到 Host 解到 SOF；合同不是单报必达。
+    for (int i = 0; i < 10 && host.sofReceivedCount() == sofBefore; ++i)
+    {
+        sync.sendUdpMessage(sof);
+        for (int j = 0; j < 8 && host.sofReceivedCount() == sofBefore; ++j)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            host.drainIncoming();
+        }
+    }
 
     REQUIRE(ig.sofSentCount() == sentBefore);
+    if (host.sofReceivedCount() == sofBefore)
+        SKIP("UDP datagram dropped");
     REQUIRE(host.sofReceivedCount() > sofBefore);
 }
 
@@ -1736,16 +1730,15 @@ TEST_CASE("HostSync takeIncomingUdp consumes the UDP queue without drainIncoming
 
     SyncInterface& sync = host;
     std::vector<unsigned char> taken;
-    const bool observed = retryUdpUntil(
-        [&] {
-            ig.outMsgWithSofUdp();
-            ig.flushUdp();
-            const auto frames = collectFrames([&] { return sync.takeIncomingUdp(); }, 1);
-            if (!frames.empty())
-                taken = frames.back();
-        },
-        [&] { return !taken.empty(); });
-    if (!observed)
+    for (int i = 0; i < 10 && taken.empty(); ++i)
+    {
+        ig.outMsgWithSofUdp();
+        ig.flushUdp();
+        const auto frames = collectFrames([&] { return sync.takeIncomingUdp(); }, 1);
+        if (!frames.empty())
+            taken = frames.back();
+    }
+    if (taken.empty())
         SKIP("UDP datagram dropped");
     REQUIRE(cigi_wire::isSofPacket(taken.data(), static_cast<int>(taken.size())));
 
@@ -2531,21 +2524,15 @@ namespace
             REQUIRE(host.readyIgCount() == 3);
         }
 
-        void tick(const ChannelEye& eye)
+        void tick(const ChannelEye& eye, const int frames = 2)
         {
-            const bool observed = retryUdpUntil(
-                [&] {
-                    hostSendEyeFrame(host, eye);
-                    a.tickSync();
-                    b.tickSync();
-                    c.tickSync();
-                },
-                [&] {
-                    return b.cameraDriver().lastAppliedEye().has_value() &&
-                           c.cameraDriver().lastAppliedEye().has_value();
-                });
-            if (!observed)
-                SKIP("UDP datagram dropped");
+            for (int i = 0; i < frames; ++i)
+            {
+                hostSendEyeFrame(host, eye);
+                a.tickSync();
+                b.tickSync();
+                c.tickSync();
+            }
         }
     };
 
@@ -2638,15 +2625,12 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 
         WHEN("Host publishes LLA authority eye over live CIGI and both tick")
         {
-            const bool observed = retryUdpUntil(
-                [&] {
-                    hostSendEyeFrame(host.sync, intent);
-                    engineA.tickSync();
-                    engineB.tickSync();
-                },
-                [&] { return engineB.cameraDriver().lastAppliedEye().has_value(); });
-            if (!observed)
-                SKIP("UDP datagram dropped");
+            for (int i = 0; i < 3; ++i)
+            {
+                hostSendEyeFrame(host.sync, intent);
+                engineA.tickSync();
+                engineB.tickSync();
+            }
 
             THEN("B applies Host LLA; A LookAt.eye matches ECEF (lla Host-IG follow)")
             {
@@ -2816,15 +2800,12 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
 
         WHEN("Host publishes LLA authority eye over live CIGI and both tick")
         {
-            const bool observed = retryUdpUntil(
-                [&] {
-                    hostSendEyeFrame(host.sync, intent);
-                    engineA.tickSync();
-                    engineB.tickSync();
-                },
-                [&] { return engineB.cameraDriver().lastAppliedEye().has_value(); });
-            if (!observed)
-                SKIP("UDP datagram dropped");
+            for (int i = 0; i < 3; ++i)
+            {
+                hostSendEyeFrame(host.sync, intent);
+                engineA.tickSync();
+                engineB.tickSync();
+            }
 
             THEN("B applied pose matches Host LLA with ENU YPR plus B yaw offset")
             {
@@ -2862,7 +2843,7 @@ SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls o
 
         WHEN("Host publishes the rolled LLA intent and all channels tick (shared CIGI Detach+LLA eye)")
         {
-            h.tick(llaIntent);
+            h.tick(llaIntent, 3);
 
             THEN("B/C up axes stay parallel to Host up and forwards equal R_host*Rz(delta) in ECEF")
             {
@@ -3003,15 +2984,12 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
 
         WHEN("Host publishes that LLA eye and B follows over CIGI")
         {
-            const bool observed = retryUdpUntil(
-                [&] {
-                    hostSendEyeFrame(host, llaEye);
-                    engineA.tickSync();
-                    engineB.tickSync();
-                },
-                [&] { return engineB.cameraDriver().lastAppliedEye().has_value(); });
-            if (!observed)
-                SKIP("UDP datagram dropped");
+            for (int i = 0; i < 3; ++i)
+            {
+                hostSendEyeFrame(host, llaEye);
+                engineA.tickSync();
+                engineB.tickSync();
+            }
 
             THEN("B applied LLA converts to ECEF that disagrees with Host beyond meter-scale")
             {
@@ -3047,8 +3025,7 @@ SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
             badLat.x = 91.0;
             badLat.y = 10.0;
             badLat.z = 100.0;
-            if (!pumpOwnshipEyeFrames(host, ig, badLat))
-                SKIP("UDP datagram dropped");
+            pumpOwnshipEyeFrames(host, ig, badLat);
             const auto receivedAfterLat = ig.igCtrlReceivedCount();
             const bool eyeAfterLat = cap.got;
             const auto rejectedAfterLat = cigi_wire::eyePoseRejectedByRange();
@@ -3059,8 +3036,7 @@ SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
             badPitch.y = 116.4;
             badPitch.z = 500.0;
             badPitch.pitchDeg = 95.0;
-            if (!pumpOwnshipEyeFrames(host, ig, badPitch))
-                SKIP("UDP datagram dropped");
+            pumpOwnshipEyeFrames(host, ig, badPitch);
 
             THEN("IG received IGCtrl, no ownship eye, and the range counter advanced")
             {
@@ -3095,8 +3071,7 @@ SCENARIO("linked IG receives Host longitude wrapped into (-180,180]",
                 eye.x = 10.0;
                 eye.y = lonIn;
                 eye.z = 50.0;
-                if (!pumpOwnshipEyeFrames(host, ig, eye))
-                    SKIP("UDP datagram dropped");
+                pumpOwnshipEyeFrames(host, ig, eye);
                 REQUIRE(cap.got);
                 return cap.lon;
             };
@@ -3207,18 +3182,14 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
                 const std::uint32_t recvBefore = engineIg.synchronSystem().igSync().igCtrlReceivedCount();
                 const std::uint32_t sofBefore = viewhost->sofReceivedCount();
 
-                const bool observed = retryUdpUntil(
-                    [&] {
-                        hostSendFrame(*viewhost, 0);
-                        engineIg.tickSync();
-                        viewhost->drainIncoming();
-                    },
-                    [&] {
-                        return engineIg.synchronSystem().igSync().igCtrlReceivedCount() > recvBefore &&
-                               viewhost->sofReceivedCount() > sofBefore;
-                    });
-                if (!observed)
-                    SKIP("UDP datagram dropped");
+                constexpr int kTicks = 5;
+                for (int i = 0; i < kTicks; ++i)
+                {
+                    hostSendFrame(*viewhost, i * 16.667); // 无渲染节拍：业务侧扇出
+                    engineIg.tickSync();                  // IG 收包 + 回 SOF
+                }
+
+                viewhost->drainIncoming();
                 REQUIRE(viewhost->igCtrlSentCount() > sentBefore);
                 REQUIRE(engineIg.synchronSystem().igSync().igCtrlReceivedCount() > recvBefore);
                 REQUIRE(viewhost->sofReceivedCount() > sofBefore);
@@ -3291,18 +3262,14 @@ SCENARIO("host and IG both load standalone sync configs and exchange CIGI",
                 const std::uint32_t recvBefore = igSync->igSync().igCtrlReceivedCount();
                 const std::uint32_t sofBefore = hostSync->sofReceivedCount();
 
-                const bool observed = retryUdpUntil(
-                    [&] {
-                        hostSendFrame(*hostSync, 0);
-                        igSync->preFrame();
-                        hostSync->drainIncoming();
-                    },
-                    [&] {
-                        return igSync->igSync().igCtrlReceivedCount() > recvBefore &&
-                               hostSync->sofReceivedCount() > sofBefore;
-                    });
-                if (!observed)
-                    SKIP("UDP datagram dropped");
+                constexpr int kTicks = 5;
+                for (int i = 0; i < kTicks; ++i)
+                {
+                    hostSendFrame(*hostSync, i * 16.667); // 业务侧扇出 IGCtrl
+                    igSync->preFrame();                   // IG 收 IGCtrl + 回 SOF
+                }
+
+                hostSync->drainIncoming();
                 REQUIRE(hostSync->igCtrlSentCount() > sentBefore);
                 REQUIRE(igSync->igSync().igCtrlReceivedCount() > recvBefore);
                 REQUIRE(hostSync->sofReceivedCount() > sofBefore);
