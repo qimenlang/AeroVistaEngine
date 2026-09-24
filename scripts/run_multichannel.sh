@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # One-click multichannel launch (git-bash / MSYS2).
-#   - 1 Host  : aerovistaViewHost.exe  (MFC GUI, reads viewhost.json next to exe)
+#   - 1 Host  : aerovistaPlatform.exe  (MFC 模拟平台, reads platform.json next to exe)
 #   - 3 IG    : vsgEngine.exe with viewhost_ig_main/left/right.json
 # IG consoles are hidden via PowerShell; logs go to logs/ig_<name>.{out,err}.log
 #
@@ -19,13 +19,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ENGINE="$ROOT/out/build/clang-Ninja-Debug/engine/vsgEngine.exe"
-VHOST_DIR="$ROOT/out/build/vs2019/thirdparty/sync/examples/viewhost/Debug"
+PLATFORM_DIR="$ROOT/out/build/vs2019/thirdparty/sync/examples/platform/Debug"
 CFG_DIR="$ROOT/engine/resources/config"
 LOG_DIR="$ROOT/logs"
 PS1="$ROOT/scripts/launch_vsgengine.ps1"
 
 stop_all() {
-    taskkill //IM aerovistaViewHost.exe //F >/dev/null 2>&1 || true
+    taskkill //IM aerovistaPlatform.exe //F >/dev/null 2>&1 || true
     taskkill //IM vsgEngine.exe //F >/dev/null 2>&1 || true
     echo "Stopped all multichannel processes."
 }
@@ -36,7 +36,7 @@ if [[ "${1:-}" == "stop" ]]; then
 fi
 
 # --- Path checks (bash sees forward slashes; convert to Windows for ps1) ---
-for p in "$ENGINE" "$VHOST_DIR/aerovistaViewHost.exe"; do
+for p in "$ENGINE" "$PLATFORM_DIR/aerovistaPlatform.exe"; do
     if [[ ! -f "$p" ]]; then
         echo "[ERROR] not found: $p"
         echo "        Make sure the right build preset was used."
@@ -53,8 +53,8 @@ mkdir -p "$LOG_DIR"
 
 w() { cygpath -w "$1"; }
 
-echo "[Host] starting aerovistaViewHost (cwd=$VHOST_DIR, reads viewhost.json there)..."
-( cd "$VHOST_DIR" && ./aerovistaViewHost.exe & )
+echo "[Host] starting aerovistaPlatform (cwd=$PLATFORM_DIR, reads platform.json there)..."
+( cd "$PLATFORM_DIR" && ./aerovistaPlatform.exe & )
 
 for name in main left right; do
     cfg="$CFG_DIR/viewhost_ig_$name.json"

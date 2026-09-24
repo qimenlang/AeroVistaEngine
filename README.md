@@ -3,7 +3,7 @@ Aero Vista Rendering Engine Based on VSG
 
 ## 多通道联调（1 Host + 3 IG）一键启动
 
-项目含 1 个 Host 进程（`aerovistaViewHost.exe`，MFC GUI，读其 exe 目录下的 `viewhost.json`）与多个 IG 进程（`vsgEngine.exe`）。联调时需同时启动它们。
+项目含 1 个 Host 进程（`aerovistaPlatform.exe`，MFC 模拟平台，读其 exe 目录下的 `platform.json`）与多个 IG 进程（`vsgEngine.exe`）。联调时需同时启动它们。
 
 启动脚本位于 `scripts/`：
 
@@ -31,7 +31,7 @@ scripts/run_seam_grid.sh stop
 
 ### 启动内容与日志
 
-- 启动：`aerovistaViewHost.exe` + 3 个 `vsgEngine.exe`（配置 `viewhost_ig_main.json` / `viewhost_ig_left.json` / `viewhost_ig_right.json`）。
+- 启动：`aerovistaPlatform.exe` + 3 个 `vsgEngine.exe`（配置 `viewhost_ig_main.json` / `viewhost_ig_left.json` / `viewhost_ig_right.json`）。
 - 接缝网格：`run_seam_grid.sh` 同样 1 Host + 3 IG，配置换成 `scene_seam_grid_ig_{main,left,right}.json`，日志 `logs/ig_seam_grid_<name>.{out,err}.log`。
 - IG 的 console 被隐藏，stdout/stderr 重定向到 `logs/ig_<main|left|right>.{out,err}.log`（该目录已 gitignore）。
 - 调试 IG 日志：`tail -f logs/ig_main.err.log`（git-bash）。
@@ -42,5 +42,5 @@ scripts/run_seam_grid.sh stop
 
 ```bash
 ENGINE=.../out/build/clang-Ninja-Debug/engine/vsgEngine.exe     # 引擎（clang 构建）
-VHOST_DIR=.../out/build/vs2019/thirdparty/sync/examples/viewhost/Debug   # Host（MFC 仅 MSVC/vs2019 构建）
+PLATFORM_DIR=.../out/build/vs2019/thirdparty/sync/examples/platform/Debug   # 模拟平台（MFC 仅 MSVC/vs2019 构建）
 ```
