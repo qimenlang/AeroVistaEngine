@@ -5,7 +5,7 @@
     "requireConnectedIg": false
   },
   "igConfig": {
-    "udpPortRecv": 8005,
+    "udpPortRecv": 9002,
     "targetAddr": "127.0.0.1",
     "targetTcpPort": 8100,
     "targetUdpPortRecv": 8000

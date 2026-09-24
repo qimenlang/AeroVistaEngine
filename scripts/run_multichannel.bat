@@ -8,8 +8,10 @@ REM (all exe paths, IG list, log layout live there). This .bat
 REM only forwards to it, so the two never drift apart.
 REM
 REM Usage:
-REM   scripts\run_multichannel.bat            start
-REM   scripts\run_multichannel.bat stop       stop all
+REM   scripts\run_multichannel.bat -m 1     IG 直连 platform
+REM   scripts\run_multichannel.bat -m 2     IG 直连 viewhost
+REM   scripts\run_multichannel.bat -m 3     platform + viewhost 中继 + IG
+REM   scripts\run_multichannel.bat stop     stop all
 REM ============================================================
 setlocal
 

@@ -1,15 +1,15 @@
-﻿{
+{
   "syncSystem": {
     "channelId": 0,
     "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
-    "requireConnectedIg": true
+    "requireConnectedIg": false
   },
   "igConfig": {
     "udpPortRecv": 9000,
     "targetAddr": "127.0.0.1",
-    "targetTcpPort": 8100,
-    "targetUdpPortRecv": 8000
+    "targetTcpPort": 7100,
+    "targetUdpPortRecv": 7000
   },
   "window": { "x": 640, "y": 0, "width": 640, "height": 1080 },
-  "entitiesFilePath": "config/entities_scene_ecef_lz.json"
+  "entitiesFilePath": "config/entities.json"
 }
