@@ -1,4 +1,4 @@
-﻿# CIGI 报文梳理（CIGI 4.0）
+# CIGI 报文梳理（CIGI 4.0）
 
 CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host（仿真主机）与 IG（图像生成器）之间的标准报文协议。本项目 SDK 位于 `thirdparty/cigi`，工程使用 **CIGI 4.0**（V4）。本文档只收录 **V4 支持的报文**，报文名用 V4 报文类名。
 
@@ -8,12 +8,13 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 - **IG → Host**：帧起始、响应、通知类报文；
 - **Host ↔ IG**：双向通用报文。
 
-链路与频率约定（判据写死，2026-08；与 [状态同步设计.md](../design/多通道同步/状态同步设计.md) §8.1 注册总纲一致）：
+链路与频率约定（判据写死，2026-09；与 ICD 交互语义对齐，SISO-STD-013-2014；与 [状态同步设计.md](../design/多通道同步/状态同步设计.md) §8.1 注册总纲一致）：
 
-- **链路按发送频率选择**：**持续 / 每帧下发走 UDP**（丢包自愈、周期覆盖）；**一次性 / 配置 / 请求走 TCP**（传输层可靠送达，无业务回执）。
+- **Host→IG**：持续 / 每帧下发走 **UDP**（丢包自愈、周期覆盖）；一次性 / 配置 / 请求走 **TCP**（传输层可靠送达，无业务回执）。
+- **IG→Host 响应**：一次性 Resp（含 `Req` 的 Update Period=0）与离散事件通知走 **TCP**；**非一次性**（ICD 每帧检测后可持续上报、Update Period>0 的周期 Resp）走 **UDP**。`SOF` 仍每帧 UDP。
 - **方向决定注册端点**：Host→IG 报文在 `IgSync` 注册收包 processor，IG→Host 报文在 `HostSync` 注册。
 
-**Platform**：正式各 IG 直连平台 `HostSync`。真模拟器调试经 viewhost **透传**完整 CIGI 消息（TCP 两向切齐入队，UI 线程整条 `sendAll`：下行 `IGCtrl` / 回程 TCP `SOF`；数据面 UDP IGCtrl `sendto` 后 `packSof` 回平台，真实 IG 的 UDP SOF 不转；可附加独立 TCP 调试包），方向表仍是 Host↔IG，中间不改 IGCtrl 头。多通道时 Host→IG 的 `Req` 可扇出全体，仅 `channelId==0` 回 `Resp`。契约见 [平台同步设计.md](../design/平台同步设计.md)。
+**Platform**：正式各 IG 直连平台 `HostSync`。真模拟器调试经 viewhost **透传**完整 CIGI 消息（TCP 两向切齐入队，UI 线程整条 `sendAll`：下行 `IGCtrl` / 回程 TCP `SOF`；数据面 UDP IGCtrl 取出后 `packSof` 回平台；**真实 IG 的 UDP 一律不转平台**，见 [平台同步设计.md](../design/平台同步设计.md) §11.1 序 7；可附加独立 TCP 调试包），方向表仍是 Host↔IG，中间不改 IGCtrl 头。多通道时 Host→IG 的 `Req` 可扇出全体，仅 `channelId==0` 回 `Resp` / Notification。
 
 > 语义说明：CIGI 报文名后缀 `Ctrl` 为控制、`Def` 为定义（一次配置）、`Req` 为请求、`Resp` 为响应、`XResp` 为扩展响应、`SOF` 为帧起始。分组按功能归类，**不含具体字段内容**。
 
@@ -21,7 +22,7 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 
 ## 掉线感知与恢复（CIGI 语义）
 
-> CIGI 是数据打包协议、**不绑定传输协议**，标准行文默认假设 UDP（SISO-STD-013 §4）——链路矩阵「一次性/配置走 TCP」为本项目自选判据，非标准要求。
+> CIGI 是数据打包协议、**不绑定传输协议**，标准行文默认假设 UDP（SISO-STD-013 §4）——链路矩阵「一次性/配置走 TCP、非一次性响应走 UDP」为本项目自选判据，非标准要求。判据按 ICD **交互次数**：Def 一次配置、Req 一次查询 → TCP；每帧检测后可持续 Notification、Update Period>0 的周期 Resp → UDP。
 
 **掉线感知 = SOF 帧流心跳（CIGI 无「连接/断开」概念，无显式 disconnect 报文）**：ICD §4.2 是 Host↔IG **报文节拍**（异步 / 同步），不是 Present 帧同步。知识见 [状态同步总结.md](./状态同步总结.md)；本项目节拍设计见 [状态同步设计.md](../design/多通道同步/状态同步设计.md) §3.1。数据面**缺省** Host FreeRun（**§4.2.1**）；可选 SofGated（§4.2.2）初始化选定、不运行时热切。现行每条 IGCtrl 回一条 `SOF`；UDP 同号连发落地后按 Host Frame Number 去重回 SOF（[帧同步设计.md](../design/多通道同步/帧同步设计.md) §3.5）。FreeRun 下不门控 Host，SofGated 只认 master。帧号互回显兼作存活与丢包检测（§4.3）。掉线由 SOF 流中断推断：Host 按对端维护 last-seen，超时未收 SOF 即判掉线。Timestamp 消费见 [时钟同步方案.md](../design/多通道同步/时钟同步方案.md)。Present 帧同步见 [帧同步总结.md](./帧同步总结.md) / [帧同步设计.md](../design/多通道同步/帧同步设计.md)。开发前 SOF RTT / drain 基线见 [多通道同步验收测量设计.md](../design/多通道同步/多通道同步验收测量设计.md)。
 
@@ -102,23 +103,25 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 | 报文 | 方向 | 链路 | 频率 | 功能语义 |
 | --- | --- | --- | --- | --- |
 | `CigiCollDetSegDefV4` | Host → IG | TCP | 一次性 | 定义碰撞检测线段（起终点+命中条件） |
-| `CigiCollDetSegRespV4` | IG → Host | TCP | 一次性响应 | 线段碰撞检测结果回报 |
+| `CigiCollDetSegRespV4` | IG → Host | UDP | 命中则发（可持续） | ICD 名 Collision Detection Segment **Notification**（`0x0ff4`）：线段碰撞通知 |
 | `CigiCollDetVolDefV4` | Host → IG | TCP | 一次性 | 定义碰撞检测体积（包围盒/球+命中条件） |
-| `CigiCollDetVolRespV4` | IG → Host | TCP | 一次性响应 | 体积碰撞检测结果回报 |
+| `CigiCollDetVolRespV4` | IG → Host | UDP | 命中则发（可持续） | ICD 名 Collision Detection Volume **Notification**（`0x0ff3`）：体积碰撞通知 |
 
-> **Def/Resp 交互语义（2026-08）**：碰撞检测不是「请求一次、应答一次」的 query/response 模式。Host 用 `Def` 报文定义一条（或一个体积）持续有效的检测对象（线段版含 `SegmentEn` 启停开关、起终点、材质掩码 `Mask`；体积版含 `VolEn` 启停开关、尺寸、材质掩码），IG 持续对该对象做检测，一旦命中且材质匹配，就主动用 `Resp` 报文把结果回报给 Host。`Resp` 是事件驱动的：可反复上报（持续命中），也可一直不发（未命中）。若需要「查一次、答一次」的即时查询语义，应使用第 6 节的视线类 `LosSegReq`/`LosResp`。
+> **Def / Notification 交互语义（写死，对齐 ICD §6.1.22–23 / §6.2.13–14）**：碰撞**不是**「请求一次、应答一次」的 query/response。Host 用 `Def` **一次配置**持续有效的检测对象（线段：`SegmentEn`、起终点、材质掩码 `Mask`；体积：`VolEn`、尺寸、材质掩码）。IG **每帧**对该对象做检测；命中且材质匹配则发 Notification（CCL 类名仍为 `*RespV4`）。可连续多帧都发，也可一直不发（未命中）。本项目：`Def` 走 TCP；Notification 非一次性 → **UDP**。HAT/HOT/LOS 的一次性查询见第 6 节（Update Period=0）。
 
 ## 6. 视线 / 寻的 Request–Response 类
 
 | 报文 | 方向 | 链路 | 频率 | 功能语义 |
 | --- | --- | --- | --- | --- |
-| `CigiLosSegReqV4` | Host → IG | TCP | 一次性请求 | 视线线段请求：对一条线段做遮挡/命中查询 |
-| `CigiLosRespV4` | IG → Host | TCP | 一次性响应 | 视线响应：命中/遮挡结果回报 |
-| `CigiLosVectReqV4` | Host → IG | TCP | 一次性请求 | 视线矢量请求：对若干方向矢量做命中查询 |
-| `CigiLosXRespV4` | IG → Host | TCP | 一次性响应 | 视线扩展响应：携带完整命中信息 |
-| `CigiHatHotReqV4` | Host → IG | TCP | 一次性请求 | 方位/俯仰合一请求 |
-| `CigiHatHotRespV4` | IG → Host | TCP | 一次性响应 | 方位/俯仰响应 |
-| `CigiHatHotXRespV4` | IG → Host | TCP | 一次性响应 | 方位/俯仰扩展响应 |
+| `CigiLosSegReqV4` | Host → IG | TCP | 一次性请求 | 视线线段请求：对一条线段做遮挡/命中查询（可带 Update Period） |
+| `CigiLosRespV4` | IG → Host | TCP（Period=0）/ UDP（Period>0） | 一次性或每 n 帧 | 视线响应：命中/遮挡结果回报 |
+| `CigiLosVectReqV4` | Host → IG | TCP | 一次性请求 | 视线矢量请求：对若干方向矢量做命中查询（可带 Update Period） |
+| `CigiLosXRespV4` | IG → Host | TCP（Period=0）/ UDP（Period>0） | 一次性或每 n 帧 | 视线扩展响应：携带完整命中信息 |
+| `CigiHatHotReqV4` | Host → IG | TCP | 一次性请求 | 方位/俯仰合一请求（可带 Update Period） |
+| `CigiHatHotRespV4` | IG → Host | TCP（Period=0）/ UDP（Period>0） | 一次性或每 n 帧 | 方位/俯仰响应 |
+| `CigiHatHotXRespV4` | IG → Host | TCP（Period=0）/ UDP（Period>0） | 一次性或每 n 帧 | 方位/俯仰扩展响应 |
+
+> **Update Period（ICD §6.1.24 HAT/HOT，LOS 同类）**：`Req` 仍一次下发、走 TCP。`Update Period=0` → 一次性，IG 回一条 Resp，走 **TCP**；`=n>0` → 每 n 帧回一条，直到实体销毁或 Period 改回 0，走 **UDP**。环境条件查询（第 4 节）无 Period，一次 `EnvCondReq` 可对应多类 Resp 包，仍算一次性、全走 TCP。
 
 ## 7. 位置查询类（Request–Response）
 
@@ -167,10 +170,10 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 **收包侧已全支持（纯订阅，2026-08）**：按上表「链路」列，Host→IG 报文在 `IgSync` 的对应 session 注册通用捕获 processor，IG→Host 报文在 `HostSync` 的对应 session 注册；业务/测试经 `igSync().addCallback<PacketT>(cb)` / `hostSync().addCallback<PacketT>(cb)` 订阅投递（捕获时同步回调，值拷贝）。原拉取接口（`takeReceived`）已删。具体报文列表见 [状态同步设计.md](../design/多通道同步/状态同步设计.md) §8.1 注册总纲与 `EventProcess.h` 的 `PacketCaptureProc`。
 
-| 方向端点 | UDP session（持续/每帧） | TCP session（一次性/配置/请求/响应） |
+| 方向端点 | UDP session（持续/每帧/非一次性上报） | TCP session（一次性/配置/请求/一次性响应） |
 | --- | --- | --- |
 | `IgSync`（IG 收 Host→IG） | IGCtrl、EntityPositionCtrl、ConfClampEntityCtrl、VelocityCtrl、AccelerationCtrl、ViewCtrl | EntityCtrl、ArtPart/Short、Comp/Short、AnimationCtrl、ViewDef、SensorCtrl、MotionTrackCtrl、AtmosCtrl、CelestialCtrl、EnvRgnCtrl、WeatherCtrl、Maritime/Terrestrial Surface Ctrl、WaveCtrl、EarthModelDef、CollDetSeg/VolDef、HatHotReq、LosSeg/VectReq、PositionReq、EnvCondReq、Symbol 全族（Ctrl/Short/Def/Clone） |
-| `HostSync`（Host 收 IG→Host） | SOF | IGMsg、EventNotification、AnimationStop、HatHotResp/X、LosResp/X、SensorResp/X、PositionResp、WeatherCondResp、AerosolResp、Maritime/Terrestrial Surface Resp、CollDetSeg/VolResp |
+| `HostSync`（Host 收 IG→Host） | SOF、CollDetSeg/VolResp；HatHotResp/X 与 LosResp/X 在 Update Period>0 时 | IGMsg、EventNotification、AnimationStop、SensorResp/X、PositionResp、WeatherCondResp、AerosolResp、Maritime/Terrestrial Surface Resp；HatHotResp/X 与 LosResp/X 在 Update Period=0 时 |
 
 ## 本项目实际使用情况
 
@@ -180,7 +183,7 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 | `CigiEntityPositionCtrlV4` | UDP（数据面眼点）/ TCP（命令面摆放） | 每帧 / 一次性 | 数据面 ownship 眼点（EntityID=0）；命令面实体摆放（EntityID≠0，`place` 命令，§4.1 过滤） |
 | `CigiIGMsgV4` | TCP | 一次性 | **扩展复用**：IG→Host HELLO（`MsgID=1`，端口 + `channelId`） |
 | `CigiSymbolTextDefV4` | TCP | 一次性 | **扩展复用**：作为通用文本命令载体（见 `doc/design/多通道同步/状态同步设计.md` §4.1） |
-| `CigiCollDetVolDefV4` / `CigiCollDetVolRespV4` | TCP | 一次性 / 一次性响应 | 碰撞检测体积定义（Host→IG）与响应（IG→Host），基础设施 processor 已支持 |
+| `CigiCollDetVolDefV4` / `CigiCollDetVolRespV4` | TCP（Def）/ UDP（Notification） | 一次性 / 命中则发 | 体积定义走 TCP；Notification 非一次性走 UDP。契约已改；现网测试与基础设施仍走 TCP，待实施 |
 | `CigiSOFV4` | UDP | 每帧 | IG 数据面每帧回显帧号（IG TCP 上报消息头也是 SOF，Host 双 session 注册） |
 
 ## 眼点 vs 实体位姿：为何用 EntityPositionCtrl 而非 ViewCtrl（决策，2026-08）

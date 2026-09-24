@@ -1,4 +1,4 @@
-﻿# sync 模块化设计（设计基线）
+# sync 模块化设计（设计基线）
 
 面向「将 sync 多通道同步模块做成一个库，单独编译，供本项目 vsgEngine 及其他项目使用」的设计基线。
 基础行为与协议见 [多通道同步模块设计.md](./多通道同步模块设计.md)；坐标/位姿语义见 [lla位姿传输设计.md](./lla位姿传输设计.md)。
@@ -105,7 +105,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ### 3.3 命令面桥
 
-命令面为**业务订阅 + 帧头化发送**（状态同步设计.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 上行 / F10 发 SOF（IG→Host，与 viewhost testtcp/testudp 下行对称）。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
+命令面为**业务订阅 + 帧头化发送**（状态同步设计.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 一次性上行 / F10 发 UDP（契约 SOF + 碰撞 Notification；现网 F10 仍仅 SOF）。与 viewhost testtcp/testudp 下行对称。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
 
 ### 3.4 Host 任务状态（`HostDataManager`）
 
