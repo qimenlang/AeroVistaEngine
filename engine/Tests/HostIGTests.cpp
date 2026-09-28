@@ -19,6 +19,8 @@
 #include "CigiSOFV4.h"
 #include "CigiSymbolTextDefV4.h"
 
+#include "CigiCollDetSegDefV4.h"
+#include "CigiCollDetSegRespV4.h"
 #include "CigiIGMsgV4.h"
 #include "CigiWeatherCtrlV4.h"
 
@@ -27,6 +29,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -82,6 +85,50 @@ namespace
             viewhost.pollRelay();
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
+    }
+
+    void sendCollDetSegDef(HostSync& host)
+    {
+        auto& tcp = host.outMsgWithIgCtrlTcp();
+        CigiCollDetSegDefV4 def;
+        def.SetEntityID(7);
+        def.SetSegmentEn(true);
+        tcp << def;
+        host.flushTcp();
+    }
+
+    void sendCollDetSegRespUdp(IgSync& ig, std::uint32_t material)
+    {
+        auto& udp = ig.outMsgWithSofUdp();
+        CigiCollDetSegRespV4 resp;
+        resp.SetEntityID(7);
+        resp.SetMaterial(material);
+        udp << resp;
+        ig.flushUdp();
+    }
+
+    bool hasMaterial(const std::vector<std::uint32_t>& got, std::uint32_t want)
+    {
+        for (auto material : got)
+        {
+            if (material == want)
+                return true;
+        }
+        return false;
+    }
+
+    bool materialsInOrder(const std::vector<std::uint32_t>& got, std::initializer_list<std::uint32_t> want)
+    {
+        std::size_t i = 0;
+        for (auto material : want)
+        {
+            while (i < got.size() && got[i] != material)
+                ++i;
+            if (i == got.size())
+                return false;
+            ++i;
+        }
+        return true;
     }
 
     bool waitVirtualIgLinked(HostDriver& viewhost, HostSync& platform)
@@ -1130,6 +1177,105 @@ SCENARIO("HostDriver relay forwards an IG TCP report to the platform",
             {
                 REQUIRE(platformMsgId == 0x3001);
                 REQUIRE(platformMsg == "up");
+            }
+        }
+    }
+}
+
+SCENARIO("platform receives repeating collision-segment notifications through the relay",
+         "[acceptance][bdd][platform][PLT-return-collision]")
+{
+    GIVEN("a platform Host, a viewhost relay, and one ready master IG")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync master;
+        REQUIRE(startHostDriverRelay(platform, viewhost, master, 50400, 50600));
+
+        std::optional<CigiCollDetSegDefV4> igDef;
+        std::vector<std::uint32_t> platformMaterials;
+        std::optional<std::uint32_t> lastSofFrame;
+        std::optional<std::uint32_t> sofAtHit;
+        master.addCallback<CigiCollDetSegDefV4>([&](const CigiCollDetSegDefV4& def) { igDef = def; });
+        platform.addCallback<CigiSOFV4>([&](const CigiSOFV4& sof) { lastSofFrame = sof.GetFrameCntr(); });
+        platform.addCallback<CigiCollDetSegRespV4>([&](const CigiCollDetSegRespV4& resp) {
+            sofAtHit = lastSofFrame;
+            platformMaterials.push_back(resp.GetMaterial());
+        });
+
+        WHEN("the platform defines a segment and the master reports three UDP hits")
+        {
+            sendCollDetSegDef(platform);
+            tickRelay(viewhost);
+            drainIgUntil(master, [&] { return igDef.has_value(); });
+            REQUIRE(igDef.has_value());
+
+            // 虚 IG 先 packSof 非 0 帧号；不 drain master，真实 SOF 仍为 0。
+            REQUIRE(retryUdpUntil(
+                [&] {
+                    hostSendFrame(platform, 0);
+                    tickRelay(viewhost, 5);
+                },
+                [&] {
+                    platform.drainIncoming();
+                    return lastSofFrame.has_value() && *lastSofFrame != 0;
+                }));
+
+            REQUIRE(retryUdpUntil(
+                [&] {
+                    sendCollDetSegRespUdp(master, 1);
+                    sendCollDetSegRespUdp(master, 2);
+                    sendCollDetSegRespUdp(master, 3);
+                    tickRelay(viewhost, 5);
+                },
+                [&] {
+                    platform.drainIncoming();
+                    return platformMaterials.size() >= 3;
+                }));
+
+            THEN("the platform receives the hits in order on SOF'")
+            {
+                REQUIRE(materialsInOrder(platformMaterials, {1u, 2u, 3u}));
+                REQUIRE(sofAtHit.has_value());
+                REQUIRE(*sofAtHit != 0);
+                REQUIRE(master.lastIgCtrlFrameCntr() == 0);
+            }
+        }
+    }
+}
+
+SCENARIO("relay keeps a side-channel collision notification off the platform",
+         "[acceptance][bdd][platform][PLT-return-collision]")
+{
+    GIVEN("a platform Host, a viewhost relay, and two ready real IGs on channel 0 and 1")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync master;
+        IgSync side;
+        REQUIRE(startHostDriverRelayTwoIgs(platform, viewhost, master, side, 50800, 51000));
+
+        std::vector<std::uint32_t> platformMaterials;
+        platform.addCallback<CigiCollDetSegRespV4>(
+            [&](const CigiCollDetSegRespV4& resp) { platformMaterials.push_back(resp.GetMaterial()); });
+
+        WHEN("the master and the side IG both send UDP collision notifications")
+        {
+            REQUIRE(retryUdpUntil(
+                [&] {
+                    sendCollDetSegRespUdp(master, 11);
+                    sendCollDetSegRespUdp(side, 22);
+                    tickRelay(viewhost, 5);
+                },
+                [&] {
+                    platform.drainIncoming();
+                    return hasMaterial(platformMaterials, 11);
+                }));
+
+            THEN("the platform receives only the master notification")
+            {
+                REQUIRE(hasMaterial(platformMaterials, 11));
+                REQUIRE_FALSE(hasMaterial(platformMaterials, 22));
             }
         }
     }
