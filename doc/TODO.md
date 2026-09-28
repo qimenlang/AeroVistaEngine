@@ -65,8 +65,23 @@
 
 viewhost做中继的缺点
 
-1. 增加一次 rtt 延迟
-2. 违反cigi  host-ig pair的架构，需要在viewhost增加中继逻辑胶水
-3. 权威数据：
-   - 平台、viewhost需要都使用同一份权威数据配置文件（比如实体列表）；
-   - 两个host改统一数据为不同值，造成权威数据分叉；
+权威：[平台同步设计.md](./design/平台同步设计.md) §2 / §6 / §7 / §11.1；[viewhost设计.md](./design/viewhost设计.md)。
+
+1. 增加一跳 RTT。正式运行因此不经 viewhost，IG 直连平台。
+2. 打破 CIGI 的 Host–IG 成对关系：IG 眼里的 Host 是 viewhost，平台眼里的 IG 是虚 IG。viewhost 必须加胶水（切齐入队、`pollRelay` 原样转发、数据面 UDP 取出后 `packSof`），不能当两段独立 Session。
+3. 权威数据
+   - 平台与 viewhost 要用同一份配置初值（如 `entities.json`）。
+   - 两边都能改同一类数据（天气等）时 last-write-wins，平台权威表与 IG 实况会分叉；中继不把附加写进 `HostDataManager`、也不回写平台（§7 待完善）。
+4. 平台看见的世界被压扁
+   - 只见一台 peer（虚 IG），看不见 N 台真实 IG。
+   - 真实 IG 的纯 SOF 不转平台（viewhost RTT）；master UDP 若 SOF 后有业务包，剥真实 SOF，虚 IG 当场组 `SOF'` 发平台（[平台同步设计.md](./design/平台同步设计.md) §6.3 / 序 7 **已完成**）。平台回显 SOF 仍来自取出 IGCtrl 后的 `packSof`。
+   - 回程 TCP 只转 master（`channelId==0`）；侧通道只 UDP SOF 保活、TCP 不入队；真实 IG 的 HELLO 不转平台。
+   - 真实 IG 掉线后虚 IG 仍连平台，平台 `readyIgCount` 仍为 1；SofGated 等的是虚 IG SOF。
+5. 中继模式下 viewhost 不能当本地 Host 用
+   - 禁止 `HostDriver::update` 扇出眼点（否则两路数据面 IGCtrl）；键盘眼点在**转发开着**时无操作。关掉运行期转发且缓存有效后，把当前眼点写成该缓存，再 `update` 自己组 IGCtrl（[平台同步设计.md](./design/平台同步设计.md) §6.1 / 序 8）。
+   - 报文自检只对真实 IG：不解析、不显示平台下行，也不把自检包发给平台。
+   - 转发绑 UI 定时器，不是 I/O 读循环立刻转。运行期停转发开关已在 `HostDriver::setRelayForwarding`（序 8）。
+6. 仍待落地、会放大上面缺口
+   - 起齐门闩无超时、无强行开始。
+
+仅 master 回业务报文是 IG 侧开发建议，**不是**中继/sync 待办（[平台同步设计.md](./design/平台同步设计.md) §6.2；序 5 不开发）。

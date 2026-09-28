@@ -31,12 +31,12 @@
 1. 提供一个独立的 Windows MFC 宿主程序 `viewhost`，作为多通道同步的 **Host 端数据源**，向携带 IG 的 Engine 进程扇出同一 Host 眼点。
 2. 复用 `aerovistaSync`。`HostDriver` = `HostSync` + `HostDataManager`（权威数据）+ 可选虚 `IgSync`，viewhost 直接使用，含中继；不重写网络 / 协议 / 线程模型。读配置 → 启动传输 → 按帧扇出眼点 → UI 只调 Driver 意图 API（§4.0）。
 3. 落地 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §1.1 的「HostSync 独立进程」远期项（**已落地 2026-08**：Engine 不再承担 Host，`HostPosePublisher` 删除，HostSync 独立运行于本进程；与 viewhost 配套的 IG 配置为 `viewhost_ig_*.json` / `scene_ecef_ig_*.json`）。
-4. 本地调试时作为对着 IG 的 CIGI Host / 调试器；真模拟器调试时作透传中继并可附加调试包。正式运行 IG 直连平台 `HostSync`，不经本进程。见 [平台同步设计.md](./平台同步设计.md)（中继 **部分实现**）。
+4. 本地调试时作为对着 IG 的 CIGI Host / 调试器；真模拟器调试时作透传中继并可附加调试包。正式运行 IG 直连平台 `HostSync`（本仓库 `aerovistaPlatform`，[平台同步设计.md](./平台同步设计.md) §11.1 序 6 **已完成**），不经本进程。中继透传与运行期停转发开关 **已落地**（序 1–4、7、8；[平台同步设计.md](./平台同步设计.md) §6.1 / §11）。
 
 ### 1.2 非目标
 
 - 不实现真实 IG 侧渲染 / 决策（那是 `Engine` + `SynchronSystem` 的职责）。
-- 不改动 viewhost ↔ IG 的握手与双平面；`flushTcp`/`flushUdp` 调用方发送（中继：切齐字节在 UI 线程原样 `sendAll`/`sendto`；下行 `IGCtrl` / 回程 Host TCP 队列只入 master；数据面 UDP IGCtrl 取出后 `packSof`），见 [平台同步设计.md](./平台同步设计.md) §6.1–§6.3 / §8 与 [状态同步设计.md](./多通道同步/状态同步设计.md) §7.2。
+- 不改动 viewhost ↔ IG 的握手与双平面；`flushTcp`/`flushUdp` 调用方发送（中继：切齐字节在 UI 线程原样 `sendAll`/`sendto`；下行 `IGCtrl` / 回程 Host TCP 队列只入 master；数据面 UDP IGCtrl 取出后 `packSof`；master UDP 业务包经 `SOF'` 转平台），见 [平台同步设计.md](./平台同步设计.md) §6.1–§6.3 / §8 与 [状态同步设计.md](./多通道同步/状态同步设计.md) §7.2。
 - 正式运行不把本进程夹在平台与 IG 之间；不与平台合并进程。
 - 不做边缘融合、精标定、精时钟（RTT / PTP）。
 - 不做 **加载 / 切库 / 复位类** TCP 命令 UI（实体摆放/文本指令命令面已落地，见 §4.5；加载/切库/复位属后续，见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §9）。
@@ -118,9 +118,9 @@ Host 进程内对象；**权威表不进 `HostSync`，MFC 不组包、不直接�
 
 | 类型 | 命名空间 | 职责 |
 | --- | --- | --- |
-| `HostSync` | `aerovista::sync` | 传输：握手、收包。`flushTcp` 调用方 `sendAll`；`flushUdp` 调用方 `sendto`。中继：切齐 TCP/UDP 在 UI 线程原样转发（下行 `IGCtrl` / 回程 Host TCP 队列只入 master；数据面 UDP IGCtrl 取出后 `packSof`；[平台同步设计.md](./平台同步设计.md) §6.1–§6.3）。不持任务状态 |
+| `HostSync` | `aerovista::sync` | 传输：握手、收包。`flushTcp` 调用方 `sendAll`；`flushUdp` 调用方 `sendto`。中继：切齐 TCP/UDP 在 UI 线程原样转发（下行 `IGCtrl` / 回程 Host TCP 队列只入 master；数据面 UDP IGCtrl 取出后 `packSof`；master UDP `takeMasterUdpRelayBodies`；[平台同步设计.md](./平台同步设计.md) §6.1–§6.3）。不持任务状态 |
 | `HostDataManager` | `aerovista::sync` | Host 侧**全部**权威表门面（首版仅实体族，内部分表；环境/视景等见 [多通道同步模块设计.md](./多通道同步/多通道同步模块设计.md) §9 P2）。JSON 只提供初值、`snapshot()` 给 UI、按当前行填 CIGI。**不持 socket、不 `flush`** |
-| `HostDriver` | `aerovista::sync` | `HostSync` + 权威数据（`HostDataManager`）+ 可选虚 `IgSync`；viewhost 直接使用。先写表 → 组包 → `flushTcp`/`flushUdp`。中继：`pollRelay` 起齐后门闩；UI 定时器取出虚 IG 切齐字节 `sendAll`/`sendto`，取出数据面 UDP IGCtrl 后 `packSof` 回平台（无 peer 仍回）；**不**跑数据面 `update`，不以 `drainIncoming` 当平台报文的唯一消费者。报文自检 / 命令行也在本类（`sendRandom*` / `sendSymbolText`），不把调试包接到平台消息上 |
+| `HostDriver` | `aerovista::sync` | `HostSync` + 权威数据（`HostDataManager`）+ 可选虚 `IgSync`；viewhost 直接使用。先写表 → 组包 → `flushTcp`/`flushUdp`。中继：`pollRelay` 起齐后门闩；转发开着时 UI 定时器取出虚 IG 切齐字节 `sendAll`/`sendto`，取出数据面 UDP IGCtrl 后 `packSof` 回平台（无 peer 仍回）；关转发时 `dropQueuedRelay` take 不 send。master UDP 业务包 `takeMasterUdpRelayBodies` → `sendUdpAfterSof`；转发开着时 **不**跑数据面 `update`，不以 `drainIncoming` 当平台报文的唯一消费者。报文自检 / 命令行也在本类（`sendRandom*` / `sendSymbolText`），不把调试包接到平台消息上 |
 
 ```text
 ViewHostView  只报意图 / 按 snapshot 刷新树与仪表盘；停靠条只展示 / 转发 UI 事件
@@ -134,7 +134,7 @@ ViewHostView  只报意图 / 按 snapshot 刷新树与仪表盘；停靠条只�
 1. UI 事件只调 `HostDriver`，不 `#include` CCL、不直接碰 `HostSync` / `HostDataManager`。
 2. 发出去的字段永远来自表（先 `setXxx` 再组包），不以编辑框原文组包。
 3. 后加入 IG ready 重放走同一 Driver 路径，不经按钮。
-4. ownship 眼点仍走 `HostDriver::update`（§4.1），不进 `HostDataManager`。中继时 `update` 无操作。
+4. ownship 眼点仍走 `HostDriver::update`（§4.1），不进 `HostDataManager`。中继**转发开着**时 `update` 无操作，并缓存最后一拍成功转出的平台 ownship。**关转发**须该缓存有效，否则关失败、继续转发。关成功后把 `_eye` 写成该缓存，之后 `update` 原样发送 `_eye`。再开转发则再次禁止 `update`，IG 眼点允许跳回平台。`update` / `pollRelay` 各自入口读开关（[平台同步设计.md](./平台同步设计.md) §6.1）。
 5. 报文自检（§4.7）经 `HostDriver` 直发随机包，**不写入**权威表。
 6. Dlg **不**把控件双向绑到表字段。属性面板初值来自 `snapshot()`；编辑框是草稿；**Apply**（意图 API）才写表。一次性 TCP 仍是「填参 → Apply」（§4.8）。
 7. 命令行（§4.9）经 `HostDriver::sendSymbolText` 直发 `CigiSymbolTextDefV4.Text`，**不写入**权威表。
@@ -149,7 +149,7 @@ ViewHostView  只报意图 / 按 snapshot 刷新树与仪表盘；停靠条只�
 1. loadHostConfig(viewhost.json, …)      // 本地调试只含 hostConfig；中继另含 relay / igConfig（平台同步设计.md §9）
 2. HostSync::initialize(host)                        // bind UDP + TCP listen，起 accept/UDP 线程
 3. HostSync::run()                                   // 置 RUNNING（一次，非每帧）
-4. 定时器按目标 fps 调 `HostDriver::update(&eye)`  // 本地：每帧眼点；中继：`update` 无操作
+4. 定时器按目标 fps 调 `HostDriver::update(&eye)`  // 本地：每帧眼点；中继转发开着时 `update` 无操作
    同拍 `pollRelay` 后 `pollIncoming`              // 中继先 take 转发再 drain（UDP SOF）；起齐后虚 IG 连平台
 5. HostSync::shutdown()                              // 退出时收尾
 ```
@@ -259,6 +259,7 @@ void ViewHostView::onTick()
 
 - `_eye` 构造后**立即初始化**为：初始演示眼点（lat/lon/alt，位于模型群附近），`yaw = 0`、`pitch = roll = 0`。同步只 LLA（2026-09 收敛），`EyePose` 无 frame 字段。
 - 进入手动模式：从「当前 `_eye`」起始累积，保证切入手动瞬间眼点不跳变。
+- 中继关转发、viewhost 接管眼点：缓存无数则不允许关。关成功后把 `_eye` 写成关前最后一拍已转出的平台 ownship，再 `update`；之后键盘从这份 `_eye` 累加。Driver 不单独替换第一拍发包（[平台同步设计.md](./平台同步设计.md) §6.1）。
 
 **键盘切换控制（已取消空格热键）**：眼点开关改由场景树单击 `eyePoint` / 其它位置承担（见上）。`PreTranslateMessage` 仅在 `_controlling` 时吞掉相机键，不再用空格切换。关进程走标题栏关闭，主表单不再放退出按钮，也无「文件」菜单。
 
@@ -303,6 +304,7 @@ IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`�
 | --- | --- |
 | ready IG 数 / IGCtrl 发送 / SOF 接收 | 同一行：`readyIgCount()` / `igCtrlSentCount()` / `sofReceivedCount()`（SOF 须先 `pollIncoming`） |
 | 当前眼点（lat/lon/alt, yaw/pitch/roll） | 同一行：键盘累积 `_eye` |
+| 中继转发 | 眼点组下方复选框。勾选 = 转发开。取消须缓存有效，否则勾选弹回并提示；成功则把 `relayEye()` 写入 `_eye`。`relay.enable=false` 时控件禁用 |
 | 最近测试 / 最近接收报文 | 报文自检 Pane：`testtcp` / `testudp` 与上行订阅回调（§4.7） |
 | IG 连接列表 | 底部 `CDockablePane`，数据 `igSnapshot()`：每行 Host `clientId`（`id`，不是 IG `channelId`）、HELLO 学到的 `channelId`（[平台同步设计.md](./平台同步设计.md) §6.3）、连接层状态 `ready` / `tcp` / `udp` / `connecting`、`avgRtt`（最近 60 次完成里的匹配平均，窗内满 10 个匹配才有）、`lastRtt`（最近一次匹配）、`lossRate`（同一窗口内超时/完成，满 10 次完成才有）、`sofAge`（距上次 UDP SOF 的墙钟间隔；未收过 SOF 为空）。时长显示为 ms，丢包率为 %。空值为 `--`。规则见 [多通道同步验收测量设计.md](./多通道同步/多通道同步验收测量设计.md) §4.5 |
 | 命令行 | 底边单行编辑框 Pane；Enter → `HostDriver::sendSymbolText`（§4.9） |
@@ -311,7 +313,7 @@ IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`�
 
 **下行自检（Host→IG，viewhost 触发）**：在「报文自检」Pane：`testtcp` / `testudp` 与「测试 / 接收」同一行。点击后：
 
-1. `HostDriver::sendRandomTcpPacket()` / `sendRandomUdpPacket()`——随机构造一个对应链路的测试报文（默认字段，仅 `EntityPositionCtrlV4` 补 `EntityID=7`）经 `outMsgWithIgCtrlTcp/Udp` → `flushTcp/flushUdp` 发送，返回报文类名；
+1. `sendRandomTcpProbe` / `sendRandomUdpProbe`（viewhost 经 `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket` 转调；平台替身直接调）——随机构造一个对应链路的测试报文（默认字段，仅 `EntityPositionCtrlV4` 补 `EntityID=7`）经 `outMsgWithIgCtrlTcp/Udp` → `flushTcp/flushUdp` 发送，返回报文类名；
 2. 同行显示「测试: TCP/UDP <类名>」。
 
 IG 侧对照：engine `initSync` 对 IgSync 已注册的**全部 Host→IG 报文**逐一 `addCallback`，收到即记录类名到 HUD「recv: <类名>」行（F2 开关帧统计）。两端类名一致 = 该报文「发送→链路→解包→投递」全链路支持（`cigi梳理.md` 链路矩阵）。
@@ -457,7 +459,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 | 项 | 状态 |
 | --- | --- |
 | `thirdparty/sync/examples/viewhost/` 工程 + `CFrameWndEx` / `CFormView` 仪表盘 + 停靠条 | 已实现 |
-| `HostDriver`（`aerovista::sync`；viewhost 直接持有）+ `applyManualStep`（步进换算，纯 C++） | 已实现：写表与 `sendEntity` 分离，Apply 一次 flushTcp；中继 `pollRelay` 起齐 + take/send/`packSof` 已落地；`broadcastEntityAuthority` / peer 去重仍待 |
+| `HostDriver`（`aerovista::sync`；viewhost 直接持有）+ `applyManualStep`（步进换算，纯 C++） | 已实现：写表与 `sendEntity` 分离，Apply 一次 flushTcp；中继 `pollRelay` 起齐 + take/send/`packSof`/`sendUdpAfterSof` / `setRelayForwarding` 已落地；`broadcastEntityAuthority` / peer 去重仍待 |
 | 复用 `loadHostConfig` / `HostSync` 全链路 | 已实现；观测面新增 `igSnapshot()` |
 | **新接口适配（2026-08-24 矛盾 A；2026-08-25 IGCtrl 自动填充）** | `HostDriver::update` 用 `outMsgWithIgCtrlUdp+appendEye+flushUdp`（`outMsgWithIgCtrlUdp()` 自动前置 IGCtrl，帧号/自计时时间戳）；`_eye`/`applyManualStep` 用 `cigi_wire::EyePose`（`frame` 枚举）；MSVC 构建通过 |
 | `engine/Tests/ViewHostMathTests.cpp`：步进换算 `[unit]` 测试 | 已添加 |
@@ -468,7 +470,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 | **命令行（2026-09，§4.9）** | `HostDriver::sendSymbolText`：Enter 把编辑框原文打成 `CigiSymbolTextDefV4` TCP 下发；空串不发；不进权威表 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |
 | **实体控制 UI 演进（2026-09，§4.8 / §4.0）** | 已实现：Driver 持有 Manager；平级树 + 双击属性面板；Apply 按报文族 `setEntityCtrl` / `setEntityPose` 后一次 `sendEntity`（一次 flushTcp）。重置从表重填草稿。`entities.json` 与 `viewhost.json` 同目录。`broadcastEntityAuthority` 仍待（按 HELLO `channelId` 去重，重连不广播；[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7） |
-| 真模拟器中继（透传 + 附加） | **部分实现**：起齐门闩与 HostDriver 切齐转发 / 禁止 `update` 已落地（[平台同步设计.md](./平台同步设计.md) §11.1 序 3）；回程只转 master TCP 已落地（序 4）；真实 IG 的 UDP 到平台 **序 7 先不做** |
+| 真模拟器中继（透传 + 附加） | **已实现**：序 1–4、7、8（[平台同步设计.md](./平台同步设计.md) §11.1）；起齐超时仍后续 |
 
 ---
 
