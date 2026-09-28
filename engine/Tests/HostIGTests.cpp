@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -341,6 +342,76 @@ namespace
             cap.pitchDeg = pose.GetPitch();
             cap.rollDeg = pose.GetRoll();
         });
+    }
+
+    cigi_wire::EyePose makeEye(double lat, double lon, double alt, double yaw, double pitch)
+    {
+        cigi_wire::EyePose eye{};
+        eye.x = lat;
+        eye.y = lon;
+        eye.z = alt;
+        eye.yawDeg = yaw;
+        eye.pitchDeg = pitch;
+        return eye;
+    }
+
+    void requireOwnship(const OwnshipEyeCapture& cap, const cigi_wire::EyePose& eye)
+    {
+        REQUIRE(cap.lat == Catch::Approx(eye.x));
+        REQUIRE(cap.lon == Catch::Approx(eye.y));
+        REQUIRE(cap.alt == Catch::Approx(eye.z));
+        REQUIRE(cap.yawDeg == Catch::Approx(eye.yawDeg));
+        REQUIRE(cap.pitchDeg == Catch::Approx(eye.pitchDeg));
+    }
+
+    OwnshipEyeCapture ownshipFrom(const CigiEntityPositionCtrlV4& pose)
+    {
+        OwnshipEyeCapture cap;
+        cap.got = true;
+        cap.entityId = pose.GetEntityID();
+        cap.lat = pose.GetLat();
+        cap.lon = pose.GetLon();
+        cap.alt = pose.GetAlt();
+        cap.yawDeg = pose.GetYaw();
+        cap.pitchDeg = pose.GetPitch();
+        cap.rollDeg = pose.GetRoll();
+        return cap;
+    }
+
+    void sendTcpSymbol(HostSync& host, const char* text)
+    {
+        auto& tcp = host.outMsgWithIgCtrlTcp();
+        CigiSymbolTextDefV4 cmd(text);
+        tcp << cmd;
+        host.flushTcp();
+    }
+
+    void sendIgTcpReport(IgSync& ig, std::uint16_t msgId, const char* text)
+    {
+        auto& tcp = ig.outMsgWithSofTcp();
+        CigiIGMsgV4 report;
+        report.SetMsgID(msgId);
+        report.SetMsg(text);
+        tcp << report;
+        ig.flushTcp();
+    }
+
+    bool seedPlatformOwnship(HostSync& platform, HostDriver& viewhost, IgSync& ig, const cigi_wire::EyePose& eye)
+    {
+        // 回调留在 IgSync 上；捕获放堆上，函数返回后后续眼点包不会写到已销毁的栈对象。
+        auto cap = std::make_shared<OwnshipEyeCapture>();
+        ig.addCallback<CigiEntityPositionCtrlV4>([cap](const CigiEntityPositionCtrlV4& pose) {
+            if (pose.GetEntityID() != 0)
+                return;
+            *cap = ownshipFrom(pose);
+        });
+        return retryUdpUntil(
+            [&] {
+                hostSendEyePose(platform, eye);
+                viewhost.pollRelay();
+                drainIgUntil(ig, [&] { return cap->got; });
+            },
+            [&] { return cap->got; });
     }
 
     void pumpIgCtrlFrames(HostSync& host, IgSync& ig, int frames = 5)
@@ -2048,6 +2119,222 @@ SCENARIO("relay forwards multiple IG TCP reports; IG UDP SOF stays on viewhost",
                 REQUIRE(platformMsgs[1].second == "up-1");
                 REQUIRE(viewhost.sofReceivedCount() == 2);
                 REQUIRE(platform.sofReceivedCount() == platformSofAfterTcp);
+            }
+        }
+    }
+}
+
+SCENARIO("viewhost refuses to stop forwarding before a platform ownship has arrived",
+         "[acceptance][bdd][platform][PLT-relay-pause]")
+{
+    GIVEN("a linked relay that has only forwarded a platform IGCtrl without ownship")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync realIg;
+        REQUIRE(startHostDriverRelay(platform, viewhost, realIg, 51200, 51400));
+        retryUdpUntil(
+            [&] {
+                hostSendFrame(platform, 0);
+                viewhost.pollRelay();
+                drainIgUntil(realIg, [&] { return realIg.igCtrlReceivedCount() > 0; });
+            },
+            [&] { return realIg.igCtrlReceivedCount() > 0; });
+
+        WHEN("the operator turns off forwarding")
+        {
+            const bool paused = viewhost.setRelayForwarding(false);
+
+            THEN("the stop is refused")
+            {
+                REQUIRE_FALSE(paused);
+            }
+
+            AND_WHEN("the platform later sends ownship")
+            {
+                OwnshipEyeCapture cap;
+                captureOwnship(realIg, cap);
+                const auto platformEye = makeEye(31.2, 121.5, 80.0, 45.0, 5.0);
+                const bool observed = retryUdpUntil(
+                    [&] {
+                        hostSendEyePose(platform, platformEye);
+                        viewhost.pollRelay();
+                        drainIgUntil(realIg, [&] { return cap.got; });
+                    },
+                    [&] { return cap.got; });
+                if (!observed)
+                    SKIP("UDP datagram dropped");
+
+                THEN("the IG receives that platform ownship")
+                {
+                    REQUIRE(cap.lat == Catch::Approx(platformEye.x));
+                    REQUIRE(cap.lon == Catch::Approx(platformEye.y));
+                    REQUIRE(cap.alt == Catch::Approx(platformEye.z));
+                }
+            }
+
+            AND_WHEN("viewhost updates with a keyboard eye")
+            {
+                const auto sentBefore = viewhost.igCtrlSentCount();
+                const auto keyboard = makeEye(1.0, 2.0, 3.0, 10.0, 20.0);
+                viewhost.update(&keyboard);
+
+                THEN("viewhost sends no data-plane IGCtrl")
+                {
+                    REQUIRE(viewhost.igCtrlSentCount() == sentBefore);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("stopped forwarding blocks both directions and repeats the last platform eye",
+         "[acceptance][bdd][platform][PLT-relay-pause]")
+{
+    GIVEN("a linked relay that has forwarded a platform ownship")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync realIg;
+        const auto platformEye = makeEye(31.2, 121.5, 80.0, 45.0, 5.0);
+        const auto laterEye = makeEye(40.0, 116.0, 200.0, 90.0, 0.0);
+        REQUIRE(startHostDriverRelay(platform, viewhost, realIg, 51600, 51800));
+        if (!seedPlatformOwnship(platform, viewhost, realIg, platformEye))
+            SKIP("UDP datagram dropped");
+
+        WHEN("the operator turns off forwarding")
+        {
+            const bool paused = viewhost.setRelayForwarding(false);
+            const auto cached = viewhost.relayEye();
+
+            THEN("forwarding is off and the current eye is that platform ownship")
+            {
+                REQUIRE(paused);
+                REQUIRE_FALSE(viewhost.relayForwarding());
+                REQUIRE(cached.has_value());
+                REQUIRE(cached->x == Catch::Approx(platformEye.x));
+                REQUIRE(cached->y == Catch::Approx(platformEye.y));
+                REQUIRE(cached->z == Catch::Approx(platformEye.z));
+                REQUIRE(cached->yawDeg == Catch::Approx(platformEye.yawDeg));
+                REQUIRE(cached->pitchDeg == Catch::Approx(platformEye.pitchDeg));
+            }
+
+            AND_WHEN("the platform sends a command and a new ownship, and the IG reports")
+            {
+                std::string igText;
+                realIg.addCallback<CigiSymbolTextDefV4>([&](const CigiSymbolTextDefV4& txt) {
+                    igText = const_cast<CigiSymbolTextDefV4&>(txt).GetText();
+                });
+                OwnshipEyeCapture later;
+                captureOwnship(realIg, later);
+                std::string platformMsg;
+                platform.addCallback<CigiIGMsgV4>(
+                    [&](const CigiIGMsgV4& msg) { platformMsg = const_cast<CigiIGMsgV4&>(msg).GetMsg(); });
+                sendTcpSymbol(platform, "late");
+                sendIgTcpReport(realIg, 0x3001, "paused");
+                for (int i = 0; i < 5; ++i)
+                {
+                    hostSendEyePose(platform, laterEye);
+                    viewhost.pollRelay();
+                    realIg.drainIncoming(false);
+                    platform.drainIncoming();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+
+                THEN("neither side receives those messages")
+                {
+                    REQUIRE(igText.empty());
+                    REQUIRE_FALSE(later.got);
+                    REQUIRE(platformMsg.empty());
+                }
+            }
+
+            AND_WHEN("viewhost sends the current eye twice")
+            {
+                REQUIRE(cached.has_value());
+                std::vector<OwnshipEyeCapture> frames;
+                realIg.addCallback<CigiEntityPositionCtrlV4>([&](const CigiEntityPositionCtrlV4& pose) {
+                    if (pose.GetEntityID() != 0)
+                        return;
+                    frames.push_back(ownshipFrom(pose));
+                });
+                const auto eye = *cached;
+                const bool observed = retryUdpUntil(
+                    [&] {
+                        frames.clear();
+                        viewhost.update(&eye);
+                        drainIgUntil(realIg, [&] { return !frames.empty(); });
+                        viewhost.update(&eye);
+                        drainIgUntil(realIg, [&] { return frames.size() >= 2; });
+                    },
+                    [&] { return frames.size() >= 2; });
+                if (!observed)
+                    SKIP("UDP datagram dropped");
+
+                THEN("both IG ownships are the last platform eye")
+                {
+                    REQUIRE(frames.size() >= 2);
+                    requireOwnship(frames[0], platformEye);
+                    requireOwnship(frames[1], platformEye);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("resumed forwarding drops paused traffic and applies the next platform eye",
+         "[acceptance][bdd][platform][PLT-relay-resume]")
+{
+    GIVEN("a linked relay that stopped forwarding after a platform ownship, with a command queued while stopped")
+    {
+        HostSync platform;
+        HostDriver viewhost;
+        IgSync realIg;
+        const auto platformEye = makeEye(31.2, 121.5, 80.0, 45.0, 5.0);
+        const auto keyboard = makeEye(32.0, 122.0, 90.0, 12.0, 3.0);
+        const auto jumpEye = makeEye(40.0, 116.0, 200.0, 90.0, 0.0);
+        REQUIRE(startHostDriverRelay(platform, viewhost, realIg, 52000, 52200));
+        if (!seedPlatformOwnship(platform, viewhost, realIg, platformEye))
+            SKIP("UDP datagram dropped");
+        REQUIRE(viewhost.setRelayForwarding(false));
+        sendTcpSymbol(platform, "queued");
+
+        std::string igText;
+        realIg.addCallback<CigiSymbolTextDefV4>(
+            [&](const CigiSymbolTextDefV4& txt) { igText = const_cast<CigiSymbolTextDefV4&>(txt).GetText(); });
+
+        WHEN("forwarding resumes and the relay ticks without a new platform command")
+        {
+            REQUIRE(viewhost.setRelayForwarding(true));
+            tickRelay(viewhost);
+            drainIgUntil(realIg, [&] { return !igText.empty(); });
+
+            THEN("the IG does not receive the queued command")
+            {
+                REQUIRE(igText.empty());
+            }
+
+            AND_WHEN("the platform sends a new ownship and viewhost updates a local eye")
+            {
+                OwnshipEyeCapture later;
+                captureOwnship(realIg, later);
+                const auto sentBefore = viewhost.igCtrlSentCount();
+                const bool observed = retryUdpUntil(
+                    [&] {
+                        hostSendEyePose(platform, jumpEye);
+                        viewhost.pollRelay();
+                        viewhost.update(&keyboard);
+                        drainIgUntil(realIg, [&] { return later.got; });
+                    },
+                    [&] { return later.got; });
+                if (!observed)
+                    SKIP("UDP datagram dropped");
+
+                THEN("the IG ownship is that platform eye and viewhost sends no data-plane IGCtrl")
+                {
+                    requireOwnship(later, jumpEye);
+                    REQUIRE(viewhost.igCtrlSentCount() == sentBefore);
+                }
             }
         }
     }
