@@ -44,7 +44,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
 | **UBSan** | ⚠️ 部分可用 | 仅 clang-cl 支持（MSVC `cl.exe` 不支持）；不如 Linux 完整，可能有 false positive，**需实测** |
 | **TSan** | ❌ 不支持 | clang 官方支持平台仅 Linux / Android / macOS；Windows 上 `-fsanitize=thread` 直接编译报错 |
 
-> 结论：**TSan 在 Windows 上无解**，本项目的数据竞争排查改用并发压力测试 + 原子操作保证（见 `engine/Tests/TcpSocketTests.cpp` 的 `[stress]` 用例）。
+> 结论：**TSan 在 Windows 上无解**，本项目的数据竞争排查改用并发压力测试 + 原子操作保证（见 `thirdparty/sync/tests/TcpSocketTests.cpp` 的 `[stress]` 用例）。
 
 ---
 
@@ -69,5 +69,5 @@ sanitizer 不区分 CI 还是本地，都能开。实践建议：
 ## 6. 本项目落地状态
 
 - **待实测**：ASan / UBSan 在本地 clang 下能否真正编译链接运行（见 [doc/TODO.md](../TODO.md)）。
-- **TSan**：Windows 上放弃，改用并发压力测试兜底（`TcpSocketTests.cpp` 的 `[stress]` 用例）。
+- **TSan**：Windows 上放弃，改用并发压力测试兜底（`thirdparty/sync/tests/TcpSocketTests.cpp` 的 `[stress]` 用例）。
 - **相关代码**：`thirdparty/sync` 中 WSA 引用计数（`SocketCommon.cpp`）与 `_wsaAcquired` 令牌（`TcpSocket`/`UdpSocket`）已用 `std::atomic` 保证线程安全。

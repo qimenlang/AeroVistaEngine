@@ -16,5 +16,6 @@ set(JSON_SystemInclude ON CACHE BOOL "nlohmann_json: system includes (skip clang
 add_subdirectory(nlohmannJson)
 add_subdirectory(config)
 
-add_subdirectory(sync)
+# Catch2 必须先于 sync：sync 测试目标链接 Catch2::Catch2WithMain。
 add_subdirectory(Catch2)
+add_subdirectory(sync)

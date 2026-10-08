@@ -7,14 +7,14 @@ alwaysApply: true
 
 Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observable contracts over implementation details.
 
-**Process gates always apply** (even when the current edit is not a test file). Form/tag rules apply whenever writing or changing `engine/Tests`.
+**Process gates always apply** (even when the current edit is not a test file). Form/tag rules apply whenever writing or changing `engine/Tests` or `thirdparty/sync/tests`.
 
 ## Process gates (hard)
 
 ATDD is two turns. Do not collapse them.
 
 1. **Review-tests turn**（新验收 / 新码 / 「补测试」）  
-   Only `engine/Tests` and the owning design-doc 「验收要点」 table. Stop. Wait for the human to review Then.  
+   Only `engine/Tests` or `thirdparty/sync/tests` (the library that owns the contract) and the owning design-doc 「验收要点」 table. Stop. Wait for the human to review Then.  
    Do **not** change production behavior in this turn.
 
 2. **Implement turn**  
@@ -45,7 +45,7 @@ This overrides the urge to deliver green in one shot. A review-tests turn may en
 
 Authority: `doc/测试用例书写规范.md` §1.1. Prefix → design-doc map: `doc/测试验收码.md` (do **not** copy that table here).
 
-Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as a same-name Catch2 tag (e.g. `[CIGI-ownship-lla]`). One code may cover multiple cases (1:n). Codes are PKs: once assigned, **never** rename, reuse, or reshuffle. Do **not** use serial numbers (`REQ-001`, `TEST-42`).
+Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must carry a **stable code** as a same-name Catch2 tag (e.g. `[CIGI-ownship-lla]`). One code may cover multiple cases (1:n). Codes are PKs: once assigned, **never** rename, reuse, or reshuffle. Do **not** use serial numbers (`REQ-001`, `TEST-42`).
 
 - **New code** → add a row to the owning design doc’s 「验收要点」 (columns: 码 / 场景 / 验收 / Catch2). Lookup via `doc/测试验收码.md`. That is a **doc-sync** trigger.
 - **Reuse an existing code** when the case is another observable of the same contract; do not invent a sibling number.
@@ -75,7 +75,7 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` must carry a **stable code** as
 ❌ Dump unit-test lists into ENT/CLK product 验收 tables
 ❌ Reading config files from engine/resources/config/ in tests — tests must be self-contained
 
-✅ Review-tests turn: engine/Tests + 验收要点 only; stop for Then review
+✅ Review-tests turn: engine/Tests or thirdparty/sync/tests + 验收要点 only; stop for Then review
 ✅ Implement turn: after explicit go-ahead; then make green
 ✅ Empty stub + 「仅编译切口，未实现」 if the red test cannot compile
 ✅ Split connect-fail / connect-ok / host-offline disconnect

@@ -31,6 +31,52 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "aerovistaSync Tests Console",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/thirdparty/sync/tests/aerovistaSyncTests.exe",
+            "args": [
+                "-s",
+                "-d yes"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "All Tests Console",
+            "type": "lldb",
+            "request": "launch",
+            "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/run_all_tests.ps1",
+                "-s"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "All Tests Output File",
+            "type": "lldb",
+            "request": "launch",
+            "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/scripts/run_all_tests.ps1",
+                "-OutFile",
+                "test_out.txt",
+                "-s"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "vsgEngine Tests Output File",
             "type": "lldb",
             "request": "launch",

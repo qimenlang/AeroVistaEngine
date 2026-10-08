@@ -115,7 +115,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 - **做**：建表、运行期更新、`snapshot()`、按当前行填 CIGI 报文对象。
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
-- **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）；`engine/Tests` 直接测 Manager（不启网络）或测 `HostDriver`（`PLT-ig-first` 等）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
+- **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）。`thirdparty/sync/tests` 直接测 Manager（不启网络）并测 `HostDriver`（`PLT-ig-first` 等）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
 
 与 IG 侧对称关系：`IgSync`（传输）+ `SynchronSystem`（决策）；Host 侧为 `HostDriver`（持 `HostSync` + `HostDataManager` + 可选虚 `IgSync`）。`HostDataManager` 不是第二个 `SynchronSystem`（不做眼点合成），只承担 CIGI 任务状态的 last-value。
 
@@ -202,9 +202,9 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 **`requireInt` 严格整数**：整数字段（端口、窗口、实体 `id` 等）拒绝小数（`1.5`）；JSON 写成 `1.0` 仍视为整数。sync 侧与引擎侧行为一致。
 
 **验收测试**：
-- `HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
-- `HostIGTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `SynchronSystem`），IG 侧装配参数程序化注入（`cameraDriver().setOffsetDeg`），双通道 CIGI 收发。
-- `EngineConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。
+- `engine/Tests/HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
+- `thirdparty/sync/tests/HostIGLinkTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `SynchronSystem`），IG 侧装配参数程序化注入（`SyncSystemConfig::offsetDeg`），双通道 CIGI 收发。
+- `thirdparty/sync/tests/SyncConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。
 
 ### 4.2 `syncSystem` 配置组（SynchronSystem 装配属性）
 
@@ -264,7 +264,7 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 
 ## 7. 验收要点
 
-> 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `EngineConfigTests.cpp` / `TcpSocketTests.cpp` / `UdpSocketTests.cpp`。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。
+> 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `thirdparty/sync/tests` 的 `SyncConfigTests.cpp` / `TcpSocketTests.cpp` / `UdpSocketTests.cpp`。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。单跑：`aerovistaSyncTests.exe "[TCP-loopback-connect]"`。
 >
 > engine 通道 JSON（window / `igConfig` 嵌在通道文件）见 [多通道同步模块设计.md](./多通道同步模块设计.md) §11。本节只登记 **Host/IG 独立配置入口** 与 **库内套接字**。
 
