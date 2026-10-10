@@ -1,10 +1,9 @@
-#include <catch2/catch_approx.hpp>
+﻿#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine.h"
 #include <aerovista/sync/CigiIncludes.h>
 #include <aerovista/sync/CigiWire.h>
-#include <aerovista/sync/HostDriver.h>
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SyncConfig.h>
@@ -17,17 +16,10 @@
 #include "CigiIGCtrlV4.h"
 #include "CigiIGSession.h"
 #include "CigiSOFV4.h"
-#include "CigiSymbolTextDefV4.h"
-
-#include "CigiCollDetSegDefV4.h"
-#include "CigiCollDetSegRespV4.h"
-#include "CigiIGMsgV4.h"
-#include "CigiWeatherCtrlV4.h"
 
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -39,7 +31,6 @@
 #include "Common.h"
 
 using aerovista::sync::HostConfig;
-using aerovista::sync::HostDriver;
 using aerovista::sync::HostStatus;
 using aerovista::sync::HostSync;
 using aerovista::sync::IgConfig;
@@ -59,191 +50,6 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 
 namespace
 {
-    // 默认端口见 doc/design/多通道同步/多通道同步模块设计.md
-    HostConfig makeHostLocal()
-    {
-        return HostConfig{8000, 8100};
-    }
-
-    IgConfig makeIgLocal(int udpRecvPort = 8001)
-    {
-        return IgConfig{udpRecvPort, {"127.0.0.1", 8100, 8000}};
-    }
-
-    HostConfig makeRelayViewhostConfig(int viewhostBase, int platformBase, int expectedIgCount)
-    {
-        HostConfig cfg = makeTestHostConfig(viewhostBase);
-        cfg.relay.enable = true;
-        cfg.relay.expectedIgCount = expectedIgCount;
-        cfg.igConfig = makeTestIgConfig(platformBase + 2, platformBase);
-        return cfg;
-    }
-
-    void tickRelay(HostDriver& viewhost, int ticks = 20)
-    {
-        for (int i = 0; i < ticks; ++i)
-        {
-            viewhost.pollRelay();
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-    }
-
-    void sendCollDetSegDef(HostSync& host)
-    {
-        auto& tcp = host.outMsgWithIgCtrlTcp();
-        CigiCollDetSegDefV4 def;
-        def.SetEntityID(7);
-        def.SetSegmentEn(true);
-        tcp << def;
-        host.flushTcp();
-    }
-
-    void sendCollDetSegRespUdp(IgSync& ig, std::uint32_t material)
-    {
-        auto& udp = ig.outMsgWithSofUdp();
-        CigiCollDetSegRespV4 resp;
-        resp.SetEntityID(7);
-        resp.SetMaterial(material);
-        udp << resp;
-        ig.flushUdp();
-    }
-
-    bool hasMaterial(const std::vector<std::uint32_t>& got, std::uint32_t want)
-    {
-        for (auto material : got)
-        {
-            if (material == want)
-                return true;
-        }
-        return false;
-    }
-
-    bool materialsInOrder(const std::vector<std::uint32_t>& got, std::initializer_list<std::uint32_t> want)
-    {
-        std::size_t i = 0;
-        for (auto material : want)
-        {
-            while (i < got.size() && got[i] != material)
-                ++i;
-            if (i == got.size())
-                return false;
-            ++i;
-        }
-        return true;
-    }
-
-    bool waitVirtualIgHandshakeDone(HostDriver& viewhost, HostSync& platform)
-    {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
-        while ((!viewhost.virtualIgHandshakeDone() || platform.readyIgCount() != 1) &&
-               std::chrono::steady_clock::now() < deadline)
-        {
-            viewhost.pollRelay();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        return viewhost.virtualIgHandshakeDone() && platform.readyIgCount() == 1;
-    }
-
-    bool startHostDriverRelay(HostSync& platform, HostDriver& viewhost, IgSync& realIg, int platformBase,
-                              int viewhostBase)
-    {
-        if (!platform.initialize(makeTestHostConfig(platformBase)))
-            return false;
-        platform.run();
-        if (!viewhost.initialize(makeRelayViewhostConfig(viewhostBase, platformBase, 1)))
-            return false;
-        const IgConfig realCfg = makeTestIgConfig(viewhostBase + 1, viewhostBase);
-        if (!realIg.initialize(realCfg.udpPortRecv, 0))
-            return false;
-        if (!realIg.connect(realCfg.target))
-            return false;
-        return waitVirtualIgHandshakeDone(viewhost, platform);
-    }
-
-    bool startHostDriverRelayTwoIgs(HostSync& platform, HostDriver& viewhost, IgSync& master, IgSync& side,
-                                    int platformBase, int viewhostBase)
-    {
-        if (!platform.initialize(makeTestHostConfig(platformBase)))
-            return false;
-        platform.run();
-        if (!viewhost.initialize(makeRelayViewhostConfig(viewhostBase, platformBase, 2)))
-            return false;
-        const IgConfig masterCfg = makeTestIgConfig(viewhostBase + 1, viewhostBase);
-        const IgConfig sideCfg = makeTestIgConfig(viewhostBase + 3, viewhostBase);
-        if (!master.initialize(masterCfg.udpPortRecv, 0))
-            return false;
-        if (!side.initialize(sideCfg.udpPortRecv, 1))
-            return false;
-        if (!master.connect(masterCfg.target))
-            return false;
-        if (!side.connect(sideCfg.target))
-            return false;
-        return waitVirtualIgHandshakeDone(viewhost, platform);
-    }
-
-    bool startHostTwoIgs(HostSync& host, IgSync& master, IgSync& side, int base)
-    {
-        if (!host.initialize(makeTestHostConfig(base)))
-            return false;
-        const IgConfig masterCfg = makeTestIgConfig(base + 1, base);
-        const IgConfig sideCfg = makeTestIgConfig(base + 3, base);
-        if (!master.initialize(masterCfg.udpPortRecv, 0))
-            return false;
-        if (!side.initialize(sideCfg.udpPortRecv, 1))
-            return false;
-        if (!master.connect(masterCfg.target))
-            return false;
-        if (!side.connect(sideCfg.target))
-            return false;
-        return host.readyIgCount() == 2;
-    }
-
-    void drainIgUntil(IgSync& ig, const std::function<bool()>& done, bool sendSof = false)
-    {
-        for (int i = 0; i < 40 && !done(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            ig.drainIncoming(sendSof);
-        }
-    }
-
-    void drainHostUntil(HostSync& host, const std::function<bool()>& done)
-    {
-        for (int i = 0; i < 40 && !done(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            host.drainIncoming();
-        }
-    }
-
-    void drainDriverUntil(HostDriver& driver, const std::function<bool()>& done)
-    {
-        for (int i = 0; i < 40 && !done(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            driver.pollIncoming();
-        }
-    }
-
-    // UDP 可丢：重发直到观察到；全丢由调用方 SKIP。
-    template<typename Send>
-    bool retryUdpUntil(Send send, const std::function<bool()>& done, int attempts = 10)
-    {
-        for (int i = 0; i < attempts && !done(); ++i)
-            send();
-        return done();
-    }
-
-    bool framesIncreasing(const std::vector<std::uint32_t>& frames)
-    {
-        for (std::size_t i = 1; i < frames.size(); ++i)
-        {
-            if (frames[i] <= frames[i - 1])
-                return false;
-        }
-        return true;
-    }
-
     // UDP 可丢：actual 落在 [expected-slack, expected]
     bool approxAtMost(std::uint32_t actual, int expected, int slack)
     {
@@ -290,28 +96,6 @@ namespace
         return true;
     }
 
-    std::vector<std::vector<unsigned char>> collectFrames(
-        const std::function<std::vector<std::vector<unsigned char>>()>& take, std::size_t minCount)
-    {
-        std::vector<std::vector<unsigned char>> frames;
-        for (int i = 0; i < 40 && frames.size() < minCount; ++i)
-        {
-            auto more = take();
-            frames.insert(frames.end(), more.begin(), more.end());
-            if (frames.size() < minCount)
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        }
-        return frames;
-    }
-
-    std::vector<unsigned char> concatFrames(const std::vector<unsigned char>& a,
-                                            const std::vector<unsigned char>& b)
-    {
-        std::vector<unsigned char> out = a;
-        out.insert(out.end(), b.begin(), b.end());
-        return out;
-    }
-
     struct OwnshipEyeCapture
     {
         bool got = false;
@@ -342,86 +126,6 @@ namespace
             cap.pitchDeg = pose.GetPitch();
             cap.rollDeg = pose.GetRoll();
         });
-    }
-
-    cigi_wire::EyePose makeEye(double lat, double lon, double alt, double yaw, double pitch)
-    {
-        cigi_wire::EyePose eye{};
-        eye.x = lat;
-        eye.y = lon;
-        eye.z = alt;
-        eye.yawDeg = yaw;
-        eye.pitchDeg = pitch;
-        return eye;
-    }
-
-    void requireOwnship(const OwnshipEyeCapture& cap, const cigi_wire::EyePose& eye)
-    {
-        REQUIRE(cap.lat == Catch::Approx(eye.x));
-        REQUIRE(cap.lon == Catch::Approx(eye.y));
-        REQUIRE(cap.alt == Catch::Approx(eye.z));
-        REQUIRE(cap.yawDeg == Catch::Approx(eye.yawDeg));
-        REQUIRE(cap.pitchDeg == Catch::Approx(eye.pitchDeg));
-    }
-
-    OwnshipEyeCapture ownshipFrom(const CigiEntityPositionCtrlV4& pose)
-    {
-        OwnshipEyeCapture cap;
-        cap.got = true;
-        cap.entityId = pose.GetEntityID();
-        cap.lat = pose.GetLat();
-        cap.lon = pose.GetLon();
-        cap.alt = pose.GetAlt();
-        cap.yawDeg = pose.GetYaw();
-        cap.pitchDeg = pose.GetPitch();
-        cap.rollDeg = pose.GetRoll();
-        return cap;
-    }
-
-    void sendTcpSymbol(HostSync& host, const char* text)
-    {
-        auto& tcp = host.outMsgWithIgCtrlTcp();
-        CigiSymbolTextDefV4 cmd(text);
-        tcp << cmd;
-        host.flushTcp();
-    }
-
-    void sendIgTcpReport(IgSync& ig, std::uint16_t msgId, const char* text)
-    {
-        auto& tcp = ig.outMsgWithSofTcp();
-        CigiIGMsgV4 report;
-        report.SetMsgID(msgId);
-        report.SetMsg(text);
-        tcp << report;
-        ig.flushTcp();
-    }
-
-    bool seedPlatformOwnship(HostSync& platform, HostDriver& viewhost, IgSync& ig, const cigi_wire::EyePose& eye)
-    {
-        // 回调留在 IgSync 上；捕获放堆上，函数返回后后续眼点包不会写到已销毁的栈对象。
-        auto cap = std::make_shared<OwnshipEyeCapture>();
-        ig.addCallback<CigiEntityPositionCtrlV4>([cap](const CigiEntityPositionCtrlV4& pose) {
-            if (pose.GetEntityID() != 0)
-                return;
-            *cap = ownshipFrom(pose);
-        });
-        return retryUdpUntil(
-            [&] {
-                hostSendEyePose(platform, eye);
-                viewhost.pollRelay();
-                drainIgUntil(ig, [&] { return cap->got; });
-            },
-            [&] { return cap->got; });
-    }
-
-    void pumpIgCtrlFrames(HostSync& host, IgSync& ig, int frames = 5)
-    {
-        for (int i = 0; i < frames; ++i)
-        {
-            hostSendFrame(host, i * 16.667);
-            ig.drainIncoming();
-            ig.update();
-        }
     }
 
     void pumpOwnshipEyeFrames(HostSync& host, IgSync& ig, const cigi_wire::EyePose& eye, int frames = 5)

@@ -43,35 +43,15 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "All Tests Console",
+            "name": "aerovistaSync Tests Output File",
             "type": "lldb",
             "request": "launch",
-            "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/thirdparty/sync/tests/aerovistaSyncTests.exe",
             "args": [
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "${workspaceFolder}/scripts/run_all_tests.ps1",
-                "-s"
-            ],
-            "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "All Tests Output File",
-            "type": "lldb",
-            "request": "launch",
-            "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-            "args": [
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                "${workspaceFolder}/scripts/run_all_tests.ps1",
-                "-OutFile",
-                "test_out.txt",
-                "-s"
+                "-s",
+                "-d yes",
+                "-o",
+                "test_out.txt"
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
