@@ -132,16 +132,16 @@ namespace
         return true;
     }
 
-    bool waitVirtualIgLinked(HostDriver& viewhost, HostSync& platform)
+    bool waitVirtualIgHandshakeDone(HostDriver& viewhost, HostSync& platform)
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
-        while ((!viewhost.virtualIgLinked() || platform.readyIgCount() != 1) &&
+        while ((!viewhost.virtualIgHandshakeDone() || platform.readyIgCount() != 1) &&
                std::chrono::steady_clock::now() < deadline)
         {
             viewhost.pollRelay();
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        return viewhost.virtualIgLinked() && platform.readyIgCount() == 1;
+        return viewhost.virtualIgHandshakeDone() && platform.readyIgCount() == 1;
     }
 
     bool startHostDriverRelay(HostSync& platform, HostDriver& viewhost, IgSync& realIg, int platformBase,
@@ -157,7 +157,7 @@ namespace
             return false;
         if (!realIg.connect(realCfg.target))
             return false;
-        return waitVirtualIgLinked(viewhost, platform);
+        return waitVirtualIgHandshakeDone(viewhost, platform);
     }
 
     bool startHostDriverRelayTwoIgs(HostSync& platform, HostDriver& viewhost, IgSync& master, IgSync& side,
@@ -178,7 +178,7 @@ namespace
             return false;
         if (!side.connect(sideCfg.target))
             return false;
-        return waitVirtualIgLinked(viewhost, platform);
+        return waitVirtualIgHandshakeDone(viewhost, platform);
     }
 
     bool startHostTwoIgs(HostSync& host, IgSync& master, IgSync& side, int base)
