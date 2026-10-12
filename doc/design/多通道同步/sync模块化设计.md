@@ -20,7 +20,7 @@ vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
        ├→ AeroVistaConfig   （JSON 契约辅助：thirdparty/config；语法走 nlohmann/json）
        └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + HostDriver + IG 收发端点）
-            ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / SyncInterface / HostSync / IgSync / SofRttTracker
+            ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / SyncInterface / HostSync / IgSync / RttTracker / NetProbe
             │           / SyncConfig
             ├─ Host 任务状态：HostDataManager（权威表，不持 socket）
             ├─ HostDriver：HostSync + HostDataManager + 可选虚 IgSync（viewhost 直接使用；含中继）
@@ -41,7 +41,7 @@ vsgEngine (exe)
 
 ## 2. 库结构
 
-- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`RttTracker`/`NetProbe`/`SyncConfig`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - `HostDriver` **零 vsg、零 Engine**：持有 `HostSync` + `HostDataManager`；中继时另持虚 `IgSync`。viewhost 直接使用。报文自检 / 命令行也在本类（[viewhost设计.md](../viewhost设计.md) §4.0）。
 - IG 收发端点（`SynchronSystem`）公开接口零 vsg、不依赖 Engine：收包解包 + IgSync 帧维护 + `igLinked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。
@@ -54,7 +54,7 @@ vsgEngine (exe)
 
 **消除的是对 `Engine`（宿主引擎类）的依赖；公开接口与实现 TU 均零 vsg。** 分两层：
 
-- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`SofRttTracker`/`SyncConfig`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
+- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`RttTracker`/`NetProbe`/`SyncConfig`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - **IG 收发层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。只负责收包解包 + IgSync 帧维护 + 连接状态查询（`igLinked()`）。眼点合成（offset）在 Engine `CameraDriver`（`engine/source/function/driver/`），写相机在 `Engine::applyLastHostEye`；SynchronSystem 不触碰眼点决策，也不承担 Host 采样/扇出（数据流，见 §3.1）。
 
 vsg 的分层：

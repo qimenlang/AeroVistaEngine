@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -58,8 +59,15 @@ namespace
         return actual >= minOk && actual <= exp;
     }
 
+    // 条件成立即返回。短轮询只盖住 Host 就绪表晚于 IG connect 返回的缝，不空等固定超时。
+    void connectUntil(const std::function<bool()>& linked)
+    {
+        for (int i = 0; i < 40 && !linked(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
     /// IGCtrl 由 outMsgWithIgCtrlUdp() 自动前置（帧号/自计时时间戳）；hostSendFrame 只发无眼点帧。
-    void hostSendFrame(HostSync& host, double /*simTimeMs*/)
+    void hostSendFrame(HostSync& host)
     {
         host.outMsgWithIgCtrlUdp();
         host.flushUdp();
@@ -180,7 +188,7 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
             constexpr int kTicks = 10;
             for (int i = 0; i < kTicks; ++i)
             {
-                hostSendFrame(host.sync, i * 16.667);
+                hostSendFrame(host.sync);
                 engine.tickSync();
             }
 
@@ -227,7 +235,7 @@ SCENARIO("three IG Engines exchange CIGI frame control across one independent Ho
             constexpr int kIgCount = 3;
             for (int i = 0; i < kTicks; ++i)
             {
-                hostSendFrame(host.sync, i * 16.667);
+                hostSendFrame(host.sync);
                 engineA.tickSync();
                 engineB.tickSync();
                 engineC.tickSync();
@@ -1377,12 +1385,9 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 
         WHEN("both link over TCP and UDP handshake")
         {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
-            while (viewhost->readyIgCount() < 1 &&
-                   std::chrono::steady_clock::now() < deadline)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
-            }
+            connectUntil([&] {
+                return viewhost->readyIgCount() >= 1 && engineIg.synchronSystem().igLinked();
+            });
 
             THEN("viewhost sees one ready IG")
             {
@@ -1400,8 +1405,8 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
                 constexpr int kTicks = 5;
                 for (int i = 0; i < kTicks; ++i)
                 {
-                    hostSendFrame(*viewhost, i * 16.667); // 无渲染节拍：业务侧扇出
-                    engineIg.tickSync();                  // IG 收包 + 回 SOF
+                    hostSendFrame(*viewhost); // 无渲染节拍：业务侧扇出
+                    engineIg.tickSync();      // IG 收包 + 回 SOF
                 }
 
                 viewhost->drainIncoming();

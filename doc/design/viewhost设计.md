@@ -306,7 +306,7 @@ IG 侧消费：engine `initSync` 订阅 `addCallback<CigiEntityPositionCtrlV4>`�
 | 当前眼点（lat/lon/alt, yaw/pitch/roll） | 同一行：键盘累积 `_eye` |
 | 中继转发 | 眼点组下方复选框。勾选 = 转发开。取消须缓存有效，否则勾选弹回并提示；成功则把 `relayEye()` 写入 `_eye`。`relay.enable=false` 时控件禁用 |
 | 最近测试 / 最近接收报文 | 报文自检 Pane：`testtcp` / `testudp` 与上行订阅回调（§4.7） |
-| IG 连接列表 | 底部 `CDockablePane`，数据 `igSnapshot()`：每行 Host `clientId`（`id`，不是 IG `channelId`）、HELLO 学到的 `channelId`（[平台同步设计.md](./平台同步设计.md) §6.3）、连接层状态 `ready` / `tcp` / `udp` / `connecting`、`avgRtt`（最近 60 次完成里的匹配平均，窗内满 10 个匹配才有）、`lastRtt`（最近一次匹配）、`lossRate`（同一窗口内超时/完成，满 10 次完成才有）、`sofAge`（距上次 UDP SOF 的墙钟间隔；未收过 SOF 为空）。时长显示为 ms，丢包率为 %。空值为 `--`。规则见 [多通道同步验收测量设计.md](./多通道同步/多通道同步验收测量设计.md) §4.5 |
+| IG 连接列表 | 底部 `CDockablePane`，数据 `igSnapshot()`：每行 Host `clientId`（`id`，不是 IG `channelId`）、HELLO 学到的 `channelId`（[平台同步设计.md](./平台同步设计.md) §6.3）、连接层状态 `ready` / `tcp` / `udp` / `connecting`。应用 RTT（§4.5，`appRttMatchTimeout` = 50ms）：`avgRtt`（最近 60 次完成里的匹配平均，窗内满 10 个匹配才有）、`lastRtt`（最近一次匹配）、`lossRate`（同一窗口内超时/完成，满 10 次完成才有）。网络 RTT（§4.8，1ms 窗，另一张表）：`netAvgRtt`、`netRtt`、`netLossRate`，口径与应用三列相同，列在应用丢包率后面。`sofAge` 为距上次 UDP SOF 的墙钟间隔；未收过 SOF 为空。应用时长显示为 ms，网络时长显示为整数 µs，丢包率为 %。空值为 `--`。规则见 [多通道同步验收测量设计.md](./多通道同步/多通道同步验收测量设计.md) §4.5 / §4.8。列表与仪表盘同一拍，约 10Hz |
 | 命令行 | 底边单行编辑框 Pane；Enter → `HostDriver::sendSymbolText`（§4.9） |
 
 ### 4.7 报文自检（testtcp / testudp / F9 / F10）
@@ -410,7 +410,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 **分层原则**：
 
 - **不测**：MFC UI（`CFrameWndEx` 消息循环 / `GetAsyncKeyState` 轮询）。`HostSync` 的握手 / 扇出 / LLA 组包由 `thirdparty/sync/tests` 的 `HostIGLinkTests` 覆盖；与 Engine 联调的 `[viewhost]` 仍在 `engine/Tests/HostIGTests`。
-- **测（`[unit]`）**：（1）键盘步进→LLA 换算（§4.2，`ViewHostMath`，与示例共源；验收码 `VH-*` 见 §10，用例在 `thirdparty/sync/tests/ViewHostMathTests.cpp`）。（2）`HostDataManager` 权威表：建表 `ENT-04-table-*`；运行期更新 `ENT-04-update-*`；按行组包 `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11，用例在 `thirdparty/sync/tests/HostDataManagerTests.cpp`）。库内 `HostDriver` 在 `HostIGLinkTests` 覆盖（如 `PLT-ig-first`）；探测 / 命令行与 MFC 不测。表逻辑在 Manager 上测，发送仍走既有 Host↔IG 用例（`CIGI-viewhost-exchange` 见 §10，留在 `engine/Tests`）。
+- **测（`[unit]`）**：（1）键盘步进→LLA 换算（§4.2，`ViewHostMath`，与示例共源；验收码 `VH-*` 见 §10，用例在 `thirdparty/sync/tests/ViewHostMathTests.cpp`）。（2）`HostDataManager` 权威表：建表 `ENT-04-table-*`；运行期更新 `ENT-04-update-*`；按行组包 `ENT-04-pack-*`（[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §11，用例在 `thirdparty/sync/tests/HostDataManagerTests.cpp`）。库内 `HostDriver` 在 `thirdparty/sync/tests/HostDriverTests.cpp` 覆盖（如 `PLT-ig-first`）；探测 / 命令行与 MFC 不测。表逻辑在 Manager 上测，发送仍走既有 Host↔IG 用例（`CIGI-viewhost-exchange` 见 §10，留在 `engine/Tests`）。
 
 **约束（写死）**：步进换算必须保持**纯 C++**——不依赖 MFC / vsg，只依赖 `cigi_wire::EyePose` 这一 POD 类型（include `CigiWire.h` 即可，不产生链接依赖），以便编进 `aerovistaSyncTests`。
 
@@ -466,7 +466,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 | **实体摆放命令（2026-08；2026-09 改经权威表）** | `HostDriver::setEntityPose` 写 last pose，`sendEntity` 从表组 `EntityPositionCtrl`，与其它脏报文族同一次 `flushTcp`；手输摆放表单已由 §4.8 属性面板取代 |
 | **报文自检（2026-08，§4.7）** | `HostDriver::sendRandomTcpPacket` / `sendRandomUdpPacket`（随机报文工厂表）+ 「报文自检」Pane（testtcp/testudp + 测试/接收）；engine 侧全量 addCallback 探测 + HUD「recv: <类名>」；engine 全量测试通过 + 双构建（clang / MSVC）通过 |
 | **上行报文自检（2026-08，§4.7）** | `HostDriver::pollIncoming`（转发 `drainIncoming`）+ `HostDriver::addCallback<T>` 模板转发；现网 `OnInitialUpdate` 仍订阅 16 类 TCP（含 CollDet）；engine `PacketProbeHandler` F9 仍随机 TCP 16 类 / F10 仍只发 SOF。契约：CollDet 改 UDP，见 §4.7；待改 |
-| **IG 连接列表（2026-09，§4.6）** | `HostSync::igSnapshot()` + 底部 ListView Pane：每行 `id`、连接层状态、`avgRtt`、`lastRtt`、`lossRate`、`sofAge`；HELLO `channelId` 入快照 |
+| **IG 连接列表（2026-09，§4.6）** | `HostSync::igSnapshot()` + 底部 ListView Pane：每行 `id`、连接层状态、应用 `avgRtt` / `lastRtt` / `lossRate`、网络 `netAvgRtt` / `netRtt` / `netLossRate`、`sofAge`；HELLO `channelId` 入快照 |
 | **命令行（2026-09，§4.9）** | `HostDriver::sendSymbolText`：Enter 把编辑框原文打成 `CigiSymbolTextDefV4` TCP 下发；空串不发；不进权威表 |
 | 多通道同步模块设计.md / sync模块化设计.md 同步（§7） | 已同步 |
 | **实体控制 UI 演进（2026-09，§4.8 / §4.0）** | 已实现：Driver 持有 Manager；平级树 + 双击属性面板；Apply 按报文族 `setEntityCtrl` / `setEntityPose` 后一次 `sendEntity`（一次 flushTcp）。重置从表重填草稿。`entities.json` 与 `viewhost.json` 同目录。`broadcastEntityAuthority` 仍待（按 HELLO `channelId` 去重，重连不广播；[实体与运动控制设计.md](./多通道同步/实体与运动控制设计.md) §7） |
