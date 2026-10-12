@@ -159,6 +159,24 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must
 - Inject/mock/stub OK in **comments/code**; keep separate from true-packet E2E scenarios.
 - Config: assert **rules** (e.g. channelId 0 starts Host; runtime addr == `engine.config.*`; default ≡ loaded `main.json`). Do **not** hardcode full JSON field tables (ports/sizes) unless `[golden]` / characterization and reference update is explicit.
 
+### Case comment (required)
+
+**Every** `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must have this block comment immediately above it. The template is the steady state, not a rule for new cases only.
+
+**过渡（当前）**：大量既有用例还没有这块注释。缺注释的旧用例先留着，不要在无关改动里顺手补全，也不要一次扫完全部文件。补注释走逐条审核：先判断这条用例是否还该留，人确认后再写注释。审核或改动到的那一条，离开时必须带上注释。
+
+1. **第一句**：场景 + 目的，一句说完。有验收码时，同句带上设计文档章节和码。
+2. **其后**：只写标题里看不出的重要细节——验什么、不验什么、某条断言为什么写成这样。禁止逐行复述代码。
+
+```cpp
+// =============================================================================
+// 握手完成后 Host 连发数据面 IGCtrl，核对 IG 解出的 FrameCntr 是否跟着 Host 帧号走
+// （状态同步设计.md §10，码 CIGI-frame-cntr）。
+// 不验收到达条数：严格递增，且不超前于当时已发出的最大帧号。
+// 一次 drainIncoming 可能消化多条积压，故不要求本轮 last == 本轮发送号。
+// =============================================================================
+```
+
 ### Hard bans
 
 ```text
@@ -170,6 +188,8 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must
 ❌ Title: "queue-injected Host eye…"
 ❌ REQUIRE every main.json literal (8000, 640, …) in acceptance tests
 ❌ TEST_CASE / SCENARIO with no PREFIX-slug 验收码 tag
+❌ Case under review or being edited leaves without the leading comment (scenario + purpose, then non-obvious details only)
+❌ Mass-fill comments on cases not under review, or add the comment before the case is confirmed worth keeping
 ❌ Rename / reuse / reshuffle an assigned 验收码; serial numbers as PK
 ❌ Dump unit-test lists into ENT/CLK product 验收 tables
 
@@ -181,6 +201,7 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must
 ✅ Title: "linked IG applies Host eye…"; queue in comment
 ✅ Compare to loadEngineChannelConfig / engine.config
 ✅ `[CIGI-ownship-lla]` same-name tag; new codes registered in the owning 「验收要点」
+✅ Leading comment: one sentence of scenario + purpose, then why a check is shaped that way
 ```
 
 ### AI + tests
@@ -198,6 +219,7 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must
 5. One receivable outcome per Scenario.
 6. No technique words in Scenario titles; Then is deterministic.
 7. No new hardcoded config snapshot tables without explicit golden/characterization intent.
+8. Every case needs the leading comment (scenario + purpose, then only non-obvious details). Transition: untouched legacy cases may lack it; a case reviewed or edited this turn must have it, and only after that case is confirmed worth keeping.
 
 ---
 
