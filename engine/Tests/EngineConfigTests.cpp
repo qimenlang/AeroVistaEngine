@@ -4,8 +4,8 @@
 #include "InitialCameraConfig.h"
 #include "engine.h"
 #include <aerovista/sync/HostSync.h>
+#include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SyncConfig.h>
-#include <aerovista/sync/SynchronSystem.h>
 
 #include <cmath>
 #include <cstdint>
@@ -585,7 +585,7 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
 
             THEN("no IG is started")
             {
-                REQUIRE_FALSE(engine.synchronSystem().hasIg());
+                REQUIRE_FALSE(engine.hasIg());
             }
         }
     }
@@ -632,8 +632,8 @@ SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd]
 
             THEN("IG runs with addresses from the loaded config")
             {
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(igConfigEquals(engine.synchronSystem().addressConfig(), *engine.config.igConfig));
+                REQUIRE(engine.hasIg());
+                REQUIRE(igConfigEquals(engine.igSync().addressConfig(), *engine.config.igConfig));
             }
         }
     }
@@ -654,8 +654,8 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
 
             THEN("IG is started")
             {
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(igConfigEquals(engine.synchronSystem().addressConfig(), *engine.config.igConfig));
+                REQUIRE(engine.hasIg());
+                REQUIRE(igConfigEquals(engine.igSync().addressConfig(), *engine.config.igConfig));
             }
         }
     }
@@ -703,7 +703,7 @@ SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance]
 
             THEN("sync stays off despite channelId 0")
             {
-                REQUIRE_FALSE(engine.synchronSystem().hasIg());
+                REQUIRE_FALSE(engine.hasIg());
             }
         }
     }
@@ -727,8 +727,8 @@ SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[a
             THEN("init succeeds even though IG cannot connect")
             {
                 REQUIRE(engine.init());
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE_FALSE(engine.synchronSystem().igLinked());
+                REQUIRE(engine.hasIg());
+                REQUIRE_FALSE(engine.igLinked());
             }
         }
     }
@@ -750,8 +750,8 @@ SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init whe
             THEN("init succeeds (default requireConnectedIg is false, no derivation)")
             {
                 REQUIRE(engine.init());
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE_FALSE(engine.synchronSystem().igLinked());
+                REQUIRE(engine.hasIg());
+                REQUIRE_FALSE(engine.igLinked());
             }
         }
     }
@@ -796,8 +796,8 @@ SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "
             THEN("init succeeds and IG is linked")
             {
                 REQUIRE(engine.init());
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(engine.synchronSystem().igLinked());
+                REQUIRE(engine.hasIg());
+                REQUIRE(engine.igLinked());
             }
         }
     }

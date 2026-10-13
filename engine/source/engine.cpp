@@ -7,7 +7,6 @@
 #include "function/scene/GroundGrid.h"
 
 #include <aerovista/sync/IgSync.h>
-#include <aerovista/sync/SynchronSystem.h>
 #include <vsgXchange/all.h>
 
 #include "CigiEntityCtrlV4.h"
@@ -27,7 +26,8 @@
 #include <vector>
 
 using aerovista::sync::IgConfig;
-using aerovista::sync::SynchronSystem;
+using aerovista::sync::IgSync;
+using aerovista::sync::SyncSystemConfig;
 
 namespace
 {
@@ -426,19 +426,35 @@ namespace
             << std::setfill(' ');
         return oss.str();
     }
+
+    // initialize 失败，或 connect 失败且 requireConnectedIg，返回空。
+    // 连失败但允许未就绪时留下对象，调用方还可再 connect。
+    std::unique_ptr<IgSync> openIg(const IgConfig& igConfig, const SyncSystemConfig& syncSystem)
+    {
+        auto ig = std::make_unique<IgSync>();
+        if (!ig->initialize(igConfig.udpPortRecv, syncSystem.channelId))
+        {
+            std::cerr << "Engine: IgSync initialize failed\n";
+            return nullptr;
+        }
+        if (!ig->connect(igConfig.target) && syncSystem.requireConnectedIg)
+        {
+            std::cerr << "Engine: IgSync connect failed\n";
+            return nullptr;
+        }
+        return ig;
+    }
 } // namespace
 
 Engine::Engine()
 {
-    _synchronSystem = SynchronSystem::create();
     // 默认匹配 default.json（无 -c）：仅图形，同步关闭。
     loadConfig(defaultConfigPath());
 }
 
 Engine::~Engine()
 {
-    if (_synchronSystem)
-        _synchronSystem->shutdown();
+    _ig.reset();
     // 释放 Vulkan 对象，使含多个 Engine 的 Catch 套件保持在设备数限制内。
     _viewer = {};
     _window = {};
@@ -480,9 +496,14 @@ void Engine::applyConfigToEngine()
     // 窗口可见性始终是 Engine::showWindow（默认 true）；不来自配置。
 }
 
-SynchronSystem& Engine::synchronSystem()
+IgSync& Engine::igSync()
 {
-    return *_synchronSystem;
+    return *_ig;
+}
+
+bool Engine::igLinked() const
+{
+    return _ig && _ig->linked();
 }
 
 vsg::ref_ptr<vsg::Window> Engine::mainWindow() const
@@ -779,13 +800,18 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
     // 写入 config.igConfig，供场景装配（ensureEllipsoidModel）按「有无 igConfig」注入椭球。
     config.igConfig = igConfig;
     // offset 由 CameraDriver 持有；写相机在 update / stepSync。
-    // SynchronSystem 用 requireConnectedIg 决定 connect 失败是否拒绝；channelId 写入 IgSync HELLO。
+    // requireConnectedIg 决定 connect 失败是否拒绝；channelId 写入 IgSync HELLO。
     _cameraDriver.resetEyeCaches();
     _cameraDriver.setOffsetDeg(syncSystem.offsetDeg);
 
-    // IG：SynchronSystem（IG 收发端点）；igConfig 为空时 initialize 仅清空旧 IG。
-    if (!_synchronSystem->initialize(igConfig, syncSystem))
-        return false;
+    // igConfig 为空时只拆掉旧 IG。
+    _ig.reset();
+    if (igConfig.has_value())
+    {
+        _ig = openIg(*igConfig, syncSystem);
+        if (!_ig)
+            return false;
+    }
 
     // 业务回调注册（眼点/命令实体）独立成方法；报文自检订阅在 PacketProbeHandler::bindRecvProbes。
     registerIgCallbacks();
@@ -795,9 +821,9 @@ bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemC
 
 void Engine::registerIgCallbacks()
 {
-    if (!_synchronSystem->hasIg())
+    if (!_ig)
         return;
-    auto& ig = _synchronSystem->igSync();
+    auto& ig = *_ig;
 
     // 命令实体位姿 + ownship 眼点：同一 PacketID（EntityPositionCtrlV4）跨链路多播
     // （状态同步设计初版.md §4.1）。两个回调按 EntityID 分流（眼点==0 / 命令实体≠0）。
@@ -1002,7 +1028,7 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
 
         // 报文自检发送（IG 侧）：F9 随机 TCP 上行 / F10 发 SOF（UDP 上行），与 viewhost testtcp/testudp 对称。
         auto probeHandler = PacketProbeHandler::create();
-        probeHandler->ig = (_synchronSystem && _synchronSystem->hasIg()) ? &_synchronSystem->igSync() : nullptr;
+        probeHandler->ig = _ig ? _ig.get() : nullptr;
         probeHandler->lastSentName = &_lastSentPacketName;
         _viewer->addEventHandler(probeHandler);
 
@@ -1108,8 +1134,10 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
 void Engine::preFrame()
 {
     // _scene 更新前收包解包（不写相机；合成在订阅回调，写相机在 update）。
-    if (_synchronSystem)
-        _synchronSystem->preFrame();
+    if (!_ig)
+        return;
+    _ig->drainIncoming(true);
+    _ig->update();
 }
 
 bool Engine::update()
@@ -1132,7 +1160,7 @@ bool Engine::update()
 
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(1);
-        if (_synchronSystem && _synchronSystem->hasIg() && _synchronSystem->igCtrlReceivedCount() > 0)
+        if (_ig && _ig->igCtrlReceivedCount() > 0)
             oss << frameStatsIgCtrlLine();
         else
             oss << "IGCtrl: ---\n";
@@ -1153,10 +1181,10 @@ bool Engine::update()
 
 std::string Engine::frameStatsIgCtrlLine() const
 {
-    // 调用方已确认 hasIg 且 igCtrlReceivedCount>0。
+    // 调用方已确认 _ig 且 igCtrlReceivedCount>0。
     std::ostringstream oss;
-    oss << "IGCtrl: " << _synchronSystem->lastIgCtrlFrameCntr() << ":"
-        << formatSimTimeUsParts(_synchronSystem->simTimeUs()) << "\n";
+    oss << "IGCtrl: " << _ig->lastIgCtrlFrameCntr() << ":"
+        << formatSimTimeUsParts(_ig->simTimeUs()) << "\n";
     return oss.str();
 }
 

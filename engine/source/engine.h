@@ -19,7 +19,7 @@ class CigiEntityPositionCtrlV4;
 
 namespace aerovista::sync
 {
-    class SynchronSystem;
+    class IgSync;
 }
 
 class Engine
@@ -56,7 +56,12 @@ public:
     bool captureToFile(const vsg::Path& outputPngPath);
     void run();
 
-    aerovista::sync::SynchronSystem& synchronSystem();
+    /// 已创建 IgSync（`igConfig` 非空且 initialize 成功）。未连接时仍为 true。
+    bool hasIg() const { return static_cast<bool>(_ig); }
+    /// 调用方须先 `hasIg()`。
+    aerovista::sync::IgSync& igSync();
+    /// TCP 与 UDP 都就绪；没有 IG 时为 false。
+    bool igLinked() const;
     bool hasGraphics() const { return static_cast<bool>(_viewer); }
 
     /// 屏上 vsg 窗口（showWindow=false / offscreen 时为空）。
@@ -167,7 +172,7 @@ private:
     vsg::dvec3 _aabbCentre{0.0, 0.0, 0.0};
     double _aabbRadius = 0.0;
 
-    std::unique_ptr<aerovista::sync::SynchronSystem> _synchronSystem;
+    std::unique_ptr<aerovista::sync::IgSync> _ig;
     CameraDriver _cameraDriver;
     /// 实体表：id → Entity（启动预建与运行期 EntityCtrl / EntityPositionCtrl 共用，实体管理设计.md）。
     std::unordered_map<int, Entity> _entityMap;

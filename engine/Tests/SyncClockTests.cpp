@@ -7,7 +7,6 @@
 #include "engine.h"
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
-#include <aerovista/sync/SynchronSystem.h>
 
 #include <chrono>
 #include <cstdint>
@@ -77,7 +76,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 
             THEN("IG simulation time is anchored on the Host time stamp and advances with local elapsed")
             {
-                IgSync& ig = engineB.synchronSystem().igSync();
+                IgSync& ig = engineB.igSync();
                 REQUIRE(ig.igCtrlReceivedCount() > 0);
                 REQUIRE(ig.lastIgCtrlFrameCntr() > 0);
 
@@ -133,8 +132,8 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
 
             THEN("both IGs anchor on the same Host time stamp and stay within a small difference")
             {
-                IgSync& igB = engineB.synchronSystem().igSync();
-                IgSync& igC = engineC.synchronSystem().igSync();
+                IgSync& igB = engineB.igSync();
+                IgSync& igC = engineC.igSync();
                 REQUIRE(igB.igCtrlReceivedCount() > 0);
                 REQUIRE(igC.igCtrlReceivedCount() > 0);
 
@@ -189,7 +188,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
         REQUIRE(hostA.readyIgCount() == 1);
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
-        engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
+        engineB.igSync().setExtrapolateTimeoutUs(50000); // 50ms
 
         WHEN("Host sends a few frames then stops, while the IG keeps ticking")
         {
@@ -199,8 +198,8 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
                 hostSendFrame(hostA);
                 engineB.tickSync();
             }
-            REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
-            REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
+            REQUIRE(engineB.igSync().igCtrlReceivedCount() > 0);
+            REQUIRE_FALSE(engineB.igSync().frozen());
 
             // Host 停止后，只有 IG 持续 tick，超过 50ms 后冻结。
             for (int i = 0; i < 20; ++i)
@@ -211,7 +210,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 
             THEN("the IG enters frozen state and sim time stops advancing")
             {
-                IgSync& ig = engineB.synchronSystem().igSync();
+                IgSync& ig = engineB.igSync();
                 REQUIRE(ig.frozen());
 
                 // 冻结：simTimeUs 保持恒定，不再随本地流逝推进。
@@ -242,7 +241,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 
         WHEN("the Host pauses between frames and then sends the next time stamp")
         {
-            IgSync& ig = engineB.synchronSystem().igSync();
+            IgSync& ig = engineB.igSync();
 
             // 契约只需要两个已确认的 Host 时间戳，中间夹一次墙钟暂停。
             // 不能「发完立刻 tick 再钉死收包数」：CI 上回环 UDP 经常晚一拍到达。
@@ -286,7 +285,7 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
         REQUIRE(hostA.readyIgCount() == 1);
 
         // 设置冻结阈值（真实链路几帧内就会触发，否则默认 200ms）。
-        engineB.synchronSystem().igSync().setExtrapolateTimeoutUs(50000); // 50ms
+        engineB.igSync().setExtrapolateTimeoutUs(50000); // 50ms
 
         WHEN("Host and IG tick normally, then the Host goes offline while the IG keeps ticking")
         {
@@ -296,8 +295,8 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
                 hostSendFrame(hostA);
                 engineB.tickSync();
             }
-            REQUIRE(engineB.synchronSystem().igSync().igCtrlReceivedCount() > 0);
-            REQUIRE_FALSE(engineB.synchronSystem().igSync().frozen());
+            REQUIRE(engineB.igSync().igCtrlReceivedCount() > 0);
+            REQUIRE_FALSE(engineB.igSync().frozen());
 
             // hostA 关闭（等价于 Host 进程退出，关闭 TCP/UDP），B 持续 tick，超过冻结阈值。
             hostA.shutdown();
@@ -310,7 +309,7 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
 
             THEN("the IG enters frozen state and sim time stops advancing")
             {
-                IgSync& ig = engineB.synchronSystem().igSync();
+                IgSync& ig = engineB.igSync();
                 REQUIRE(ig.frozen());
 
                 // 冻结：simTimeUs 保持恒定，不再随本地流逝推进。

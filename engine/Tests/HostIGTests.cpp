@@ -8,7 +8,6 @@
 #include <aerovista/sync/IgSync.h>
 #include <aerovista/sync/SyncConfig.h>
 #include <aerovista/sync/SyncInterface.h>
-#include <aerovista/sync/SynchronSystem.h>
 
 #include "CigiBaseEntityPositionCtrl.h"
 #include "CigiEntityPositionCtrlV4.h"
@@ -38,7 +37,6 @@ using aerovista::sync::IgConfig;
 using aerovista::sync::IgStatus;
 using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
-using aerovista::sync::SynchronSystem;
 using aerovista::sync::SyncInterface;
 using aerovista::sync::SyncSystemConfig;
 using aerovista::sync::TcpSocket;
@@ -162,7 +160,7 @@ namespace
 } // namespace
 
 // =============================================================================
-// 3. Engine + SynchronSystem 集成（CIGI 帧交换契约；握手为 CIGI HELLO + UDP_SYNC）
+// 3. Engine + IgSync 集成（CIGI 帧交换契约；握手为 CIGI HELLO + UDP_SYNC）
 // =============================================================================
 
 SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
@@ -194,9 +192,8 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
 
             THEN("Host and IG exchanged CIGI IGCtrl/SOF")
             {
-                SynchronSystem& sync = engine.synchronSystem();
                 HostSync& hostRef = host.sync;
-                IgSync& ig = sync.igSync();
+                IgSync& ig = engine.igSync();
 
                 hostRef.drainIncoming();
                 REQUIRE(hostRef.igCtrlSentCount() == kTicks);
@@ -244,9 +241,9 @@ SCENARIO("three IG Engines exchange CIGI frame control across one independent Ho
             THEN("each IG got about N CIGI IGCtrl and Host got about N times 3 SOF")
             {
                 HostSync& hostRef = host.sync;
-                IgSync& igA = engineA.synchronSystem().igSync();
-                IgSync& igB = engineB.synchronSystem().igSync();
-                IgSync& igC = engineC.synchronSystem().igSync();
+                IgSync& igA = engineA.igSync();
+                IgSync& igB = engineB.igSync();
+                IgSync& igC = engineC.igSync();
 
                 hostRef.drainIncoming();
                 REQUIRE(hostRef.igCtrlSentCount() == kTicks);
@@ -342,7 +339,7 @@ namespace
         if (vsg::length(forwardEcef) < 1e-12)
             return false;
 
-        // 与 Engine/SynchronSystem 一致：ENU 经 LocalToWorld 列（§3.3 写的逆）。
+        // 与 setCameraPoseLla 一致：ENU 经 LocalToWorld 列（§3.3 写的逆）。
         const vsg::dmat4 localToWorld = ellipsoid.computeLocalToWorldTransform(llaOut);
         const vsg::dvec3 east = vsg::normalize(vsg::dvec3(localToWorld(0, 0), localToWorld(0, 1), localToWorld(0, 2)));
         const vsg::dvec3 north = vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
@@ -503,9 +500,11 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
         REQUIRE(engine.init(modelPath));
 
         const IgConfig igCfg = makeIgLocalEye(18001, 18000);
-        // Host 未启动 → Connect 失败，但仍完成本地 Init。
-        REQUIRE(engine.synchronSystem().initialize(igCfg, SyncSystemConfig{/*requireConnectedIg=*/false}));
-        REQUIRE_FALSE(engine.synchronSystem().igLinked());
+        // Host 未启动 → connect 失败，requireConnectedIg=false 仍完成本地 Init。
+        SyncSystemConfig unlinked;
+        unlinked.requireConnectedIg = false;
+        REQUIRE(engine.initSync(igCfg, unlinked));
+        REQUIRE_FALSE(engine.igLinked());
 
         const ChannelEye localPose{{39.9, 116.4, 400.0}, {10.0, 0.0, 0.0}};
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {45.0, 0.0, 0.0}};
@@ -537,7 +536,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
         TestHost host;
         REQUIRE(host.init(18000));
         REQUIRE(engine.init(modelPath, makeIgOnlyRole(18001, 18000)));
-        REQUIRE(engine.synchronSystem().igLinked());
+        REQUIRE(engine.igLinked());
 
         const ChannelEye localPose{{39.9, 116.4, 400.0}, {10.0, 0.0, 0.0}};
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {45.0, 0.0, 0.0}};
@@ -612,10 +611,10 @@ SCENARIO("after disconnect, camera keeps the last Host eye pose",
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {25.0, 0.0, 0.0}};
         engine.cameraDriver().compose(hostPose);
         engine.stepSync();
-        REQUIRE(engine.synchronSystem().igLinked());
+        REQUIRE(engine.igLinked());
 
-        engine.synchronSystem().igSync().shutdown();
-        REQUIRE_FALSE(engine.synchronSystem().igLinked());
+        engine.igSync().shutdown();
+        REQUIRE_FALSE(engine.igLinked());
 
         WHEN("local pose is changed and update runs while disconnected")
         {
@@ -739,8 +738,8 @@ namespace
                     return;
                 for (Engine* ig : {&b, &c})
                 {
-                    if (ig->synchronSystem().hasIg() && !ig->synchronSystem().igSync().udpSynced())
-                        ig->synchronSystem().igSync().connect(ig->config.igConfig->target);
+                    if (ig->hasIg() && !ig->igSync().udpSynced())
+                        ig->igSync().connect(ig->config.igConfig->target);
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
@@ -1197,8 +1196,8 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         {
             if (host.readyIgCount() == 2)
                 break;
-            if (engineB.synchronSystem().hasIg() && !engineB.synchronSystem().igSync().udpSynced())
-                engineB.synchronSystem().igSync().connect(engineB.config.igConfig->target);
+            if (engineB.hasIg() && !engineB.igSync().udpSynced())
+                engineB.igSync().connect(engineB.config.igConfig->target);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         REQUIRE(host.readyIgCount() == 2);
@@ -1313,7 +1312,12 @@ SCENARIO("linked IG receives Host longitude wrapped into (-180,180]",
     }
 }
 
-SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown",
+// =============================================================================
+// 重建图形时清空已合成眼点，IG 连接保持
+// （lla位姿传输设计.md §4.3，码 LLA-cache-reset）。
+// initGraphics 走 resetGraphicsResources，不拆 IgSync。
+// =============================================================================
+SCENARIO("initGraphics clears the applied eye cache while the IG link stays up",
          "[acceptance][bdd][sync][lla][cache-reset][LLA-cache-reset]")
 {
     GIVEN("a linked IG Engine with an applied Host eye")
@@ -1327,7 +1331,7 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
         TestHost host;
         REQUIRE(host.init(kBase));
         REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
-        REQUIRE(engine.synchronSystem().igLinked());
+        REQUIRE(engine.igLinked());
 
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {12.0, 0.0, 0.0}};
         engine.cameraDriver().setOffsetDeg({});
@@ -1335,17 +1339,17 @@ SCENARIO("initGraphics clears SynchronSystem eye caches without network shutdown
         engine.stepSync();
 
         REQUIRE(engine.cameraDriver().lastAppliedEye().has_value());
-        REQUIRE(engine.synchronSystem().hasIg());
+        REQUIRE(engine.hasIg());
 
-        WHEN("initGraphics rebuilds the scene without SynchronSystem::shutdown")
+        WHEN("initGraphics rebuilds the scene without dropping the IG link")
         {
             REQUIRE(engine.initGraphics(modelPath));
 
             THEN("eye caches are empty while IG link remains")
             {
                 REQUIRE_FALSE(engine.cameraDriver().lastAppliedEye().has_value());
-                REQUIRE(engine.synchronSystem().hasIg());
-                REQUIRE(engine.synchronSystem().igLinked());
+                REQUIRE(engine.hasIg());
+                REQUIRE(engine.igLinked());
             }
         }
     }
@@ -1372,7 +1376,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         std::string error;
         REQUIRE(loadHostConfig(viewhostFile.path(), host, &error));
 
-        // viewhost 纯 Host：直接持 HostSync（直发，不经 SynchronSystem 门面）。
+        // viewhost 纯 Host：直接持 HostSync。
         auto viewhost = std::make_unique<HostSync>();
         REQUIRE(viewhost->initialize(host));
         viewhost->run();
@@ -1386,20 +1390,20 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         WHEN("both link over TCP and UDP handshake")
         {
             connectUntil([&] {
-                return viewhost->readyIgCount() >= 1 && engineIg.synchronSystem().igLinked();
+                return viewhost->readyIgCount() >= 1 && engineIg.igLinked();
             });
 
             THEN("viewhost sees one ready IG")
             {
                 REQUIRE(viewhost->readyIgCount() == 1);
-                REQUIRE(engineIg.synchronSystem().igLinked());
+                REQUIRE(engineIg.igLinked());
             }
 
             THEN("CIGI IGCtrl flows Host→IG and SOF flows IG→Host")
             {
                 viewhost->drainIncoming();
                 const std::uint32_t sentBefore = viewhost->igCtrlSentCount();
-                const std::uint32_t recvBefore = engineIg.synchronSystem().igSync().igCtrlReceivedCount();
+                const std::uint32_t recvBefore = engineIg.igSync().igCtrlReceivedCount();
                 const std::uint32_t sofBefore = viewhost->sofReceivedCount();
 
                 constexpr int kTicks = 5;
@@ -1411,7 +1415,7 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
 
                 viewhost->drainIncoming();
                 REQUIRE(viewhost->igCtrlSentCount() > sentBefore);
-                REQUIRE(engineIg.synchronSystem().igSync().igCtrlReceivedCount() > recvBefore);
+                REQUIRE(engineIg.igSync().igCtrlReceivedCount() > recvBefore);
                 REQUIRE(viewhost->sofReceivedCount() > sofBefore);
             }
         }
