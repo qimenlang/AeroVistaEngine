@@ -13,16 +13,16 @@ Authority: `CONTRIBUTING.md`. Match `vsg::` style; **do not** use Google C++ nam
 | Kind                             | Style                | Example                       |
 | -------------------------------- | -------------------- | ----------------------------- |
 | Namespace                        | lowercase            | `aerovista`                   |
-| Types (class/struct/enum)        | PascalCase           | `SynchronSystem`              |
+| Types (class/struct/enum)        | PascalCase           | `HostSync`              |
 | Methods / free functions         | camelCase            | `initialize`, `renderOneTick` |
 | Public data                      | camelCase, no prefix | `extent`                      |
-| Private / protected              | `_camelCase`         | `_syncSystem`                 |
+| Private / protected              | `_camelCase`         | `_hostSync`                 |
 | Locals / params                  | camelCase            | `modelPath`                   |
 | Ctor params shadowing members    | `in_` + camelCase    | `in_matrix`                   |
 | Container aliases                | PascalCase plural    | `Children`                    |
 | Enum **values** / feature macros | SCREAMING_SNAKE      | `ONE_TIME`, `AEROVISTA_…`     |
 | `static constexpr` values        | camelCase            | `nearFarRatio`                |
-| Main-class files                 | match class name     | `SynchronSystem.h/.cpp`       |
+| Main-class files                 | match class name     | `HostSync.h/.cpp`       |
 
 ## Hard bans (new engine code)
 

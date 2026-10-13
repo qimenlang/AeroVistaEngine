@@ -11,7 +11,7 @@
 1. [目标与范围](#1-目标与范围)
 2. [EllipsoidModel 装配](#2-ellipsoidmodel-装配)
 3. [位姿语义](#3-位姿语义)
-4. [Engine / SynchronSystem 路径](#4-engine--synchronsystem-路径)
+4. [Engine / IgSync 路径](#4-engine--igsync-路径)
 5. [报文（CIGI）](#5-报文cigi)
 6. [配置](#6-配置)
 7. [验收要点](#7-验收要点)
@@ -227,7 +227,7 @@ R_ig   = R_host · Rz(δy) · Rx(δp) · Ry(δr)           // offset 右乘：�
 反解 R_ig 得 composed YPR（与写约定同一套）→ 写 LookAt（lla 不变）
 ```
 
-实现为 `CameraDriver::compose`（本地 / 椭球同一套；2026-09 从 SynchronSystem 上移至 Engine，再抽出为 CameraDriver 辅助组件）。左 `+hFOV`、右 `−hFOV` 符号不变（§3.2）。
+实现为 `CameraDriver::compose`（本地 / 椭球同一套；2026-09 从已删除的 `SynchronSystem` 上移至 Engine，再抽出为 CameraDriver 辅助组件）。左 `+hFOV`、右 `−hFOV` 符号不变（§3.2）。
 
 #### 仅 yaw 偏移：`R_ig = R_host · Rz(δ)`，up 轴平行（严格成立）
 
@@ -273,7 +273,7 @@ M_inv   = computeWorldToLocalTransform(lla)
 
 ---
 
-## 4. Engine / SynchronSystem 路径
+## 4. Engine / IgSync 路径
 
 ### 4.1 API
 
@@ -330,7 +330,7 @@ postFrame:
 | 缓存 | 动作 |
 | --- | --- |
 | `CameraDriver::_lastApplied` | **清空**（`resetEyeCaches()`） |
-| 触发点 | `Engine::initSync`；`resetGraphicsResources`（`initGraphics` 重建场景后走同一调用链）。**不必**整网 `SynchronSystem::shutdown` |
+| 触发点 | `Engine::initSync`；`resetGraphicsResources`（`initGraphics` 重建场景后走同一调用链）。**不必**拆掉 `IgSync` |
 
 热重载 / 测试里只重建图形时必须走上述触发点，否则旧合成位姿会写回新相机。
 

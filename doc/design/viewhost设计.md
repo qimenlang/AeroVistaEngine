@@ -35,7 +35,7 @@
 
 ### 1.2 非目标
 
-- 不实现真实 IG 侧渲染 / 决策（那是 `Engine` + `SynchronSystem` 的职责）。
+- 不实现真实 IG 侧渲染 / 决策（那是 `Engine` + `CameraDriver` 的职责；传输是 `IgSync`）。
 - 不改动 viewhost ↔ IG 的握手与双平面；`flushTcp`/`flushUdp` 调用方发送（中继：切齐字节在 UI 线程原样 `sendAll`/`sendto`；下行 `IGCtrl` / 回程 Host TCP 队列只入 master；数据面 UDP IGCtrl 取出后 `packSof`；master UDP 业务包经 `SOF'` 转平台），见 [平台同步设计.md](./平台同步设计.md) §6.1–§6.3 / §8 与 [状态同步设计.md](./多通道同步/状态同步设计.md) §7.2。
 - 正式运行不把本进程夹在平台与 IG 之间；不与平台合并进程。
 - 不做边缘融合、精标定、精时钟（RTT / PTP）。

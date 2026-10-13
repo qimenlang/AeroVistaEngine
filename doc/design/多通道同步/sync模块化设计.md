@@ -19,18 +19,17 @@
 vsgEngine (exe)
   └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
        ├→ AeroVistaConfig   （JSON 契约辅助：thirdparty/config；语法走 nlohmann/json）
-       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + HostDriver + IG 收发端点）
+       └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + HostDriver）
             ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / SyncInterface / HostSync / IgSync / RttTracker / NetProbe
             │           / SyncConfig
             ├─ Host 任务状态：HostDataManager（权威表，不持 socket）
             ├─ HostDriver：HostSync + HostDataManager + 可选虚 IgSync（viewhost 直接使用；含中继）
-            ├─ IG 收发端点：SynchronSystem（收包 + IgSync 帧维护 + 连接查询）
             └─ 外部依赖：cigicl-static、AeroVistaConfig、ws2_32
 ```
 
-- 库含传输层、**Host 任务状态**（`HostDataManager`）、**HostDriver**（`HostSync` + 权威数据 + 可选虚 `IgSync`）与 IG 收发端点。viewhost 直接持 `HostDriver`。engine 仅 IG。
+- 库含传输层、**Host 任务状态**（`HostDataManager`）、**HostDriver**（`HostSync` + 权威数据 + 可选虚 `IgSync`）。viewhost 直接持 `HostDriver`。engine 直接持 `IgSync`。
 - 库公开接口零 vsg；sync 实现 TU 不 `#include <vsg/...>`（眼点数学在 engine `CameraDriver`）。不依赖 `Engine`。vsg 依赖策略见 §3.0。
-- **命名空间**：库公开类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::SynchronSystem`、`aerovista::sync::HostDriver`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON 契约辅助在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。
+- **命名空间**：库公开类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::IgSync`、`aerovista::sync::HostDriver`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON 契约辅助在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。
 
 ### 1.3 非目标
 
@@ -44,7 +43,7 @@ vsgEngine (exe)
 - 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`RttTracker`/`NetProbe`/`SyncConfig`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - `HostDriver` **零 vsg、零 Engine**：持有 `HostSync` + `HostDataManager`；中继时另持虚 `IgSync`。viewhost 直接使用。报文自检 / 命令行也在本类（[viewhost设计.md](../viewhost设计.md) §4.0）。
-- IG 收发端点（`SynchronSystem`）公开接口零 vsg、不依赖 Engine：收包解包 + IgSync 帧维护 + `igLinked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。
+- `IgSync` **零 vsg、零 Engine**：UDP bind、`connect`、收包解包、帧维护、`linked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。空 `igConfig` 与 `requireConnectedIg` 由 `Engine::initSync` 决定。
 - 配置类型（`OffsetDeg`/`IgConfig`/`HostTarget`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
@@ -52,14 +51,13 @@ vsgEngine (exe)
 
 ### 3.0 vsg 依赖策略
 
-**消除的是对 `Engine`（宿主引擎类）的依赖；公开接口与实现 TU 均零 vsg。** 分两层：
+**消除的是对 `Engine`（宿主引擎类）的依赖；公开接口与实现 TU 均零 vsg。**
 
-- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`RttTracker`/`NetProbe`/`SyncConfig`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
-- **IG 收发层**（`SynchronSystem`）：**公开接口零 vsg、不依赖 Engine**。只负责收包解包 + IgSync 帧维护 + 连接状态查询（`igLinked()`）。眼点合成（offset）在 Engine `CameraDriver`（`engine/source/function/driver/`），写相机在 `Engine::applyLastHostEye`；SynchronSystem 不触碰眼点决策，也不承担 Host 采样/扇出（数据流，见 §3.1）。
+- **传输层**（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`RttTracker`/`NetProbe`/`SyncConfig`）：**零 vsg、零 Engine**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。`IgSync` 只做收发与帧维护（`linked()`）；眼点合成（offset）在 Engine `CameraDriver`（`engine/source/function/driver/`），写相机在 `Engine::applyLastHostEye`（数据流，见 §3.1）。
 
 vsg 的分层：
 
-1. **公开边界零 vsg**：`OffsetDeg` 为自有 POD（`SyncConfig.h`），不暴露 `vsg::dvec3`；眼点不进 sync 公开头（engine `ChannelEye` 用 `vsg::dvec3`，viewhost 用 `cigi_wire::EyePose`）。`SynchronSystem` 工厂返回 `std::unique_ptr`。消费方（含无 vsg 的 viewhost）编译期零 vsg 头。
+1. **公开边界零 vsg**：`OffsetDeg` 为自有 POD（`SyncConfig.h`），不暴露 `vsg::dvec3`；眼点不进 sync 公开头（engine `ChannelEye` 用 `vsg::dvec3`，viewhost 用 `cigi_wire::EyePose`）。消费方（含无 vsg 的 viewhost）编译期零 vsg 头。
 2. **眼点数学在 engine**：`CameraDriver.cpp` 使用 `vsg::dvec3` / `dquat`。sync 库实现 TU **不** `#include <vsg/...>`，CMake **不**链接 `vsg::vsg`。
 3. **同步只 LLA**：同步层只支持 LLA；`setEllipsoidMode` / `tryAcceptPendingEye` / `SyncMath.h` 已删除。`vsg::EllipsoidModel` 不进 sync 公开边界。
 
@@ -67,17 +65,24 @@ vsg 的分层：
 
 ### 3.1 相机交互：纯数据流
 
-SynchronSystem 是**IG 收发端点**，与宿主通过**数据流**交互，不持有宿主的任何相机对象。眼点合成在 `CameraDriver`（Engine 值成员，无 `Engine&` 回指）；写相机在 `Engine::applyLastHostEye`。采用数据流而非接口回调的原因：宿主继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。
+`IgSync` 是 IG 传输端点，与宿主通过**数据流**交互，不持有宿主的任何相机对象。Engine 直接持有 `std::unique_ptr<IgSync>`（空 = 不启 IG）。眼点合成在 `CameraDriver`（Engine 值成员，无 `Engine&` 回指）；写相机在 `Engine::applyLastHostEye`。采用数据流而非接口回调的原因：宿主继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。
 
 ```cpp
-// SynchronSystem（sync 库，IG 收发端点）：
-
-void preFrame();                                       // 收包解包 + IgSync 帧维护
-bool igLinked() const;                                 // TCP+UDP 就绪（连接观测）
-std::uint32_t igCtrlReceivedCount() const;             // 生产路径观测（HUD）
+// IgSync（sync 库，IG 传输）：
+bool initialize(int udpPortRecv, int channelId = 0);
+bool connect(const HostTarget& target);
+void drainIncoming(bool sendSof = true);               // 收包解包；处理 IGCtrl 时回 SOF
+void update();                                         // 帧级维护（冻结 / RUNNING）
+bool linked() const;                                   // TCP+UDP 就绪
+std::uint32_t igCtrlReceivedCount() const;             // HUD
 std::uint32_t lastIgCtrlFrameCntr() const;
 std::uint64_t simTimeUs() const;
-IgSync& igSync();                                      // 测试与上行探测
+
+// Engine（持有 unique_ptr<IgSync>）：
+bool hasIg() const;
+IgSync& igSync();                                      // 回调注册、上行探测、地址
+bool igLinked() const;                                 // 无 IG 时 false
+void preFrame();                                       // drainIncoming(true) + update()
 
 // CameraDriver（Engine 值成员；不持 Engine / 相机）：
 void onOwnshipEyePose(const CigiEntityPositionCtrlV4& pose); // 眼点回调入口（Engine 转发）
@@ -85,15 +90,15 @@ ChannelEye compose(const ChannelEye& host);            // 通道偏移合成，�
 std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 // 宿主（IG 侧）每帧：
-//   SynchronSystem::preFrame() 收包 → Engine::applyLastHostEye() 写相机（每帧一次）
+//   Engine::preFrame() 收包 → Engine::applyLastHostEye() 写相机（每帧一次）
 //   恒 LLA → setCameraPoseLla
 //
-// Host 采样/扇出不经过 SynchronSystem：库内 HostDriver 持 HostSync，
+// Host 采样/扇出：库内 HostDriver 持 HostSync，
 //   viewhost 每帧驱动 HostDriver::update 扇出（键盘累积眼点，无采样/防回声）。
 ```
 
-- 眼点对相机的「读」全部变成**显式输入**：Host 眼点经 `SynchronSystem::preFrame()`（IG 收包）触发业务回调（Engine::registerIgCallbacks 转发到 `CameraDriver::onOwnshipEyePose`），或 `compose()`（测试注入）喂入。
-- 眼点对相机的「写」在 Engine：`applyLastHostEye` 读 `lastAppliedEye` → `setCameraPoseLla`（恒 LLA），SynchronSystem 与 CameraDriver 都不触碰相机。
+- 眼点对相机的「读」全部变成**显式输入**：Host 眼点经 `Engine::preFrame()`（`IgSync::drainIncoming`）触发业务回调（Engine::registerIgCallbacks 转发到 `CameraDriver::onOwnshipEyePose`），或 `compose()`（测试注入）喂入。
+- 眼点对相机的「写」在 Engine：`applyLastHostEye` 读 `lastAppliedEye` → `setCameraPoseLla`（恒 LLA），`IgSync` 与 CameraDriver 都不触碰相机。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
 - **Host 侧**：库内 `aerovista::sync::HostDriver` = `HostSync` + `HostDataManager` + 可选虚 `IgSync`；viewhost 直接使用。扇出（IGCtrl + 眼点）经 `HostDriver::update`；实体等权威状态经 Manager 建表、Driver 意图 API 发送（[viewhost设计.md](../viewhost设计.md) §4.0）。`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
 
@@ -117,7 +122,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
 - **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）。`thirdparty/sync/tests` 直接测 Manager（不启网络）并测 `HostDriver`（`PLT-ig-first` 等）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
 
-与 IG 侧对称关系：`IgSync`（传输）+ `SynchronSystem`（决策）；Host 侧为 `HostDriver`（持 `HostSync` + `HostDataManager` + 可选虚 `IgSync`）。`HostDataManager` 不是第二个 `SynchronSystem`（不做眼点合成），只承担 CIGI 任务状态的 last-value。
+IG 侧传输是 `IgSync`，眼点合成在 Engine `CameraDriver`。Host 侧为 `HostDriver`（持 `HostSync` + `HostDataManager` + 可选虚 `IgSync`）。`HostDataManager` 不做眼点合成，只承担 CIGI 任务状态的 last-value。
 
 ## 4. 配置设计
 
@@ -162,7 +167,7 @@ viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引�
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析 Host 进程配置。本地调试只含 `hostConfig`；中继时另含 `relay` / `igConfig`（[平台同步设计.md](../平台同步设计.md) §9）。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件（独立 IG / 外部引擎）。
-- viewhost（纯 Host）用法：直接持 `HostSync` 传输层（不经 IG 收发端点 `SynchronSystem`），`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
+- viewhost（纯 Host）用法：直接持 `HostSync` 传输层，`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
 
 ```cpp
 HostConfig host;
@@ -179,9 +184,11 @@ hostSync.run();
 
 ```cpp
 IgConfig ig;
-SyncSystemConfig syncSystem;
 loadIgConfig("ig.json", ig, &error);
-SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
+IgSync igSync;
+igSync.initialize(ig.udpPortRecv, /*channelId=*/0);
+igSync.connect(ig.target);
+// 每帧：igSync.drainIncoming(true); igSync.update();
 ```
 
 **配置形态**（schema 与 engine 侧块一致，包裹方案）：
@@ -203,10 +210,10 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 
 **验收测试**：
 - `engine/Tests/HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
-- `thirdparty/sync/tests/HostIGLinkTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `SynchronSystem`），IG 侧装配参数程序化注入（`SyncSystemConfig::offsetDeg`），双通道 CIGI 收发。
+- `thirdparty/sync/tests/HostIGLinkTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `IgSync`），`channelId` 程序化传入 `IgSync::initialize`，双通道 CIGI 收发。`offsetDeg` 由 Engine `CameraDriver` 消费，本场景不覆盖。
 - `thirdparty/sync/tests/SyncConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。
 
-### 4.2 `syncSystem` 配置组（SynchronSystem 装配属性）
+### 4.2 `syncSystem` 配置组（通道装配）
 
 `channelId`/`offsetDeg`/`requireConnectedIg` 是 **`syncSystem` 组字段**，与 engine 渲染属性、host/ig 传输属性正交。独立成组后 engine 属性 / syncSystem 属性 / ig·host 属性三类分明，配置项可自由组合成不同配置文件。
 
@@ -225,11 +232,11 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 ```
 
 **归属边界**：
-- `syncSystem` 组：`requireConnectedIg` 由 SynchronSystem 消费（connect 失败是否拒绝）；`channelId` 由 IgSync **HELLO 上报**（= 本端 `syncSystem.channelId`；[平台同步设计.md](../平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。
+- `syncSystem` 组：`requireConnectedIg` 由 `Engine::initSync` 消费（connect 失败是否拒绝）；`channelId` 由 IgSync **HELLO 上报**（= 本端 `syncSystem.channelId`；[平台同步设计.md](../平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`SynchronSystem::initialize(igConfig, syncSystem)`：`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 由 `IgSync` 填入 CIGI HELLO。engine 传入 `config.igConfig` + `config.syncSystem`；`offsetDeg` 注入 `CameraDriver`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。
+**消费路径**：`Engine::initSync(igConfig, syncSystem)`：`igConfig` 非空才建 `IgSync`；`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 由 `IgSync::initialize` 填入 CIGI HELLO；`offsetDeg` 注入 `CameraDriver`。配置路径传入 `config.igConfig` + `config.syncSystem`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。独立 IG 进程不经 Engine 时，自行 `IgSync::initialize(udpPortRecv, channelId)` + `connect`。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。`hostEyeStalePolicy` 已删除（未知键拒绝）。
 
@@ -238,12 +245,13 @@ SynchronSystem::create()->initialize(std::optional<IgConfig>{ig}, syncSystem);
 - **`SyncCameraTarget` 接口已否决**：`Engine` 继承相机目标接口语义不搭，且运行期「你传我、我调你」有回环感。改用纯数据流（§3.1）。未来若有人考虑回调式接口，先读此否决。
 - **`Network`（Boeing MPV，GPL）不使用**：UDP 收发统一走自有的 `UdpSocket`（GPL 依赖清除）。
 - **命令面桥不做接口解耦**：引擎 → sync 库方向的直调不构成反向依赖（§3.3）。
-- **`SyncRoleConfig` 已删除（2026-08）**：拆 Host 进程后 `enableHost`/`hostConfig` 无消费方（`SynchronSystem` 只看 IG 半边，HostSync 独立 `initialize(HostConfig)`）；删结构体，`SynchronSystem::initialize` 改收 `std::optional<IgConfig>`（空 = 不启 IG；engine 传入 `config.igConfig`）。
+- **`SyncRoleConfig` 已删除（2026-08）**：拆 Host 进程后 `enableHost`/`hostConfig` 无消费方（Engine 只启 IG 半边，HostSync 独立 `initialize(HostConfig)`）；删结构体，IG 启用改为 `std::optional<IgConfig>`（空 = 不启 IG；engine 传入 `config.igConfig`）。
+- **`SynchronSystem` 已删除（2026-10）**：眼点决策迁到 `CameraDriver` 之后，该类只转发 `IgSync`。Engine 直接持有 `IgSync`。`requireConnectedIg` 与「空 `igConfig` 不启 IG」留在 `Engine::initSync`；每帧由 `Engine::preFrame` 调 `drainIncoming(true)` + `update()`。
 - **`HostDataManager` 不并入 `HostSync`（2026-09）**：传输类不持实体/环境等任务状态；权威表单独类型，由 `HostDriver` 同时持有二者。未来若有人把 last-value 塞进 `HostSync`，先读 [viewhost设计.md](../viewhost设计.md) §4.0。
 - **`HostDriver` 进库（2026-09）**：`HostDriver` = `HostSync` + `HostDataManager` + 可选虚 `IgSync`；viewhost 直接使用，含中继。否决 examples 第二套 `HostDriver`。否决并入 `HostSync`。
 - **`HostEyeStalePolicy` / 双驱动器已删除（2026-09）**：断线门控与 ReuseLast/Freeze 相对收包即合成无生产差异；`CameraDriverBase`/`RawCameraDriver`/`CameraDriver` 三套收成单一 `CameraDriver`。JSON `hostEyeStalePolicy` 为未知键拒绝。
 - **`CameraDriver` 不再回指 Engine（2026-09）**：驱动器只做 CCL 翻译与 compose；写相机由 `Engine::applyLastHostEye`。Engine 以值成员持有驱动器（不再 `unique_ptr`）。
-- **椭球注入对象已否决（2026-08 / 2026-09）**：`SynchronSystem::setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除；`setEllipsoidMode(bool)` 场景模式注入亦随同步只 LLA（2026-09）删除——决策器无需几何对象或模式判据。预留用的 `SyncMath.h`（`EllipsoidTransform` / 其后的 `DVec3`）已删除，不再占公开边界。
+- **椭球注入对象已否决（2026-08 / 2026-09）**：曾在已删除的 `SynchronSystem` 上的 `setEllipsoidTransform(const EllipsoidTransform*)` 及 engine 侧 `VsgEllipsoidTransform` 适配器删除；`setEllipsoidMode(bool)` 场景模式注入亦随同步只 LLA（2026-09）删除——眼点路径无需几何对象或模式判据。预留用的 `SyncMath.h`（`EllipsoidTransform` / 其后的 `DVec3`）已删除，不再占公开边界。
 - **`udpPortSend` 已删除（2026-09）**：发送走已 bind 的接收 socket，源端口 = `udpPortRecv`；配置残留为未知键拒绝。
 - **`registerEventProcessor` 已删除（2026-09）**：业务订阅只走 `addCallback<PacketT>`；测试不再经 CCL `RegisterEventProcessor` 旁路。
 - **测试用 HostFrame pack/unpack 已删除（2026-09）**：`packHostFrame` / `unpackHostFrame` / `unpackSof` 与 `HostFrame` 不再保留（含内部头）。数据面契约测 `HostSync`/`IgSync` 可观察收发。公开 `CigiWire.h` 保留生产 `packSof` / `appendEye` / `CigiFrameAssembler`。

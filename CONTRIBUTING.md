@@ -14,22 +14,22 @@
 | 类别                   | 风格              | 示例                                   |
 | ---------------------- | ----------------- | -------------------------------------- |
 | 命名空间               | 全小写            | `aerovista`, `vsg`                     |
-| 类 / 结构体 / 枚举类型 | PascalCase        | `Engine`, `SynchronSystem`             |
+| 类 / 结构体 / 枚举类型 | PascalCase        | `Engine`, `HostSync`             |
 | 方法 / 自由函数        | camelCase         | `renderOneTick`, `addChild`            |
 | 公有数据成员           | camelCase，无前缀 | `extent`, `children`                   |
-| 私有 / 保护成员        | `_camelCase`      | `_viewer`, `_syncSystem`               |
+| 私有 / 保护成员        | `_camelCase`      | `_viewer`, `_hostSync`               |
 | 局部变量 / 参数        | camelCase         | `frameStart`, `modelPath`              |
 | 与成员同名的构造参数   | `in_` + camelCase | `in_matrix`, `in_width`                |
 | 类型别名（容器等）     | PascalCase        | `Children`, `Windows`                  |
 | 数学 / GLSL 风格别名   | 小写              | `vec3`, `dmat4`（优先用 VSG 已有别名） |
 | 智能指针模板           | snake_case（VSG） | `vsg::ref_ptr<T>`                      |
 | 枚举常量 / 宏          | `SCREAMING_SNAKE` | `LOGGER_INFO`, `AEROVISTA_…`           |
-| 主类对应的源文件       | 与类名一致        | `SynchronSystem.h` / `.cpp`            |
+| 主类对应的源文件       | 与类名一致        | `HostSync.h` / `.cpp`            |
 
 
 术语说明：
 
-- **PascalCase（帕斯卡命名）**：每个单词首字母大写，无下划线，如 `SynchronSystem`。
+- **PascalCase（帕斯卡命名）**：每个单词首字母大写，无下划线，如 `HostSync`。
 - **camelCase（驼峰命名）**：首单词小写，后续单词首字母大写，如 `renderOneTick`。
 - **snake_case（蛇形命名）**：小写单词以下划线连接，如 `ref_ptr`。
 - **SCREAMING_SNAKE（全大写蛇形）**：大写的 snake_case，如 `ONE_TIME`。
@@ -66,14 +66,14 @@ vsg::ref_ptr<vsg::Viewer> viewer;
 - 参与 VSG 对象模型、需要引用计数的场景图对象，应使用 `vsg::Inherit`：
 
 ```cpp
-class SynchronSystem : public vsg::Inherit<vsg::Object, SynchronSystem>
+class HostSync : public vsg::Inherit<vsg::Object, HostSync>
 {
 public:
     void initialize();
     void update();
     void shutdown();
 };
-VSG_type_name(aerovista::SynchronSystem); // 按 VSG 方式注册类型时使用
+VSG_type_name(aerovista::HostSync); // 按 VSG 方式注册类型时使用
 ```
 
 - 引用计数 / 行为型类型用 `class`；小型 POD 聚合（数学量、选项包等）用 `struct`，与 VSG 习惯一致。
@@ -149,13 +149,13 @@ public:
 
 ### 私有 / 保护成员
 
-- 前导下划线 + camelCase：`_viewer`、`_syncSystem`。
-- 新代码中**不要**使用 `m_syncSystem` 或 `sync_system_`。
+- 前导下划线 + camelCase：`_viewer`、`_hostSync`。
+- 新代码中**不要**使用 `m_hostSync` 或 `host_sync_`。
 
 ```cpp
 private:
     vsg::ref_ptr<vsg::Viewer> _viewer;
-    vsg::ref_ptr<SynchronSystem> _syncSystem;
+    vsg::ref_ptr<HostSync> _hostSync;
 ```
 
 
@@ -219,7 +219,7 @@ static constexpr double nearFarRatio = 0.001;
 
 | 项目                      | 约定                                    | 示例                                     |
 | ------------------------- | --------------------------------------- | ---------------------------------------- |
-| 一个主类对应一对文件      | 文件名与类名一致                        | `SynchronSystem.h`、`SynchronSystem.cpp` |
+| 一个主类对应一对文件      | 文件名与类名一致                        | `HostSync.h`、`HostSync.cpp` |
 | 小型工具 / 自由函数头文件 | 小写或 snake_case（VSG 风格）           | `read.h`、`compare.h`、`ref_ptr.h`       |
 | 目录                      | 小写，按功能划分                        | `engine/source/function/sync/`           |
 | 头文件                    | `#pragma once`；包含 VSG 用 `<vsg/...>` | `#include <vsg/nodes/Group.h>`           |
