@@ -49,6 +49,18 @@ scripts/run_seam_grid.sh stop
 
 启动前脚本会先停掉已有的 platform / viewhost / `vsgEngine`，避免换模式时端口占用。
 
+### 编译（config + build all）
+
+`scripts/config_build.sh` 按 `CMakePresets.json` 配置并编译全部 target：
+
+```bash
+scripts/config_build.sh                      # clang-Ninja-Debug，然后 vs2019
+scripts/config_build.sh clang-Ninja-Debug    # 只编这一套（Ninja Debug）
+scripts/config_build.sh vs2019               # 只编 VS2019；走 build preset vs2019-debug
+```
+
+`vs2019` 是多配置生成器，脚本编的是 Debug（与下面的 `platform` / `viewhost` 目录一致）。cmd 用 `scripts\config_build.bat`，参数相同。
+
 ### 可执行文件路径（如需改构建目录）
 
 在 `scripts/run_multichannel.sh` 顶部修改：
