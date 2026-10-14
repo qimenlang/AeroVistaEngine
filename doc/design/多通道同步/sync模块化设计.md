@@ -1,7 +1,7 @@
 # sync 模块化设计（设计基线）
 
 面向「将 sync 多通道同步模块做成一个库，单独编译，供本项目 vsgEngine 及其他项目使用」的设计基线。
-基础行为与协议见 [多通道同步模块设计.md](./多通道同步模块设计.md)；坐标/位姿语义见 [lla位姿传输设计.md](./lla位姿传输设计.md)。
+基础行为与协议见 [多通道同步模块设计.md](./多通道同步模块设计.md)；坐标/位姿语义见 [lla位姿传输设计.md](./lla位姿传输设计.md)。收发线程与中继路径见 [多通道同步架构设计.md](./多通道同步架构设计.md)。
 
 > 本文档描述当前实现的**现状与设计理由**，不记录变更历史。外部接入与构建方式见 [接入说明](../../../thirdparty/sync/README.md)。
 
@@ -33,16 +33,16 @@ vsgEngine (exe)
 
 ### 1.3 非目标
 
-- 不改变数据面协议与线格式（CIGI V4）。握手为 CIGI 信封（§4.2 / [平台同步设计.md](../平台同步设计.md) §6.3）。
+- 不改变数据面协议与线格式（CIGI V4）。握手为 CIGI 信封（§4.2 / [平台同步设计.md](./平台同步设计.md) §6.3）。
 - 不改变线程模型与命令面时序（主线程执行场景、命令读循环线程收包入队）。
-- 不做 Host 独立进程的协议 / 上行改造（独立 Host 进程已有 viewhost 示例，见 [viewhost设计.md](../viewhost设计.md)；「指定输入 IG 上行」仍属后期）。
-- 不把 `IgSync` 改名为 `ClientSync`。`HostSync`/`IgSync` 同继承纯虚 `SyncInterface`（切齐 take/send/`flush*`，不持 socket/session）。平台正式跑同一个 `HostSync`；viewhost 中继不另养一套用来解包重组出站的 CIGI IG Session（握手可复用 `connect`；虚 IG 回 SOF 用 `packSof` 读头）。见 [平台同步设计.md](../平台同步设计.md)。
+- 不做 Host 独立进程的协议 / 上行改造（独立 Host 进程已有 viewhost 示例，见 [viewhost设计.md](./viewhost设计.md)；「指定输入 IG 上行」仍属后期）。
+- 不把 `IgSync` 改名为 `ClientSync`。`HostSync`/`IgSync` 同继承纯虚 `SyncInterface`（切齐 take/send/`flush*`，不持 socket/session）。平台正式跑同一个 `HostSync`；viewhost 中继不另养一套用来解包重组出站的 CIGI IG Session（握手可复用 `connect`；虚 IG 回 SOF 用 `packSof` 读头）。见 [平台同步设计.md](./平台同步设计.md)。
 
 ## 2. 库结构
 
 - 传输层（`UdpSocket`/`TcpSocket`/`CigiWire`/`EventProcess`/`SyncInterface`/`HostSync`/`IgSync`/`RttTracker`/`NetProbe`/`SyncConfig`）**零 vsg、零 Engine 依赖**，纯 C++ + Winsock + CIGI。可被任意项目（含非 vsg 宿主）复用。
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
-- `HostDriver` **零 vsg、零 Engine**：持有 `HostSync` + `HostDataManager`；中继时另持虚 `IgSync`。viewhost 直接使用。报文自检 / 命令行也在本类（[viewhost设计.md](../viewhost设计.md) §4.0）。
+- `HostDriver` **零 vsg、零 Engine**：持有 `HostSync` + `HostDataManager`；中继时另持虚 `IgSync`。viewhost 直接使用。报文自检 / 命令行也在本类（[viewhost设计.md](./viewhost设计.md) §4.0）。
 - `IgSync` **零 vsg、零 Engine**：UDP bind、`connect`、收包解包、帧维护、`linked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。空 `igConfig` 与 `requireConnectedIg` 由 `Engine::initSync` 决定。
 - 配置类型（`OffsetDeg`/`IgConfig`/`HostTarget`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
@@ -100,17 +100,17 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 - 眼点对相机的「读」全部变成**显式输入**：Host 眼点经 `Engine::preFrame()`（`IgSync::drainIncoming`）触发业务回调（Engine::registerIgCallbacks 转发到 `CameraDriver::onOwnshipEyePose`），或 `compose()`（测试注入）喂入。
 - 眼点对相机的「写」在 Engine：`applyLastHostEye` 读 `lastAppliedEye` → `setCameraPoseLla`（恒 LLA），`IgSync` 与 CameraDriver 都不触碰相机。
 - 依赖方向单一：宿主 → sync 库（注入/拉取），sync 库不持有宿主的任何对象引用。
-- **Host 侧**：库内 `aerovista::sync::HostDriver` = `HostSync` + `HostDataManager` + 可选虚 `IgSync`；viewhost 直接使用。扇出（IGCtrl + 眼点）经 `HostDriver::update`；实体等权威状态经 Manager 建表、Driver 意图 API 发送（[viewhost设计.md](../viewhost设计.md) §4.0）。`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
+- **Host 侧**：库内 `aerovista::sync::HostDriver` = `HostSync` + `HostDataManager` + 可选虚 `IgSync`；viewhost 直接使用。扇出（IGCtrl + 眼点）经 `HostDriver::update`；实体等权威状态经 Manager 建表、Driver 意图 API 发送（[viewhost设计.md](./viewhost设计.md) §4.0）。`stepSync()`（决策 + 应用）供测试/`tickSync` 使用。engine 不承担 Host 角色（`HostPosePublisher` 已删除）。
 
 ### 3.2 配置结构归属
 
 - `OffsetDeg`、`IgConfig`、`HostTarget`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
-- **`IgConfig` = 本地 UDP 接收端口 + 远端 `HostTarget`**（`udpPortRecv` + `target.{addr,tcpPort,udpPortRecv}`）；JSON 仍扁平 `targetAddr` / `targetTcpPort` / `targetUdpPortRecv`。传输块仍是 `hostConfig` 与 `igConfig`；viewhost 中继另加 `relay.enable` / `expectedIgCount`（[平台同步设计.md](../平台同步设计.md) §9）。见 §4。
+- **`IgConfig` = 本地 UDP 接收端口 + 远端 `HostTarget`**（`udpPortRecv` + `target.{addr,tcpPort,udpPortRecv}`）；JSON 仍扁平 `targetAddr` / `targetTcpPort` / `targetUdpPortRecv`。传输块仍是 `hostConfig` 与 `igConfig`；viewhost 中继另加 `relay.enable` / `expectedIgCount`（[平台同步设计.md](./平台同步设计.md) §9）。见 §4。
 
 ### 3.3 命令面桥
 
-命令面为**业务订阅 + 帧头化发送**（状态同步设计.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](../viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 一次性上行 / F10 发 UDP（契约 SOF + 碰撞 Notification；现网 F10 仍仅 SOF）。与 viewhost testtcp/testudp 下行对称。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
+命令面为**业务订阅 + 帧头化发送**（状态同步设计.md §7/§8）：Host 侧经 `HostDriver` → `HostSync::outMsgWithIgCtrlTcp() << 报文` → `flushTcp()`（实体控制先写 `HostDataManager` 再组包，见 [viewhost设计.md](./viewhost设计.md) §4.0）；IG 侧 engine 经 `igSync().addCallback` 订阅报文。均为**引擎/宿主 → sync 库**方向的调用，不构成库的反向依赖。engine 内报文自检 `PacketProbeHandler`：`bindRecvProbes` 订阅 Host→IG 全量报文记类名；F9 随机 TCP 一次性上行 / F10 发 UDP（契约 SOF + 碰撞 Notification；现网 F10 仍仅 SOF）。与 viewhost testtcp/testudp 下行对称。原 `CommandTriggerHandler` 随拆 Host **已删除**。旧 `bindSyncCommandHandler`/`setCommandHandler`/`sendCommand` / `registerEventProcessor` 已随旧命令面删除。
 
 ### 3.4 Host 任务状态（`HostDataManager`）
 
@@ -120,7 +120,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 - **做**：建表、运行期更新、`snapshot()`、按当前行填 CIGI 报文对象。
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
-- **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](../viewhost设计.md) §4.0）。`thirdparty/sync/tests` 直接测 Manager（不启网络）并测 `HostDriver`（`PLT-ig-first` 等）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
+- **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](./viewhost设计.md) §4.0）。`thirdparty/sync/tests` 直接测 Manager（不启网络）并测 `HostDriver`（`PLT-ig-first` 等）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
 
 IG 侧传输是 `IgSync`，眼点合成在 Engine `CameraDriver`。Host 侧为 `HostDriver`（持 `HostSync` + `HostDataManager` + 可选虚 `IgSync`）。`HostDataManager` 不做眼点合成，只承担 CIGI 任务状态的 last-value。
 
@@ -128,7 +128,7 @@ IG 侧传输是 `IgSync`，眼点合成在 Engine `CameraDriver`。Host 侧为 `
 
 ### 4.0 配置结构
 
-配置文件有两块（**本地调试** viewhost 只带 `hostConfig`，engine 只带 `igConfig`）。**否决的是 engine 兼 Host**（engine 配置不得含 `hostConfig`，2026-08 拆进程）。真模拟器中继时 **viewhost** 可同时有 `hostConfig`（对真实 IG listen）+ `igConfig`（虚 IG 连平台）+ `relay.enable` / `expectedIgCount`，见 [平台同步设计.md](../平台同步设计.md) §9——这不是把 Host 搬回 engine。
+配置文件有两块（**本地调试** viewhost 只带 `hostConfig`，engine 只带 `igConfig`）。**否决的是 engine 兼 Host**（engine 配置不得含 `hostConfig`，2026-08 拆进程）。真模拟器中继时 **viewhost** 可同时有 `hostConfig`（对真实 IG listen）+ `igConfig`（虚 IG 连平台）+ `relay.enable` / `expectedIgCount`，见 [平台同步设计.md](./平台同步设计.md) §9——这不是把 Host 搬回 engine。
 
 ```jsonc
 // viewhost（Host-only）
@@ -165,7 +165,7 @@ viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引�
 **实现**：
 - `aerovistaSync` 通过独立库 `AeroVistaConfig`（`thirdparty/config`）读 JSON：语法走 nlohmann/json v3.12.0，契约辅助（`find`/`require*`/`rejectUnknownKeys`）在 `aerovista::config`。零 vsg 零引擎依赖。
 - 库内两个对称入口：
-  - `loadHostConfig(path, HostConfig&, error)`：解析 Host 进程配置。本地调试只含 `hostConfig`；中继时另含 `relay` / `igConfig`（[平台同步设计.md](../平台同步设计.md) §9）。
+  - `loadHostConfig(path, HostConfig&, error)`：解析 Host 进程配置。本地调试只含 `hostConfig`；中继时另含 `relay` / `igConfig`（[平台同步设计.md](./平台同步设计.md) §9）。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件（独立 IG / 外部引擎）。
 - viewhost（纯 Host）用法：直接持 `HostSync` 传输层，`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
 
@@ -232,7 +232,7 @@ igSync.connect(ig.target);
 ```
 
 **归属边界**：
-- `syncSystem` 组：`requireConnectedIg` 由 `Engine::initSync` 消费（connect 失败是否拒绝）；`channelId` 由 IgSync **HELLO 上报**（= 本端 `syncSystem.channelId`；[平台同步设计.md](../平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。
+- `syncSystem` 组：`requireConnectedIg` 由 `Engine::initSync` 消费（connect 失败是否拒绝）；`channelId` 由 IgSync **HELLO 上报**（= 本端 `syncSystem.channelId`；[平台同步设计.md](./平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
 
@@ -247,7 +247,7 @@ igSync.connect(ig.target);
 - **命令面桥不做接口解耦**：引擎 → sync 库方向的直调不构成反向依赖（§3.3）。
 - **`SyncRoleConfig` 已删除（2026-08）**：拆 Host 进程后 `enableHost`/`hostConfig` 无消费方（Engine 只启 IG 半边，HostSync 独立 `initialize(HostConfig)`）；删结构体，IG 启用改为 `std::optional<IgConfig>`（空 = 不启 IG；engine 传入 `config.igConfig`）。
 - **`SynchronSystem` 已删除（2026-10）**：眼点决策迁到 `CameraDriver` 之后，该类只转发 `IgSync`。Engine 直接持有 `IgSync`。`requireConnectedIg` 与「空 `igConfig` 不启 IG」留在 `Engine::initSync`；每帧由 `Engine::preFrame` 调 `drainIncoming(true)` + `update()`。
-- **`HostDataManager` 不并入 `HostSync`（2026-09）**：传输类不持实体/环境等任务状态；权威表单独类型，由 `HostDriver` 同时持有二者。未来若有人把 last-value 塞进 `HostSync`，先读 [viewhost设计.md](../viewhost设计.md) §4.0。
+- **`HostDataManager` 不并入 `HostSync`（2026-09）**：传输类不持实体/环境等任务状态；权威表单独类型，由 `HostDriver` 同时持有二者。未来若有人把 last-value 塞进 `HostSync`，先读 [viewhost设计.md](./viewhost设计.md) §4.0。
 - **`HostDriver` 进库（2026-09）**：`HostDriver` = `HostSync` + `HostDataManager` + 可选虚 `IgSync`；viewhost 直接使用，含中继。否决 examples 第二套 `HostDriver`。否决并入 `HostSync`。
 - **`HostEyeStalePolicy` / 双驱动器已删除（2026-09）**：断线门控与 ReuseLast/Freeze 相对收包即合成无生产差异；`CameraDriverBase`/`RawCameraDriver`/`CameraDriver` 三套收成单一 `CameraDriver`。JSON `hostEyeStalePolicy` 为未知键拒绝。
 - **`CameraDriver` 不再回指 Engine（2026-09）**：驱动器只做 CCL 翻译与 compose；写相机由 `Engine::applyLastHostEye`。Engine 以值成员持有驱动器（不再 `unique_ptr`）。

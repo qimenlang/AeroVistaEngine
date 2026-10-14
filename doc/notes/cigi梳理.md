@@ -14,7 +14,7 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 - **IG→Host 响应**：一次性 Resp（含 `Req` 的 Update Period=0）与离散事件通知走 **TCP**；**非一次性**（ICD 每帧检测后可持续上报、Update Period>0 的周期 Resp）走 **UDP**。`SOF` 仍每帧 UDP。
 - **方向决定注册端点**：Host→IG 报文在 `IgSync` 注册收包 processor，IG→Host 报文在 `HostSync` 注册。
 
-**Platform**：正式各 IG 直连平台 `HostSync`。真模拟器调试经 viewhost **透传**完整 CIGI 消息（TCP 两向切齐入队，UI 线程整条 `sendAll`：下行 `IGCtrl` / 回程 TCP `SOF`；数据面 UDP IGCtrl 取出后 `packSof` 回平台；master UDP 业务包剥真实 SOF 后由虚 IG 组 `SOF'` 发平台，**真实纯 SOF 不转**，见 [平台同步设计.md](../design/平台同步设计.md) §6.3 / 序 7 **已完成**；可附加独立 TCP 调试包），方向表仍是 Host↔IG，中间不改 IGCtrl 头。多通道时 Host→IG 的 `Req` 扇出全体。仅 master 回 `Resp` / Notification 是 **IG 侧开发建议**，不是 sync 功能（[平台同步设计.md](../design/平台同步设计.md) §6.2；序 5 不开发）。
+**Platform**：正式各 IG 直连平台 `HostSync`。真模拟器调试经 viewhost **透传**完整 CIGI 消息（TCP 两向切齐入队，UI 线程整条 `sendAll`：下行 `IGCtrl` / 回程 TCP `SOF`；数据面 UDP IGCtrl 取出后 `packSof` 回平台；master UDP 业务包剥真实 SOF 后由虚 IG 组 `SOF'` 发平台，**真实纯 SOF 不转**，见 [平台同步设计.md](../design/多通道同步/平台同步设计.md) §6.3 / 序 7 **已完成**；可附加独立 TCP 调试包），方向表仍是 Host↔IG，中间不改 IGCtrl 头。多通道时 Host→IG 的 `Req` 扇出全体。仅 master 回 `Resp` / Notification 是 **IG 侧开发建议**，不是 sync 功能（[平台同步设计.md](../design/多通道同步/平台同步设计.md) §6.2；序 5 不开发）。
 
 > 语义说明：CIGI 报文名后缀 `Ctrl` 为控制、`Def` 为定义（一次配置）、`Req` 为请求、`Resp` 为响应、`XResp` 为扩展响应、`SOF` 为帧起始。分组按功能归类，**不含具体字段内容**。
 
@@ -49,7 +49,7 @@ CIGI（Common Image Generator Interface，通用图像生成器接口）是 Host
 | --- | --- | --- | --- | --- |
 | `CigiIGCtrlV4` | Host → IG | UDP | 每帧 | 会话级控制报文，每帧必发：携带帧计数、CIGI 版本、数据库 ID、IG 模式等，是所有 Host→IG 报文的起始报文 |
 | `CigiSOFV4` | IG → Host | UDP | 每帧 | 帧起始报文，IG 每帧返回：携带帧计数、时间戳，标识一帧开始，是 IG→Host 报文的起始报文 |
-| `CigiIGMsgV4` | Host ↔ IG | TCP | 事件性 | 通用自由文本。本项目另用于 IG→Host **HELLO**（`MsgID=1`，`Msg`=`udpRecvPort channelId`；无 TCP ACK）。见 [平台同步设计.md](../design/平台同步设计.md) §6.3 |
+| `CigiIGMsgV4` | Host ↔ IG | TCP | 事件性 | 通用自由文本。本项目另用于 IG→Host **HELLO**（`MsgID=1`，`Msg`=`udpRecvPort channelId`；无 TCP ACK）。见 [平台同步设计.md](../design/多通道同步/平台同步设计.md) §6.3 |
 | `CigiEventNotificationV4` | IG → Host | TCP | 事件性 | 事件通知：IG 主动上报异步事件（如进入区域、命中指定目标等） |
 | `CigiAnimationStopV4` | IG → Host | TCP | 事件性 | 动画播放结束通知：实体动画自然播放完毕后由 IG 上报 |
 
@@ -202,5 +202,5 @@ V4 **不再支持**的旧报文：`CigiRateCtrlV3`、`CigiTrajectoryDefV3`、`Ci
 
 ## 状态数据权威
 
-Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（多通道时扇出全体；仅 master 回 `Resp` 是 IG 侧建议，见 [平台同步设计.md](../design/平台同步设计.md) §6.2），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver`（sync 库）= `HostSync` + 权威数据 + 可选虚 `IgSync`、UI 只调 Driver（[viewhost设计.md](../design/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。IG 几何与实例见 [实体管理设计.md](../design/引擎基础功能/实体管理设计.md)。
+Host 是仿真/任务状态权威：改变世界的报文全是单向 Host→IG（IG 没有写实体或气象的报文）；业内由 Host 按报文族维护权威表（实体 `Ctrl`、环境、`ViewDef`、符号、碰撞定义等），记录上次下发值，供 UI 以及 `Reset`/`Operate` 或晚加入后全量重放。IG 是数据库权威，独占地形几何、地表材质及本地环境派生量——Host 只能 `Req` 去问（多通道时扇出全体；仅 master 回 `Resp` 是 IG 侧建议，见 [平台同步设计.md](../design/多通道同步/平台同步设计.md) §6.2），`Resp` / 碰撞通知 / `AnimationStop` 不得写回当世界真值。每帧实时流（ownship 眼点、持续位姿/速度）以仿真循环本身为权威，不必塞进权威表；**一次性**实体摆放（`EntityPositionCtrl` TCP）的 last pose 进实体权威表。落地：`HostDataManager`（sync 库）持表、`HostDriver`（sync 库）= `HostSync` + 权威数据 + 可选虚 `IgSync`、UI 只调 Driver（[viewhost设计.md](../design/多通道同步/viewhost设计.md) §4.0）；当前只做实体表，其它族见 [多通道同步模块设计.md](../design/多通道同步/多通道同步模块设计.md) §9 P2。IG 几何与实例见 [实体管理设计.md](../design/引擎基础功能/实体管理设计.md)。
 

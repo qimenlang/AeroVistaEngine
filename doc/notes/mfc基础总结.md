@@ -1,6 +1,6 @@
 # MFC 基础机制（viewhost 语境）
 
-viewhost（`thirdparty/sync/examples/viewhost`）用到的 MFC 基础机制。项目背景见 [viewhost设计.md](../design/viewhost设计.md)。
+viewhost（`thirdparty/sync/examples/viewhost`）用到的 MFC 基础机制。项目背景见 [viewhost设计.md](../design/多通道同步/viewhost设计.md)。
 
 ---
 
