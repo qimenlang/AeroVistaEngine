@@ -44,7 +44,7 @@ vsgEngine (exe)
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - `HostDriver` **零 vsg、零 Engine**：持有 `HostSync` + `HostDataManager`；中继时另持虚 `IgSync`。viewhost 直接使用。报文自检 / 命令行也在本类（[viewhost设计.md](./viewhost设计.md) §4.0）。
 - `IgSync` **零 vsg、零 Engine**：UDP bind、`connect`、收包解包、帧维护、`linked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。空 `igConfig` 与 `requireConnectedIg` 由 `Engine::initSync` 决定。
-- 配置类型（`OffsetDeg`/`IgConfig`/`HostTarget`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
+- 配置类型（`OffsetDeg`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
 ## 3. 关键设计决策
@@ -70,7 +70,7 @@ vsg 的分层：
 ```cpp
 // IgSync（sync 库，IG 传输）：
 bool initialize(int udpPortRecv, int channelId = 0);
-bool connect(const HostTarget& target);
+bool connect(const IgConfig& igConfig);
 void drainIncoming(bool sendSof = true);               // 收包解包；处理 IGCtrl 时回 SOF
 void update();                                         // 帧级维护（冻结 / RUNNING）
 bool linked() const;                                   // TCP+UDP 就绪
@@ -104,9 +104,9 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ### 3.2 配置结构归属
 
-- `OffsetDeg`、`IgConfig`、`HostTarget`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
+- `OffsetDeg`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
 - `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
-- **`IgConfig` = 本地 UDP 接收端口 + 远端 `HostTarget`**（`udpPortRecv` + `target.{addr,tcpPort,udpPortRecv}`）；JSON 仍扁平 `targetAddr` / `targetTcpPort` / `targetUdpPortRecv`。传输块仍是 `hostConfig` 与 `igConfig`；viewhost 中继另加 `relay.enable` / `expectedIgCount`（[平台同步设计.md](./平台同步设计.md) §9）。见 §4。
+- **`IgConfig` 成员与 JSON 键同名**：`udpRecvPort` / `hostAddr` / `hostTcpPort` / `hostUdpRecvPort`。`HostConfig` 成员与 JSON 键同名：`udpPortRecv` / `tcpPort`。传输块仍是 `hostConfig` 与 `igConfig`；viewhost 中继另加 `relay.enable` / `expectedIgCount`（[平台同步设计.md](./平台同步设计.md) §9）。见 §4。
 
 ### 3.3 命令面桥
 
@@ -137,26 +137,26 @@ IG 侧传输是 `IgSync`，眼点合成在 Engine `CameraDriver`。Host 侧为 `
 // engine（IG-only）
 {
   "igConfig": {
-    "udpPortRecv": 8005,   // 本地 UDP 接收
-    "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000  // 远端 Host
+    "udpRecvPort": 8005,   // 本地 UDP 接收
+    "hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000  // 远端 Host
   }
 }
 ```
 
 **字段语义**：
 - `hostConfig`：Host 本地传输参数（`udpPortRecv`/`tcpPort`）。
-- `igConfig`：IG 本地 UDP 接收端口（`udpPortRecv`）+ 远端 Host 目标（JSON：`targetAddr`/`targetTcpPort`/`targetUdpPortRecv` → C++ `HostTarget`）。
+- `igConfig`：成员与 JSON 键同名——`udpRecvPort` / `hostAddr` / `hostTcpPort` / `hostUdpRecvPort`。
 
 **设计理由**：
-- 本地 UDP 接收 / TCP 监听**固定绑定所有网卡**（`INADDR_ANY`，即 `0.0.0.0`）；`targetAddr` 才是可配的远端 Host 目标。
+- 本地 UDP 接收 / TCP 监听**固定绑定所有网卡**（`INADDR_ANY`，即 `0.0.0.0`）；`hostAddr` 才是可配的远端 Host 目标。
 - 已否决 `bindAddr` 字段：实现从未消费「本地绑定网卡」（接收/监听均写死 `INADDR_ANY`），移除以免误导「改配置即可限网卡」。
 - 已删除 `udpPortSend`：发送走已 bind 的接收 socket，源端口 = `udpPortRecv`（CIGI UDP_SYNC 用 fromPort 对 HELLO）；JSON 残留为未知键拒绝。
 - IG 侧一个配置块自洽（本地 + 远端），viewhost 侧一个配置块自洽，两端配置简单。
-- 远端字段加 `target` 前缀，避免与本地同名端口字段冲突。
+- 远端端口键用 `hostTcpPort` / `hostUdpRecvPort`，本端用 `udpRecvPort`，与 `hostConfig` 的 `udpPortRecv` / `tcpPort` 不撞名。
 
-**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 target 字段、未知键（如 `tcpPort`、`udpPortSend`、`targetUdpPortSend`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
+**校验规则**：`requireConnectedIg` 无 `igConfig` 拒绝；`igConfig` 缺 `hostAddr` / `hostTcpPort` / `hostUdpRecvPort`、未知键（如 `tcpPort`、`udpPortSend`、`targetUdpPortSend`、旧键 `targetAddr` / `targetTcpPort`）拒绝。engine 配置若含 `hostConfig` 属未知键 → 拒绝（`hostConfig` 只存在于 Host 进程配置，engine 不再解析）。
 
-**C++ 类型**：`HostTarget`（`addr` / `tcpPort` / `udpPortRecv`）嵌在 `IgConfig::target`；JSON 键仍扁平 `targetAddr` / `targetTcpPort` / `targetUdpPortRecv`（避免与本端 `udpPortRecv` 撞名）。`HostConfig` 传输字段：`udpPortRecv` / `tcpPort`；中继另含 `relay`（`enable` / `expectedIgCount`）与可选 `igConfig`（`relay.enable=false` 时为空）。`messageSync` / `masterChannelId` 见 [状态同步设计.md](./状态同步设计.md) §3.1，**尚未入结构体**；写入 JSON 会因未知键拒绝。
+**C++ 类型**：`IgConfig` 成员即 JSON 键 `udpRecvPort` / `hostAddr` / `hostTcpPort` / `hostUdpRecvPort`（本端 `udpRecvPort` 与 `hostConfig.udpPortRecv` 不同名）。`HostConfig` 传输字段：`udpPortRecv` / `tcpPort`；中继另含 `relay`（`enable` / `expectedIgCount`）与可选 `igConfig`（`relay.enable=false` 时为空）。`messageSync` / `masterChannelId` 见 [状态同步设计.md](./状态同步设计.md) §3.1，**尚未入结构体**；写入 JSON 会因未知键拒绝。
 
 ### 4.1 host/ig 独立读取配置（viewhost / 独立 IG 进程）
 
@@ -196,10 +196,10 @@ igSync.connect(ig.target);
 { "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } }
 { "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 },
   "relay": { "enable": true, "expectedIgCount": 3 },
-  "igConfig": { "udpPortRecv": 8002, "targetAddr": "10.0.0.5",
-                "targetTcpPort": 9100, "targetUdpPortRecv": 9000 } }
-{ "igConfig": { "udpPortRecv": 8005,
-                "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 } }
+  "igConfig": { "udpRecvPort": 8002, "hostAddr": "10.0.0.5",
+                "hostTcpPort": 9100, "hostUdpRecvPort": 9000 } }
+{ "igConfig": { "udpRecvPort": 8005,
+                "hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000 } }
 ```
 
 `hostConfig` 可选 `messageSync` / `masterChannelId`（缺省 FreeRun；会话中途不切）见 [状态同步设计.md](./状态同步设计.md) §3.1。实现前 JSON 多写这两键会因未知键拒绝。
@@ -236,7 +236,7 @@ igSync.connect(ig.target);
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
 - `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
 
-**消费路径**：`Engine::initSync(igConfig, syncSystem)`：`igConfig` 非空才建 `IgSync`；`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 由 `IgSync::initialize` 填入 CIGI HELLO；`offsetDeg` 注入 `CameraDriver`。配置路径传入 `config.igConfig` + `config.syncSystem`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。独立 IG 进程不经 Engine 时，自行 `IgSync::initialize(udpPortRecv, channelId)` + `connect`。
+**消费路径**：`Engine::initSync(igConfig, syncSystem)`：`igConfig` 非空才建 `IgSync`；`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 由 `IgSync::initialize` 填入 CIGI HELLO；`offsetDeg` 注入 `CameraDriver`。配置路径传入 `config.igConfig` + `config.syncSystem`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。独立 IG 进程不经 Engine 时，自行 `IgSync::initialize(udpRecvPort, channelId)` + `connect`。
 
 > **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`hostConfig` 仅 Host 进程配置，2026-08 拆进程后 engine schema 不再含它）。`hostEyeStalePolicy` 已删除（未知键拒绝）。
 
@@ -282,11 +282,11 @@ igSync.connect(ig.target);
 | `CFG-host-reject-unknown` | Host 未知顶层键 | 拒绝（`hostConfig` / `relay` / `igConfig` 以外） | `[unit][config][sync][host][CFG-host-reject-unknown]` |
 | `CFG-host-reject-partial` | 半填 hostConfig | 方案 A：对象出现则子字段全必填 | `[unit][config][sync][host][CFG-host-reject-partial]` |
 | `CFG-host-relay-off` | 中继关闭 | `enable` 缺省或 false：解析成功，`relay.enable==false`，`igConfig` 为空（JSON 带完整 `igConfig` / `expectedIgCount` 也忽略） | `[unit][config][sync][host][CFG-host-relay-off]` |
-| `CFG-host-relay-on` | 中继打开 | `enable=true` 且 `expectedIgCount≥1` 且完整 `igConfig`：读出开关、台数与虚 IG 本端/平台 target；`igConfig.udpPortRecv` ≠ `hostConfig.udpPortRecv` | `[unit][config][sync][host][CFG-host-relay-on]` |
+| `CFG-host-relay-on` | 中继打开 | `enable=true` 且 `expectedIgCount≥1` 且完整 `igConfig`：读出开关、台数与虚 IG 本端/平台 Host 地址；JSON `udpRecvPort` ≠ `hostConfig.udpPortRecv` | `[unit][config][sync][host][CFG-host-relay-on]` |
 | `CFG-host-relay-need-ig` | 中继缺 igConfig | `enable=true` 但无 `igConfig` 或半填 → 拒绝 | `[unit][config][sync][host][CFG-host-relay-need-ig]` |
 | `CFG-host-relay-need-count` | 中继缺台数 | `enable=true` 但无 `expectedIgCount` → 拒绝 | `[unit][config][sync][host][CFG-host-relay-need-count]` |
 | `CFG-host-relay-count` | 台数非法 | `enable=true` 且 `expectedIgCount` 不是 ≥1 的整数 → 拒绝 | `[unit][config][sync][host][CFG-host-relay-count]` |
-| `CFG-host-relay-port` | 虚 IG 与 Host UDP 撞口 | `enable=true` 且两 `udpPortRecv` 相同 → 拒绝 | `[unit][config][sync][host][CFG-host-relay-port]` |
+| `CFG-host-relay-port` | 虚 IG 与 Host UDP 撞口 | `enable=true` 且 `udpRecvPort` 与 `hostConfig.udpPortRecv` 相同 → 拒绝 | `[unit][config][sync][host][CFG-host-relay-port]` |
 | `CFG-host-relay-unknown` | relay 未知子键 | 拒绝 | `[unit][config][sync][host][CFG-host-relay-unknown]` |
 | `CFG-ig-parse-ok` | 解析 ig-only | `loadIgConfig` 读出本地 recv + target（§4.0） | `[unit][config][sync][ig][CFG-ig-parse-ok]` |
 | `CFG-ig-reject-unknown` | IG 未知顶层键 | 拒绝 | `[unit][config][sync][ig][CFG-ig-reject-unknown]` |
