@@ -69,14 +69,6 @@ VHOST_DIR=.../out/build/vs2019/thirdparty/sync/examples/viewhost/Debug      # vi
 # 全量：configure + build + 跑全部测试 + 出 HTML 报告
 python scripts/coverage_engine.py
 
-# 已构建过，只重跑测试 + 出报告（改测试后常用）
-python scripts/coverage_engine.py --no-configure --no-build
-
-# 只看某个验收码的覆盖率（Catch2 tag 过滤）
-python scripts/coverage_engine.py --no-configure --no-build --test-filter "[CIGI-ownship-lla]"
-
-# 只要文本汇总，不生成 HTML
-python scripts/coverage_engine.py --summary-only
 ```
 
 产物（均在 `out/coverage/`，已被 `.gitignore` 覆盖）：

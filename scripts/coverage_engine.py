@@ -18,6 +18,8 @@ Examples:
   python scripts/coverage_engine.py --no-configure --no-build
   # 只出文本汇总，不生成 HTML
   python scripts/coverage_engine.py --summary-only
+  # 已有 coverage.profdata（代码未变），直接复用出报告，跳过 3 分钟的测试
+  python scripts/coverage_engine.py --no-test
 """
 
 from __future__ import annotations
@@ -71,6 +73,11 @@ def main() -> int:
     parser.add_argument("--no-configure", action="store_true", help="跳过 cmake configure")
     parser.add_argument("--no-build", action="store_true", help="跳过 cmake build")
     parser.add_argument(
+        "--no-test",
+        action="store_true",
+        help="跳过测试与合并，直接复用已有 coverage.profdata 出报告",
+    )
+    parser.add_argument(
         "--test-filter",
         default=None,
         help="Catch2 tag/expression，只跑部分用例（如 [CIGI-ownship-lla]）",
@@ -94,34 +101,47 @@ def main() -> int:
     profraw_glob = "codecov_*.profraw"
     merged = COVERAGE_DIR / "coverage.profdata"
 
-    # 清旧 profraw，避免混入上次跑的数据
-    for old in COVERAGE_DIR.glob(profraw_glob):
-        old.unlink()
-    if merged.exists():
-        merged.unlink()
-
-    if not args.no_configure:
-        run(["cmake", "--preset", PRESET], cwd=ROOT)
-    if not args.no_build:
-        run(["cmake", "--build", str(BUILD_DIR)], cwd=ROOT)
-
-    # 跑测试：profraw 写到 COVERAGE_DIR，%p=pid 防多进程覆盖，%m=模块名分组
-    test_env = os.environ.copy()
-    test_env["LLVM_PROFILE_FILE"] = str(COVERAGE_DIR / "codecov_%p_%m.profraw")
-    ctest_cmd = ["ctest", "--test-dir", str(BUILD_DIR), "--output-on-failure"]
-    if args.test_filter:
-        ctest_cmd += ["-R", args.test_filter]
-    run(ctest_cmd, env=test_env)
-
-    profraws = sorted(COVERAGE_DIR.glob(profraw_glob))
-    if not profraws:
-        sys.exit(f"coverage: 未找到 {profraw_glob}，测试可能没跑或插桩未生效")
-    run([profdata, "merge", "-o", str(merged), *[str(p) for p in profraws]])
-
     exe_name = TEST_TARGET + (".exe" if os.name == "nt" else "")
-    test_exe = BUILD_DIR / exe_name
-    if not test_exe.exists():
-        sys.exit(f"coverage: 找不到测试可执行 {test_exe}")
+    # Ninja 按 CMake 子目录镜像产物：engine/Tests/CMakeLists.txt 的 target
+    # 落在 engine/Tests/ 下（同 vsgEngine.exe 在 engine/ 下的布局）。
+    candidates = [
+        BUILD_DIR / "engine" / "Tests" / exe_name,
+        BUILD_DIR / exe_name,
+    ]
+    test_exe = next((p for p in candidates if p.exists()), None)
+    if test_exe is None:
+        sys.exit(f"coverage: 找不到测试可执行，尝试过: {[str(p) for p in candidates]}")
+
+    if args.no_test:
+        # 复用已有 profdata：profdata 是按符号名归位的计数档案，跳过测试
+        # 直接出报告；但映射表嵌在 exe 里，代码一变旧数据就作废，需重测。
+        if not merged.exists():
+            sys.exit(f"coverage: --no-test 需要 {merged}，但不存在；先跑一次完整流程")
+        print(f"coverage: 跳过测试，复用 {merged}")
+    else:
+        # 清旧 profraw，避免混入上次跑的数据
+        for old in COVERAGE_DIR.glob(profraw_glob):
+            old.unlink()
+        if merged.exists():
+            merged.unlink()
+
+        if not args.no_configure:
+            run(["cmake", "--preset", PRESET], cwd=ROOT)
+        if not args.no_build:
+            run(["cmake", "--build", str(BUILD_DIR)], cwd=ROOT)
+
+        # 跑测试：profraw 写到 COVERAGE_DIR，%p=pid 防多进程覆盖，%m=模块名分组
+        test_env = os.environ.copy()
+        test_env["LLVM_PROFILE_FILE"] = str(COVERAGE_DIR / "codecov_%p_%m.profraw")
+        ctest_cmd = ["ctest", "--test-dir", str(BUILD_DIR), "--output-on-failure"]
+        if args.test_filter:
+            ctest_cmd += ["-R", args.test_filter]
+        run(ctest_cmd, env=test_env)
+
+        profraws = sorted(COVERAGE_DIR.glob(profraw_glob))
+        if not profraws:
+            sys.exit(f"coverage: 未找到 {profraw_glob}，测试可能没跑或插桩未生效")
+        run([profdata, "merge", "-o", str(merged), *[str(p) for p in profraws]])
 
     sources_args = []
     for pat in SOURCE_FILTERS:
@@ -148,7 +168,7 @@ def main() -> int:
         print(f"\ncoverage: HTML 报告 -> {html_dir / 'index.html'}")
 
     if not args.keep_profraw:
-        for p in profraws:
+        for p in COVERAGE_DIR.glob(profraw_glob):
             p.unlink()
 
     print(f"coverage: 汇总数据 -> {merged}")
