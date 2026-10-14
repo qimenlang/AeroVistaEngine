@@ -31,9 +31,9 @@ namespace
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     // engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortRecv":8001,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8001,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
-        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpPortRecv":8003,"targetAddr":"127.0.0.1","targetTcpPort":8100,"targetUdpPortRecv":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8003,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -43,9 +43,8 @@ namespace
     // Role-relevant field compares.
     bool igConfigEquals(const IgConfig& a, const IgConfig& b)
     {
-        return a.udpPortRecv == b.udpPortRecv &&
-               a.target.addr == b.target.addr && a.target.tcpPort == b.target.tcpPort &&
-               a.target.udpPortRecv == b.target.udpPortRecv;
+        return a.udpRecvPort == b.udpRecvPort && a.hostAddr == b.hostAddr &&
+               a.hostTcpPort == b.hostTcpPort && a.hostUdpRecvPort == b.hostUdpRecvPort;
     }
 
     bool offsetEquals(const OffsetDeg& a, const OffsetDeg& b)
@@ -74,9 +73,9 @@ namespace
     std::string jsonIgConfig(int udpRecv = 8003)
     {
         return std::string(
-                   R"("igConfig": { "udpPortRecv": )") +
+                   R"("igConfig": { "udpRecvPort": )") +
                std::to_string(udpRecv) +
-               R"(, "targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 })";
+               R"(, "hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000 })";
     }
 } // namespace
 
@@ -904,7 +903,7 @@ TEST_CASE("loadEngineChannelConfig rejects hostConfig as an unknown top-level ke
 TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", "[unit][config][parse][CFG-reject-partial-igconfig]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortRecv": 8000 }, )") +
+        std::string(R"({ "igConfig": { "udpRecvPort": 8000 }, )") +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -914,10 +913,10 @@ TEST_CASE("loadEngineChannelConfig rejects partial igConfig object (scheme A)", 
 
 TEST_CASE("loadEngineChannelConfig rejects igConfig missing target fields (scheme A)", "[unit][config][parse][CFG-reject-igconfig-missing-target]")
 {
-    // igConfig 自包含远端目标，缺 targetTcpPort 必须拒绝。
+    // igConfig 自包含远端目标，缺 hostTcpPort 必须拒绝。
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
-        R"("targetAddr": "127.0.0.1", "targetUdpPortRecv": 8000 }, )" + kMinimalModel + ", " + kMinimalWindow + "}");
+        std::string(R"({ "igConfig": { "udpRecvPort": 8003, )") +
+        R"("hostAddr": "127.0.0.1", "hostUdpRecvPort": 8000 }, )" + kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -928,8 +927,8 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.tcpPort (IgConfig ha
           "[unit][config][parse][CFG-reject-igconfig-tcpport]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
-        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000, "tcpPort": 8100 }, )" +
+        std::string(R"({ "igConfig": { "udpRecvPort": 8003, )") +
+        R"("hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000, "tcpPort": 8100 }, )" +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -940,8 +939,8 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.tcpPort (IgConfig ha
 TEST_CASE("loadEngineChannelConfig rejects leftover igConfig.udpPortSend", "[unit][config][parse][CFG-reject-udp-port-send]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpPortRecv": 8003, )") +
-        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )" +
+        std::string(R"({ "igConfig": { "udpPortSend": 8000, "udpRecvPort": 8003, )") +
+        R"("hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000 }, )" +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -953,8 +952,8 @@ TEST_CASE("loadEngineChannelConfig rejects unknown igConfig.udpPortSend on targe
           "[unit][config][parse][CFG-reject-target-udp-port-send]")
 {
     const TempConfigFile file(
-        std::string(R"({ "igConfig": { "udpPortRecv": 8003, )") +
-        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000, "targetUdpPortSend": 8001 }, )" +
+        std::string(R"({ "igConfig": { "udpRecvPort": 8003, )") +
+        R"("hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000, "targetUdpPortSend": 8001 }, )" +
         kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -980,8 +979,8 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.igConfig.has_value());
-    REQUIRE(cfg.igConfig->udpPortRecv == 8001);
-    REQUIRE_FALSE(cfg.igConfig->target.addr.empty());
+    REQUIRE(cfg.igConfig->udpRecvPort == 8001);
+    REQUIRE_FALSE(cfg.igConfig->hostAddr.empty());
     REQUIRE(cfg.syncSystem.channelId == 0);
 }
 
@@ -991,8 +990,8 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.igConfig->udpPortRecv == 8003);
-    REQUIRE_FALSE(cfg.igConfig->target.addr.empty());
+    REQUIRE(cfg.igConfig->udpRecvPort == 8003);
+    REQUIRE_FALSE(cfg.igConfig->hostAddr.empty());
 }
 
 TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem][CFG-parse-syncsystem]")
@@ -1001,8 +1000,8 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
         R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
         R"("requireConnectedIg": true }, )"
         R"("injectEllipsoidIfMissing": true, )"
-        R"("igConfig": { "udpPortRecv": 8003, )"
-        R"("targetAddr": "127.0.0.1", "targetTcpPort": 8100, "targetUdpPortRecv": 8000 }, )"
+        R"("igConfig": { "udpRecvPort": 8003, )"
+        R"("hostAddr": "127.0.0.1", "hostTcpPort": 8100, "hostUdpRecvPort": 8000 }, )"
         R"("model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
     std::string error;

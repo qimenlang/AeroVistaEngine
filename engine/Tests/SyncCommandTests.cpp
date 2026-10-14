@@ -103,9 +103,9 @@ namespace
 
     std::string makeIgConfigExtra(int base)
     {
-        return std::string(R"("igConfig": { "udpPortRecv": )") + std::to_string(base + 1) +
-               R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(base + 100) +
-               R"(, "targetUdpPortRecv": )" + std::to_string(base) + " }";
+        return std::string(R"("igConfig": { "udpRecvPort": )") + std::to_string(base + 1) +
+               R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(base + 100) +
+               R"(, "hostUdpRecvPort": )" + std::to_string(base) + " }";
     }
 
     template<typename PacketT, typename Proc>
@@ -1524,9 +1524,9 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
             R"("pose": { "ellipsoid": { "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 }, )"
             R"("eulerYprDeg": [0, 0, 0] } } } ])",
             {}, true,
-            std::string(R"("igConfig": { "udpPortRecv": )") + std::to_string(kBase + 1) +
-                R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
-                R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + " }");
+            std::string(R"("igConfig": { "udpRecvPort": )") + std::to_string(kBase + 1) +
+                R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
+                R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + " }");
 
         HostSync hostA;
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));

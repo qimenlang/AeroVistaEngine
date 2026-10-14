@@ -27,7 +27,7 @@
 
 using aerovista::sync::IgConfig;
 using aerovista::sync::IgSync;
-using aerovista::sync::SyncSystemConfig;
+using aerovista::sync::SyncSystem;
 
 namespace
 {
@@ -429,15 +429,15 @@ namespace
 
     // initialize 失败，或 connect 失败且 requireConnectedIg，返回空。
     // 连失败但允许未就绪时留下对象，调用方还可再 connect。
-    std::unique_ptr<IgSync> openIg(const IgConfig& igConfig, const SyncSystemConfig& syncSystem)
+    std::unique_ptr<IgSync> openIg(const IgConfig& igConfig, const SyncSystem& syncSystem)
     {
         auto ig = std::make_unique<IgSync>();
-        if (!ig->initialize(igConfig.udpPortRecv, syncSystem.channelId))
+        if (!ig->initialize(igConfig.udpRecvPort, syncSystem.channelId))
         {
             std::cerr << "Engine: IgSync initialize failed\n";
             return nullptr;
         }
-        if (!ig->connect(igConfig.target) && syncSystem.requireConnectedIg)
+        if (!ig->connect(igConfig) && syncSystem.requireConnectedIg)
         {
             std::cerr << "Engine: IgSync connect failed\n";
             return nullptr;
@@ -790,12 +790,12 @@ bool Engine::init(const vsg::Path& modelPath)
 bool Engine::initSync(const std::optional<IgConfig>& igConfig, bool requireConnectedIg)
 {
     // 程序化路径（测试）：仅指定 requireConnectedIg，其余装配配置用默认值。
-    SyncSystemConfig syncSystem;
+    SyncSystem syncSystem;
     syncSystem.requireConnectedIg = requireConnectedIg;
     return initSync(igConfig, syncSystem);
 }
 
-bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystemConfig& syncSystem)
+bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystem& syncSystem)
 {
     // 写入 config.igConfig，供场景装配（ensureEllipsoidModel）按「有无 igConfig」注入椭球。
     config.igConfig = igConfig;

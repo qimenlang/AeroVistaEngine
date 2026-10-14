@@ -5,10 +5,10 @@
     "requireConnectedIg": false
   },
   "igConfig": {
-    "udpPortRecv": 9002,
-    "targetAddr": "127.0.0.1",
-    "targetTcpPort": 7100,
-    "targetUdpPortRecv": 7000
+    "udpRecvPort": 9002,
+    "hostAddr": "127.0.0.1",
+    "hostTcpPort": 7100,
+    "hostUdpRecvPort": 7000
   },
   "window": { "x": 1280, "y": 0, "width": 640, "height": 1080 },
   "entitiesFilePath": "config/entities.json"

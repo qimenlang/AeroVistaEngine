@@ -11,7 +11,7 @@
 using aerovista::sync::IgConfig;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::parseIgConfig;
-using aerovista::sync::SyncSystemConfig;
+using aerovista::sync::SyncSystem;
 
 struct WindowConfig
 {
@@ -84,7 +84,7 @@ struct GroundGridConfig
 struct EngineChannelConfig
 {
     // syncSystem 组：channelId / offsetDeg / requireConnectedIg。
-    SyncSystemConfig syncSystem{};
+    SyncSystem syncSystem{};
 
     /// IG 传输配置；nullopt = 未启用同步（无 igConfig）。optional 承载「有/无」语义。
     std::optional<IgConfig> igConfig{};

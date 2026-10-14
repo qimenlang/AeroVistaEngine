@@ -96,7 +96,7 @@ public:
     bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig, bool requireConnectedIg = true);
     /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / requireConnectedIg）。
     bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig,
-                  const aerovista::sync::SyncSystemConfig& syncSystem);
+                  const aerovista::sync::SyncSystem& syncSystem);
     /// 加载场景并按配置注入 EllipsoidModel（不创建 Vulkan Device）。
     bool initSceneMode(const vsg::Path& modelPath);
     /// preFrame → stepSync → postFrame，不渲染（仅同步引擎）。

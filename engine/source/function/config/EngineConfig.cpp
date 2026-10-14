@@ -266,10 +266,10 @@ namespace
         }
     }
 
-    SyncSystemConfig parseSyncSystemConfig(const Json& obj)
+    SyncSystem parseSyncSystem(const Json& obj)
     {
         rejectUnknownKeys(obj, {"channelId", "offsetDeg", "requireConnectedIg"});
-        SyncSystemConfig ss;
+        SyncSystem ss;
         ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
         if (const Json* v = find(obj, "offsetDeg"))
             ss.offsetDeg = parseOffsetDeg(requireObject(*v, "offsetDeg"));
@@ -287,7 +287,7 @@ namespace
         EngineChannelConfig cfg;
 
         if (const Json* v = find(root, "syncSystem"))
-            cfg.syncSystem = parseSyncSystemConfig(requireObject(*v, "syncSystem"));
+            cfg.syncSystem = parseSyncSystem(requireObject(*v, "syncSystem"));
 
         if (const Json* v = find(root, "igConfig"))
         {

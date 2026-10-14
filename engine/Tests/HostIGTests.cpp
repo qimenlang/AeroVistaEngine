@@ -38,7 +38,7 @@ using aerovista::sync::IgStatus;
 using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::SyncInterface;
-using aerovista::sync::SyncSystemConfig;
+using aerovista::sync::SyncSystem;
 using aerovista::sync::TcpSocket;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
@@ -96,7 +96,7 @@ namespace
         if (!host.initialize(makeTestHostConfig(base)))
             return false;
         const IgConfig igConfig = makeTestIgConfig(base + 1, base);
-        if (!ig.initialize(igConfig.udpPortRecv) || !ig.connect(igConfig.target))
+        if (!ig.initialize(igConfig.udpRecvPort) || !ig.connect(igConfig))
             return false;
         host.run();
         return true;
@@ -395,7 +395,7 @@ namespace
     // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
     IgConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
     {
-        return IgConfig{udpRecvPort, {"127.0.0.1", base + 100, base}};
+        return IgConfig{udpRecvPort, "127.0.0.1", base + 100, base};
     }
 
     IgConfig makeIgOnlyRole(int igUdpRecv, int base = 18000)
@@ -501,7 +501,7 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
 
         const IgConfig igCfg = makeIgLocalEye(18001, 18000);
         // Host 未启动 → connect 失败，requireConnectedIg=false 仍完成本地 Init。
-        SyncSystemConfig unlinked;
+        SyncSystem unlinked;
         unlinked.requireConnectedIg = false;
         REQUIRE(engine.initSync(igCfg, unlinked));
         REQUIRE_FALSE(engine.igLinked());
@@ -658,10 +658,10 @@ namespace
               },
               "injectEllipsoidIfMissing": )" +
                            (injectEllipsoidIfMissing ? std::string("true") : std::string("false")) + R"(,
-              "igConfig": { "udpPortRecv": )" +
+              "igConfig": { "udpRecvPort": )" +
                            std::to_string(udpRecv) +
-                           R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
-                           R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
+                           R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
+                           R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + R"( },
               "model": ")" +
                            model + R"(",
               "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
@@ -739,7 +739,7 @@ namespace
                 for (Engine* ig : {&b, &c})
                 {
                     if (ig->hasIg() && !ig->igSync().udpSynced())
-                        ig->igSync().connect(ig->config.igConfig->target);
+                        ig->igSync().connect(*ig->config.igConfig);
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
             }
@@ -1139,10 +1139,10 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "requireConnectedIg": true
               },
               "injectEllipsoidIfMissing": true,
-              "igConfig": { "udpPortRecv": )") +
+              "igConfig": { "udpRecvPort": )") +
             std::to_string(kBase + 1) +
-            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
-            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
+            R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + R"( },
               "model": "models/readymap.vsgt",
               "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
             })");
@@ -1155,10 +1155,10 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
               "requireConnectedIg": false
               },
               "injectEllipsoidIfMissing": true,
-              "igConfig": { "udpPortRecv": )") +
+              "igConfig": { "udpRecvPort": )") +
             std::to_string(kBase + 3) +
-            R"(, "targetAddr": "127.0.0.1", "targetTcpPort": )" + std::to_string(kBase + 100) +
-            R"(, "targetUdpPortRecv": )" + std::to_string(kBase) + R"( },
+            R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
+            R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + R"( },
               "model": "models/lz.vsgt",
               "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
             })");
@@ -1197,7 +1197,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
             if (host.readyIgCount() == 2)
                 break;
             if (engineB.hasIg() && !engineB.igSync().udpSynced())
-                engineB.igSync().connect(engineB.config.igConfig->target);
+                engineB.igSync().connect(*engineB.config.igConfig);
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
         REQUIRE(host.readyIgCount() == 2);
