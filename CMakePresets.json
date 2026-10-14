@@ -72,6 +72,22 @@
             }
         },
         {
+            "name": "clang-Ninja-Coverage",
+            "displayName": "clang-Ninja-Coverage 19.1.0 x86_64-pc-windows-msvc - Ninja (llvm-cov)",
+            "description": "Clang + llvm-cov 覆盖率构建：插桩 -fprofile-instr-generate -fcoverage-mapping，配合 scripts/coverage_engine.py 出报告",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
+                "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_C_FLAGS": "-fprofile-instr-generate -fcoverage-mapping",
+                "CMAKE_CXX_FLAGS": "-fprofile-instr-generate -fcoverage-mapping"
+            }
+        },
+        {
             "name": "ci-clang",
             "displayName": "CI Windows Clang Debug (Clang + Ninja)",
             "generator": "Ninja",

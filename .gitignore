@@ -74,6 +74,10 @@ private/
 # debug information files
 *.dwo
 
+# llvm-cov 覆盖率产物（构建用 clang-Ninja-Coverage preset，报告在 out/coverage/）
+*.profraw
+*.profdata
+
 # test output & cache
 Testing/
 .cache/

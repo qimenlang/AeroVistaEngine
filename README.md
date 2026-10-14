@@ -58,3 +58,36 @@ ENGINE=.../out/build/clang-Ninja-Debug/engine/vsgEngine.exe     # 引擎（clang
 PLATFORM_DIR=.../out/build/vs2019/thirdparty/sync/examples/platform/Debug   # 模拟平台（MFC 仅 MSVC/vs2019）
 VHOST_DIR=.../out/build/vs2019/thirdparty/sync/examples/viewhost/Debug      # viewhost（同上）
 ```
+
+## 测试覆盖率（Clang + llvm-cov）
+
+统计范围与质量门（`lizard_engine.py` / `clang_tidy_engine.py`）同口径：`engine/source` + `thirdparty/sync/src` + `thirdparty/config/src`，排除 vsg / cigi / Catch2 等第三方源码。
+
+配套 `CMakePresets.json` 的 `clang-Ninja-Coverage` preset（编译时插桩 `-fprofile-instr-generate -fcoverage-mapping`），用 `scripts/coverage_engine.py` 一条命令出报告：
+
+```powershell
+# 全量：configure + build + 跑全部测试 + 出 HTML 报告
+python scripts/coverage_engine.py
+
+# 已构建过，只重跑测试 + 出报告（改测试后常用）
+python scripts/coverage_engine.py --no-configure --no-build
+
+# 只看某个验收码的覆盖率（Catch2 tag 过滤）
+python scripts/coverage_engine.py --no-configure --no-build --test-filter "[CIGI-ownship-lla]"
+
+# 只要文本汇总，不生成 HTML
+python scripts/coverage_engine.py --summary-only
+```
+
+产物（均在 `out/coverage/`，已被 `.gitignore` 覆盖）：
+
+| 产物 | 路径 |
+| --- | --- |
+| HTML 报告 | `out/coverage/html/index.html` |
+| 汇总数据 | `out/coverage/coverage.profdata` |
+| 文本汇总 | 直接打印到终端（按文件列行/分支覆盖） |
+
+前置：`C:/Program Files/LLVM/bin/` 下的 `clang++` / `llvm-profdata` / `llvm-cov`（与 `clang-Ninja-Coverage` preset 同一套工具链）。脚本从 `clang++` 所在目录找 `llvm-*` 工具，保证与编译器同版本。
+
+> 覆盖率收集要全量构建 + 测试（~2 分钟+），**不进 pre-commit 硬门禁**，按需手动跑或 CI 夜跑。覆盖率只找"完全没被碰到的代码"，不证明断言是否有牙（见 `doc/notes/AI+TDD总结.md` §4）——后者由 ATDD + 变异测试负责。
+
