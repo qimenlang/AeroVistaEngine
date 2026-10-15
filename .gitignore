@@ -61,6 +61,9 @@ AgentTalk.txt
 *.bak
 *.swp
 
+# Temporary folders
+tmp/
+
 # Python bytecode cache
 __pycache__/
 *.pyc
@@ -86,6 +89,13 @@ test_out.txt
 # Claude Code: keep local-only config ignored, track portable skills
 .claude/*
 !.claude/skills/
+
+# Cursor/Codex copies of those skills, plus the generated AGENTS.md.
+# Canonical copies stay in .claude/skills/. find-skills is the third-party
+# skill installed under .agents and tracked with skills-lock.json.
+.agents/skills/*
+!.agents/skills/find-skills/
+/AGENTS.md
 
 # golden-test runtime artifacts (RenderingTests writes actual/diff images into source tree)
 engine/resources/renderingTests/*_actual.png
