@@ -70,7 +70,7 @@ _host.flushUdp();                        // PackageMsg + 扇出
 
 ```text
 viewhost（纯 Host）
-  └→ HostSync（initialize + run + 每帧 HostDriver::update 扇出同一眼点）
+  └→ HostSync（initialize 成功只看返回值 + 每帧 HostDriver::update 扇出同一眼点）
        ├→ IG A（Engine，channelId=0，offset 0）
        ├→ IG B（Engine，channelId=1，offset +18.05°）
        └→ IG C（Engine，channelId=2，offset −18.05°）
@@ -147,14 +147,13 @@ ViewHostView  只报意图 / 按 snapshot 刷新树与仪表盘；停靠条只�
 
 ```text
 1. loadHostConfig(viewhost.json, …)      // 本地调试只含 hostConfig；中继另含 relay / igConfig（平台同步设计.md §9）
-2. HostSync::initialize(host)                        // bind UDP + TCP listen，起 accept/UDP 线程
-3. HostSync::run()                                   // 置 RUNNING（一次，非每帧）
-4. 定时器按目标 fps 调 `HostDriver::update(&eye)`  // 本地：每帧眼点；中继转发开着时 `update` 无操作
+2. HostSync::initialize(host)                        // bind UDP + TCP listen，起 accept/UDP 线程；是否起来只看返回值
+3. 定时器按目标 fps 调 `HostDriver::update(&eye)`  // 本地：每帧眼点；中继转发开着时 `update` 无操作
    同拍 `pollRelay` 后 `pollIncoming`              // 中继先 take 转发再 drain（UDP SOF）；起齐后虚 IG 连平台
-5. HostSync::shutdown()                              // 退出时收尾
+4. HostSync::shutdown()                              // 退出时收尾
 ```
 
-`relay.enable` 时：步骤 2–3 只 listen 真实 IG，**不**跑数据面 `update`；`readyIgCount == relay.expectedIgCount` 之后才用本文件 `igConfig` 虚 IG 连平台。见 [平台同步设计.md](./平台同步设计.md) §6.4 / §9。
+`relay.enable` 时：步骤 2 只 listen 真实 IG，**不**跑数据面 `update`；`readyIgCount == relay.expectedIgCount` 之后才用本文件 `igConfig` 虚 IG 连平台。见 [平台同步设计.md](./平台同步设计.md) §6.4 / §9。
 
 ### 4.2 眼点表示与平移参考系（恒 LLA）
 

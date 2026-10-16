@@ -72,7 +72,7 @@ vsg 的分层：
 bool initialize(int udpPortRecv, int channelId = 0);
 bool connect(const IgConfig& igConfig);
 void drainIncoming(bool sendSof = true);               // 收包解包；处理 IGCtrl 时回 SOF
-void update();                                         // 帧级维护（冻结 / RUNNING）
+void update();                                         // 帧级维护（外推冻结）
 bool linked() const;                                   // TCP+UDP 就绪
 std::uint32_t igCtrlReceivedCount() const;             // HUD
 std::uint32_t lastIgCtrlFrameCntr() const;
@@ -167,14 +167,13 @@ viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引�
 - 库内两个对称入口：
   - `loadHostConfig(path, HostConfig&, error)`：解析 Host 进程配置。本地调试只含 `hostConfig`；中继时另含 `relay` / `igConfig`（[平台同步设计.md](./平台同步设计.md) §9）。
   - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件（独立 IG / 外部引擎）。
-- viewhost（纯 Host）用法：直接持 `HostSync` 传输层，`initialize` 起 accept/UDP 线程 + `run` 置 RUNNING，每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
+- viewhost（纯 Host）用法：直接持 `HostSync` 传输层。`initialize` 绑定 UDP、监听 TCP 并起 accept/UDP 线程；是否起来只看返回值。每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
 
 ```cpp
 HostConfig host;
 loadHostConfig("viewhost.json", host, &error);
 HostSync hostSync;
 hostSync.initialize(host);
-hostSync.run();
 // 每帧：auto& omsg = hostSync.outMsgWithIgCtrlUdp();
 //       cigi_wire::appendEye(omsg, eye);
 //       hostSync.flushUdp();
@@ -209,7 +208,7 @@ igSync.connect(ig.target);
 **`requireInt` 严格整数**：整数字段（端口、窗口、实体 `id` 等）拒绝小数（`1.5`）；JSON 写成 `1.0` 仍视为整数。sync 侧与引擎侧行为一致。
 
 **验收测试**：
-- `engine/Tests/HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)` + `run`）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
+- `engine/Tests/HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)`，是否起来只看返回值）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
 - `thirdparty/sync/tests/HostIGLinkTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `IgSync`），`channelId` 程序化传入 `IgSync::initialize`，双通道 CIGI 收发。`offsetDeg` 由 Engine `CameraDriver` 消费，本场景不覆盖。
 - `thirdparty/sync/tests/SyncConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。
 
@@ -265,8 +264,6 @@ igSync.connect(ig.target);
 | --- | --- | --- | --- |
 | 3 | **`cigi_wire::EyePose::entityId` 发送路径不读**：`appendEye` 写死 `EntityID=0`；`parentId` 发送同样写死 0。字段对生产发送接口无效。 | §3.0 同步只 LLA | 待讨论 |
 | 9 | **`IgSync::drainIncoming(bool sendSof)` boolean 入参**：生产 `preFrame` 恒 `true`；`false` 只服务「不回 SOF」测试。是否拆成 `drainIncoming` / `drainIncomingWithoutSof`。 | §3.1 帧循环 | 待讨论 |
-| 10 | **`HostSync::run()` 名实不符**：`initialize` 已起 accept/UDP 线程；`run()` 只把 `_status` 置 `RUNNING`。漏调则握手仍工作，但 `HostDriver::isRunning()` 为假。 | §4.1 生命周期 | 待讨论 |
-| 11 | **`hasReadyIg()` 与 `readyIgCount()` 冗余**：生产（viewhost）只用 count；`hasReadyIg` 仅测试。 | 状态观测 | 待讨论 |
 
 ---
 
