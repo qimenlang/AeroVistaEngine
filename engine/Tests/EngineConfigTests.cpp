@@ -783,7 +783,6 @@ SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "
         // kMainJson 端口（ig target tcp=8100 / udpRecv=8000；host 本地 tcp=8100 / udpRecv=8000 / udpSend=8001）。
         HostSync host;
         REQUIRE(host.initialize(HostConfig{8000, 8100}));
-        host.run();
 
         Engine engine;
         const TempConfigFile file(kMainJson);

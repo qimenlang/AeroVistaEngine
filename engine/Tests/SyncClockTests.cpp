@@ -59,7 +59,6 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
         engineB.showWindow = false;
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
@@ -114,7 +113,6 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
         engineB.showWindow = engineC.showWindow = false;
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestSyncSystem(0)));
         REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase), makeTestSyncSystem(1)));
         REQUIRE(hostA.readyIgCount() == 2);
@@ -183,7 +181,6 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
         engineB.showWindow = false;
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
@@ -235,7 +232,6 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
         engineB.showWindow = false;
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 
@@ -280,7 +276,6 @@ SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
         engineB.showWindow = false;
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
         REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase)));
         REQUIRE(hostA.readyIgCount() == 1);
 

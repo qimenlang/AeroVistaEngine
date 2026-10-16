@@ -31,10 +31,8 @@
 #include "Common.h"
 
 using aerovista::sync::HostConfig;
-using aerovista::sync::HostStatus;
 using aerovista::sync::HostSync;
 using aerovista::sync::IgConfig;
-using aerovista::sync::IgStatus;
 using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::SyncInterface;
@@ -98,7 +96,6 @@ namespace
         const IgConfig igConfig = makeTestIgConfig(base + 1, base);
         if (!ig.initialize(igConfig.udpRecvPort) || !ig.connect(igConfig))
             return false;
-        host.run();
         return true;
     }
 
@@ -153,7 +150,6 @@ namespace
         {
             if (!sync.initialize(makeTestHostConfig(base)))
                 return false;
-            sync.run();
             return true;
         }
     };
@@ -705,7 +701,6 @@ namespace
             std::string hostErr;
             REQUIRE(loadHostConfig(hostFile.path(), hostCfg, &hostErr));
             REQUIRE(host.initialize(hostCfg));
-            host.run();
 
             const TempConfigFile igAFile(
                 makeChannelConfigBody(kBase, 0, kBase + 1, 0.0, /*requireConnectedIg=*/true, injectEllipsoidIfMissing, model));
@@ -1128,7 +1123,6 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(loadHostConfig(hostFile.path(), hostCfg, &hostErr));
         HostSync host;
         REQUIRE(host.initialize(hostCfg));
-        host.run();
 
         // engine A（IG，readymap 自带椭球）。
         const TempConfigFile igAFile(
@@ -1379,7 +1373,6 @@ SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
         // viewhost 纯 Host：直接持 HostSync。
         auto viewhost = std::make_unique<HostSync>();
         REQUIRE(viewhost->initialize(host));
-        viewhost->run();
 
         // 带 IG 的 engine（纯 IG，连 viewhost）。
         Engine engineIg;

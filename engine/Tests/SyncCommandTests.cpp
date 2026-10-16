@@ -54,7 +54,6 @@ namespace
         a.extent = b.extent = {640, 480};
         a.showWindow = b.showWindow = false;
         REQUIRE(hostA.initialize(makeTestHostConfig(base)));
-        hostA.run();
         REQUIRE(a.initSync(makeTestIgConfig(base + 1, base), makeTestSyncSystem(0)));
         REQUIRE(b.initSync(makeTestIgConfig(base + 3, base), makeTestSyncSystem(1)));
         REQUIRE(hostA.readyIgCount() == 2);
@@ -74,7 +73,6 @@ namespace
         a.extent = b.extent = c.extent = {640, 480};
         a.showWindow = b.showWindow = c.showWindow = false;
         REQUIRE(hostA.initialize(makeTestHostConfig(base)));
-        hostA.run();
         REQUIRE(a.initSync(makeTestIgConfig(base + 1, base), makeTestSyncSystem(0)));
         REQUIRE(b.initSync(makeTestIgConfig(base + 3, base), makeTestSyncSystem(1)));
         REQUIRE(c.initSync(makeTestIgConfig(base + 5, base), makeTestSyncSystem(2)));
@@ -1530,7 +1528,6 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
 
         HostSync hostA;
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        hostA.run();
 
         Engine engineIg;
         engineIg.extent = {640, 480};
@@ -1590,7 +1587,6 @@ SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",
 
         HostSync host;
         REQUIRE(host.initialize(makeTestHostConfig(kBase)));
-        host.run();
 
         Engine ig;
         ig.extent = {640, 480};
@@ -1624,7 +1620,6 @@ SCENARIO("linked IG hides an Active entity after Host EntityCtrl Standby",
 
         HostSync host;
         REQUIRE(host.initialize(makeTestHostConfig(kBase)));
-        host.run();
 
         Engine ig;
         ig.extent = {640, 480};
@@ -1659,7 +1654,6 @@ SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
 
         HostSync host;
         REQUIRE(host.initialize(makeTestHostConfig(kBase)));
-        host.run();
 
         Engine ig;
         ig.extent = {640, 480};
@@ -1708,7 +1702,6 @@ SCENARIO("linked IG unpacks two hundred EntityCtrl from one Host TCP flush",
 
         HostSync host;
         REQUIRE(host.initialize(makeTestHostConfig(kBase)));
-        host.run();
 
         Engine ig;
         ig.extent = {640, 480};
