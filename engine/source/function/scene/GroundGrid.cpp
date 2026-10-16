@@ -11,9 +11,9 @@ namespace
     const vsg::vec4 kMinorColor{0.863f, 0.769f, 0.188f, 1.0f};
     const vsg::vec4 kMajorColor{1.0f, 1.0f, 1.0f, 1.0f};
 
-    int cellCountAcross(double halfExtentM, double cellM)
+    int cellCountAcross(double halfGroundLenM, double gridLenM)
     {
-        return static_cast<int>(std::lround((2.0 * halfExtentM) / cellM));
+        return static_cast<int>(std::lround((2.0 * halfGroundLenM) / gridLenM));
     }
 
     void appendSegment(std::vector<vsg::vec3>& vertices, const vsg::vec3& a, const vsg::vec3& b)
@@ -25,15 +25,15 @@ namespace
     void collectGridSegments(const GroundGridConfig& spec, std::vector<vsg::vec3>& major,
                              std::vector<vsg::vec3>& minor)
     {
-        const int cells = std::clamp(cellCountAcross(spec.halfExtentM, spec.cellM), 1, kMaxCells);
-        const auto half = static_cast<float>(spec.halfExtentM);
+        const int cells = std::clamp(cellCountAcross(spec.halfGroundLenM, spec.gridLenM), 1, kMaxCells);
+        const auto half = static_cast<float>(spec.halfGroundLenM);
         const float step = (2.0f * half) / static_cast<float>(cells);
-        const int majorEvery = std::max(1, spec.majorEvery);
+        const int majorLineEvery = std::max(1, spec.majorLineEvery);
 
         for (int n = 0; n <= cells; ++n)
         {
             const float t = -half + static_cast<float>(n) * step;
-            auto& dest = ((n % majorEvery) == 0) ? major : minor;
+            auto& dest = ((n % majorLineEvery) == 0) ? major : minor;
             appendSegment(dest, {t, -half, kLinesBelowOriginM}, {t, half, kLinesBelowOriginM});
             appendSegment(dest, {-half, t, kLinesBelowOriginM}, {half, t, kLinesBelowOriginM});
         }
@@ -71,9 +71,9 @@ namespace
     }
 } // namespace
 
-int groundGridLineCount(double halfExtentM, double cellM)
+int groundGridLineCount(double halfGroundLenM, double gridLenM)
 {
-    return cellCountAcross(halfExtentM, cellM) + 1;
+    return cellCountAcross(halfGroundLenM, gridLenM) + 1;
 }
 
 vsg::ref_ptr<vsg::Node> createEnuGroundGrid(const GroundGridConfig& spec)

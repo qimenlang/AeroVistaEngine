@@ -461,7 +461,7 @@ Engine::~Engine()
     _mainCamera = {};
     _copiedColorBuffer = {};
     _device = {};
-    _scene = {};
+    _mainScene = {};
     _options = {};
 }
 
@@ -518,9 +518,9 @@ vsg::ref_ptr<vsg::Camera> Engine::mainCamera() const
 
 vsg::ref_ptr<vsg::EllipsoidModel> Engine::ellipsoidModel() const
 {
-    if (!_scene)
+    if (!_mainScene)
         return {};
-    return _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
+    return _mainScene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
 }
 
 std::size_t Engine::entitySize() const
@@ -579,7 +579,7 @@ void Engine::applyCameraPoseFromConfig()
 
 bool Engine::ensureEllipsoidModel()
 {
-    auto ellipsoidModel = _scene ? _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel") : vsg::ref_ptr<vsg::EllipsoidModel>{};
+    auto ellipsoidModel = _mainScene ? _mainScene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel") : vsg::ref_ptr<vsg::EllipsoidModel>{};
     const char* ellipsoidSource = "model";
     if (!ellipsoidModel)
     {
@@ -590,7 +590,7 @@ bool Engine::ensureEllipsoidModel()
         if (config.injectEllipsoidIfMissing || needEllipsoidForSync)
         {
             ellipsoidModel = vsg::EllipsoidModel::create();
-            _scene->setObject("EllipsoidModel", ellipsoidModel);
+            _mainScene->setObject("EllipsoidModel", ellipsoidModel);
             ellipsoidSource = needEllipsoidForSync ? "inject-ig-sync" : "inject-WGS84";
         }
     }
@@ -610,7 +610,7 @@ bool Engine::initSceneFromEntities(const std::vector<EntityConfig>& entities)
         return false;
 
     auto root = vsg::Group::create();
-    _scene = root;
+    _mainScene = root;
     if (!ensureEllipsoidModel())
         return false;
     const auto ellipsoid = ellipsoidModel();
@@ -641,7 +641,7 @@ bool Engine::attachConfiguredGroundGrid()
 {
     if (!config.groundGrid)
         return true;
-    if (!_scene)
+    if (!_mainScene)
         return false;
 
     auto ellipsoid = ellipsoidModel();
@@ -652,17 +652,7 @@ bool Engine::attachConfiguredGroundGrid()
     }
 
     auto grid = createPinnedGroundGrid(*ellipsoid, *config.groundGrid);
-    if (auto group = _scene.cast<vsg::Group>())
-    {
-        group->addChild(grid);
-        return true;
-    }
-
-    auto root = vsg::Group::create();
-    root->setObject("EllipsoidModel", ellipsoid);
-    root->addChild(_scene);
-    root->addChild(grid);
-    _scene = root;
+    _mainScene->addChild(grid);
     return true;
 }
 
@@ -696,10 +686,10 @@ bool Engine::setCameraPose(const vsg::dvec3& position, const vsg::dvec3& eulerYp
 
 bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprDeg)
 {
-    if (!_mainCamera || !_scene)
+    if (!_mainCamera || !_mainScene)
         return false;
 
-    auto ellipsoidModel = _scene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
+    auto ellipsoidModel = _mainScene->getRefObject<vsg::EllipsoidModel>("EllipsoidModel");
     if (!ellipsoidModel)
     {
         // 回退到投影的椭球（装配成功时是同一对象）。
@@ -849,9 +839,17 @@ bool Engine::initSceneMode(const vsg::Path& modelPath)
     {
         if (!setupOptions(_options))
             return false;
-        if (!loadScene(modelPath, _options, _scene))
+        vsg::ref_ptr<vsg::Node> sceneNode;
+        if (!loadScene(modelPath, _options, sceneNode))
             return false;
-        return ensureEllipsoidModel();
+
+        _mainScene = vsg::Group::create();
+        if (auto ellipsoid = sceneNode->getRefObject<vsg::EllipsoidModel>("EllipsoidModel"))
+            _mainScene->setObject("EllipsoidModel", ellipsoid);
+        else
+            ensureEllipsoidModel();
+        _mainScene->addChild(sceneNode);
+        return true;
     }
     catch (const vsg::Exception& ve)
     {
@@ -1034,7 +1032,7 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
 
         auto windowView = vsg::View::create(camera);
         windowView->addChild(vsg::createHeadlight());
-        windowView->addChild(_scene);
+        windowView->addChild(_mainScene);
 
         auto windowRenderGraph = vsg::RenderGraph::create(_window, windowView);
         windowRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
@@ -1071,7 +1069,7 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
         return false;
 
     vsg::ComputeBounds computeBounds;
-    _scene->accept(computeBounds);
+    _mainScene->accept(computeBounds);
     vsg::dvec3 centre{};
     double radius = 0.0;
     sceneBoundsCentreRadius(computeBounds.bounds, centre, radius);
@@ -1102,7 +1100,7 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
     offscreenRenderGraph->renderArea.extent = _currentExtent;
     offscreenRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
 
-    auto offscreenView = vsg::View::create(camera, _scene);
+    auto offscreenView = vsg::View::create(camera, _mainScene);
     offscreenView->addChild(vsg::createHeadlight());
     offscreenRenderGraph->addChild(offscreenView);
 
@@ -1133,7 +1131,7 @@ bool Engine::initGraphics(const vsg::Path& modelPath)
 
 void Engine::preFrame()
 {
-    // _scene 更新前收包解包（不写相机；合成在订阅回调，写相机在 update）。
+    // _mainScene 更新前收包解包（不写相机；合成在订阅回调，写相机在 update）。
     if (!_ig)
         return;
     _ig->drainIncoming(true);

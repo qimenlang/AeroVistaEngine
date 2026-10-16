@@ -74,10 +74,14 @@ struct CameraConfig
 /// 接缝目视用 ENU 切平面线网格（验收测量设计 §4.1）。钉到 `lla` 的 LocalToWorld，不是瓦片地球。
 struct GroundGridConfig
 {
-    Vec3Config lla{}; // lat°, lon°, alt m
-    double halfExtentM = 20000.0;
-    double cellM = 200.0;
-    int majorEvery = 5;
+    Vec3Config lla{}; // lat°, lon°, alt m。切平面原点。
+    // 地面半边长（米）。整块地面边长 = 2 * halfGroundLenM。缺省 20000，整幅约 40 km。
+    double halfGroundLenM = 20000.0;
+    // 单格边长（米），不是整块地面的边长。缺省 200。
+    // 格数 = round(2 * halfGroundLenM / gridLenM)，须在 1..400。
+    double gridLenM = 200.0;
+    // 每隔多少条格线画一条主线（白），其余为辅线（黄）。缺省 5。须 >= 1。
+    int majorLineEvery = 5;
 };
 
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，多通道同步模块设计.md §3.1）。

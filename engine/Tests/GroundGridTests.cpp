@@ -63,6 +63,11 @@ TEST_CASE("groundGrid line count is cells-across plus one",
     REQUIRE(groundGridLineCount(1000.0, 100.0) == 21);
 }
 
+// =============================================================================
+// 只给 lla 时，半边长、单格边长、主线间隔走缺省
+// （位姿配置设计.md §1，码 MEAS-seam-grid）。
+// 缺省是契约：20000 m / 200 m / 5，不是把样例 JSON 整份拿来比对。
+// =============================================================================
 TEST_CASE("loadEngineChannelConfig parses groundGrid with defaults",
           "[unit][sync][meas][MEAS-seam-grid]")
 {
@@ -75,15 +80,19 @@ TEST_CASE("loadEngineChannelConfig parses groundGrid with defaults",
     REQUIRE(cfg.groundGrid->lla.x == Catch::Approx(39.9087));
     REQUIRE(cfg.groundGrid->lla.y == Catch::Approx(116.3975));
     REQUIRE(cfg.groundGrid->lla.z == Catch::Approx(0.0));
-    REQUIRE(cfg.groundGrid->halfExtentM == Catch::Approx(20000.0));
-    REQUIRE(cfg.groundGrid->cellM == Catch::Approx(200.0));
-    REQUIRE(cfg.groundGrid->majorEvery == 5);
+    REQUIRE(cfg.groundGrid->halfGroundLenM == Catch::Approx(20000.0));
+    REQUIRE(cfg.groundGrid->gridLenM == Catch::Approx(200.0));
+    REQUIRE(cfg.groundGrid->majorLineEvery == 5);
 }
 
+// =============================================================================
+// groundGrid 缺 lla 时加载失败（位姿配置设计.md §1，码 MEAS-seam-grid）。
+// 对象里另写了合法的 gridLenM，失败原因应是缺 lla，而不是未知键。
+// =============================================================================
 TEST_CASE("loadEngineChannelConfig rejects groundGrid without lla",
           "[unit][sync][meas][MEAS-seam-grid]")
 {
-    const TempConfigFile file(std::string(R"({ "groundGrid": { "cellM": 100 }, )") + kMinimalModel + ", " +
+    const TempConfigFile file(std::string(R"({ "groundGrid": { "gridLenM": 100 }, )") + kMinimalModel + ", " +
                               kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
@@ -91,15 +100,19 @@ TEST_CASE("loadEngineChannelConfig rejects groundGrid without lla",
     REQUIRE_THAT(error, Catch::Matchers::ContainsSubstring("lla"));
 }
 
-TEST_CASE("loadEngineChannelConfig rejects non-positive groundGrid.cellM",
+// =============================================================================
+// gridLenM 为 0 时加载失败（位姿配置设计.md §1，码 MEAS-seam-grid）。
+// 错误文本带字段名，调用方能对上是哪一项不合法。
+// =============================================================================
+TEST_CASE("loadEngineChannelConfig rejects non-positive groundGrid.gridLenM",
           "[unit][sync][meas][MEAS-seam-grid]")
 {
-    const TempConfigFile file(std::string(R"({ "groundGrid": { )") + kGridLlaJson + R"(, "cellM": 0 }, )" +
+    const TempConfigFile file(std::string(R"({ "groundGrid": { )") + kGridLlaJson + R"(, "gridLenM": 0 }, )" +
                               kMinimalModel + ", " + kMinimalWindow + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE_THAT(error, Catch::Matchers::ContainsSubstring("cellM"));
+    REQUIRE_THAT(error, Catch::Matchers::ContainsSubstring("gridLenM"));
 }
 
 TEST_CASE("groundGrid without EllipsoidModel fails init",
@@ -113,13 +126,18 @@ TEST_CASE("groundGrid without EllipsoidModel fails init",
     REQUIRE_FALSE(engine.init());
 }
 
+// =============================================================================
+// 配了 groundGrid 的椭球场景，网格父节点钉在配置 LLA 的 ECEF
+// （验收测量设计.md §4.1，码 MEAS-seam-grid）。
+// halfGroundLenM / gridLenM 缩小只为少建线，不改变钉点。
+// =============================================================================
 SCENARIO("configured groundGrid is pinned to ECEF at the origin LLA",
          "[unit][sync][meas][MEAS-seam-grid]")
 {
     GIVEN("an ellipsoid scene with groundGrid at Tiananmen")
     {
         const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, "groundGrid": { )") +
-                                  kGridLlaJson + R"(, "halfExtentM": 1000, "cellM": 100 }, )" + kMinimalModel + ", " +
+                                  kGridLlaJson + R"(, "halfGroundLenM": 1000, "gridLenM": 100 }, )" + kMinimalModel + ", " +
                                   kMinimalWindow + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));

@@ -226,24 +226,24 @@ namespace
 
     GroundGridConfig parseGroundGrid(const Json& obj)
     {
-        rejectUnknownKeys(obj, {"lla", "halfExtentM", "cellM", "majorEvery"});
+        rejectUnknownKeys(obj, {"lla", "halfGroundLenM", "gridLenM", "majorLineEvery"});
         if (find(obj, "lla") == nullptr)
             throw std::runtime_error("missing/invalid object: lla");
         GroundGridConfig grid;
         grid.lla = parseLlaObject(requireObject(*find(obj, "lla"), "lla"));
-        if (find(obj, "halfExtentM") != nullptr)
-            grid.halfExtentM = requireNumber(obj, "halfExtentM");
-        if (find(obj, "cellM") != nullptr)
-            grid.cellM = requireNumber(obj, "cellM");
-        if (find(obj, "majorEvery") != nullptr)
-            grid.majorEvery = requireInt(obj, "majorEvery");
-        if (!(grid.halfExtentM > 0.0))
-            throw std::runtime_error("groundGrid.halfExtentM must be > 0");
-        if (!(grid.cellM > 0.0))
-            throw std::runtime_error("groundGrid.cellM must be > 0");
-        if (grid.majorEvery < 1)
-            throw std::runtime_error("groundGrid.majorEvery must be >= 1");
-        const int cells = static_cast<int>(std::lround((2.0 * grid.halfExtentM) / grid.cellM));
+        if (find(obj, "halfGroundLenM") != nullptr)
+            grid.halfGroundLenM = requireNumber(obj, "halfGroundLenM");
+        if (find(obj, "gridLenM") != nullptr)
+            grid.gridLenM = requireNumber(obj, "gridLenM");
+        if (find(obj, "majorLineEvery") != nullptr)
+            grid.majorLineEvery = requireInt(obj, "majorLineEvery");
+        if (!(grid.halfGroundLenM > 0.0))
+            throw std::runtime_error("groundGrid.halfGroundLenM must be > 0");
+        if (!(grid.gridLenM > 0.0))
+            throw std::runtime_error("groundGrid.gridLenM must be > 0");
+        if (grid.majorLineEvery < 1)
+            throw std::runtime_error("groundGrid.majorLineEvery must be >= 1");
+        const int cells = static_cast<int>(std::lround((2.0 * grid.halfGroundLenM) / grid.gridLenM));
         if (cells < 1 || cells > 400)
             throw std::runtime_error("groundGrid cell count across must be in 1..400");
         return grid;

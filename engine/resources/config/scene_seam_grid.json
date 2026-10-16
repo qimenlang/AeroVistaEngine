@@ -3,9 +3,9 @@
   "entitiesFilePath": "config/entities_scene_ecef.json",
   "groundGrid": {
     "lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 },
-    "halfExtentM": 20000,
-    "cellM": 200,
-    "majorEvery": 5
+    "halfGroundLenM": 20000,
+    "gridLenM": 200,
+    "majorLineEvery": 5
   },
   "camera": {
     "pose": {

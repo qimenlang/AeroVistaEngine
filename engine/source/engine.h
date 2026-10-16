@@ -68,7 +68,7 @@ public:
     vsg::ref_ptr<vsg::Window> mainWindow() const;
 
     /// 场景根节点（测试计算 AABB 用，见 位姿配置设计.md §4）。
-    vsg::ref_ptr<vsg::Node> mainScene() const { return _scene; }
+    vsg::ref_ptr<vsg::Node> mainScene() const { return _mainScene; }
 
     /// Trackball 与 Host→IG 位姿同步共用的世界 / 通道相机（非 HUD）。
     vsg::ref_ptr<vsg::Camera> mainCamera() const;
@@ -147,7 +147,7 @@ private:
                                                       int queueFamily);
 
     vsg::ref_ptr<vsg::Options> _options;
-    vsg::ref_ptr<vsg::Node> _scene;
+    vsg::ref_ptr<vsg::Group> _mainScene;
     vsg::ref_ptr<vsg::Device> _device;
     vsg::ref_ptr<vsg::Viewer> _viewer;
     vsg::ref_ptr<vsg::Image> _copiedColorBuffer;
