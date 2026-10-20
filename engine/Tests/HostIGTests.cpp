@@ -638,6 +638,7 @@ namespace
 {
     // 刚性阵列 E2E 的通道配置 JSON：纯 IG（不含 hostConfig）；
     // requireConnectedIg 按通道指定（A 连 host 强制，B/C 宽松）。
+    // yawOffset 是引擎内部右手 yaw；JSON 写 heading = -yawOffset。
     // TempConfigFile 来自公共头 Common.h。
     std::string makeChannelConfigBody(int kBase, int channelId, int udpRecv, double yawOffset,
                                       bool requireConnectedIg, bool injectEllipsoidIfMissing,
@@ -647,8 +648,8 @@ namespace
               "syncSystem": {
               "channelId": )") +
                            std::to_string(channelId) + R"(,
-              "offsetDeg": { "yaw": )" +
-                           std::to_string(yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
+              "offsetDeg": { "heading": )" +
+                           std::to_string(-yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
               "requireConnectedIg": )" +
                            (requireConnectedIg ? std::string("true") : std::string("false")) + R"(
               },
@@ -1108,6 +1109,11 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
     }
 }
 
+// =============================================================================
+// Host 用 readymap 自带椭球、IG 注入 WGS-84 时，ECEF 跟拍因半径不一致而分叉
+// （lla位姿传输设计.md §2.4，码 LLA-radii-mismatch）。
+// 两份通道 JSON 的 heading 都是 0，解析后 yaw 仍是 0；本例不验通道偏移。
+// =============================================================================
 SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow disagree",
          "[acceptance][bdd][sync][lla][radius-mismatch][LLA-radii-mismatch]")
 {
@@ -1129,7 +1135,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
             std::string(R"({
               "syncSystem": {
               "channelId": 0,
-              "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
+              "offsetDeg": { "heading": 0.0, "pitch": 0.0, "roll": 0.0 },
               "requireConnectedIg": true
               },
               "injectEllipsoidIfMissing": true,
@@ -1145,7 +1151,7 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
             std::string(R"({
               "syncSystem": {
               "channelId": 1,
-              "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
+              "offsetDeg": { "heading": 0.0, "pitch": 0.0, "roll": 0.0 },
               "requireConnectedIg": false
               },
               "injectEllipsoidIfMissing": true,

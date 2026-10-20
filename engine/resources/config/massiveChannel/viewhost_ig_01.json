@@ -1,7 +1,7 @@
 {
   "syncSystem": {
     "channelId": 1,
-    "offsetDeg": { "yaw": 43.1517, "pitch": 0.0000, "roll": 0.0000 },
+    "offsetDeg": { "heading": -43.1517, "pitch": 0.0000, "roll": 0.0000 },
     "requireConnectedIg": false
   },
   "igConfig": {

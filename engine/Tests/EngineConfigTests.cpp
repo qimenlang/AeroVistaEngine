@@ -31,9 +31,9 @@ namespace
     const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
     // engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"yaw":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8001,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":0,"offsetDeg":{"heading":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8001,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
     const char* kLeftJson =
-        R"({"syncSystem":{"channelId":1,"offsetDeg":{"yaw":18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8003,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
+        R"({"syncSystem":{"channelId":1,"offsetDeg":{"heading":-18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8003,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -877,10 +877,15 @@ TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[
     REQUIRE_FALSE(error.empty());
 }
 
+// =============================================================================
+// offsetDeg 只写 heading、缺 pitch/roll 时拒绝加载
+// （多通道同步模块设计.md §3.1 方案 A，码 CFG-reject-partial-offset）。
+// 键名已是 heading；本例只验半填对象被拒，不验取反后的数值。
+// =============================================================================
 TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)", "[unit][config][parse][CFG-reject-partial-offset]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
-                              R"(, "syncSystem": { "offsetDeg": { "yaw": 1.0 } }})");
+                              R"(, "syncSystem": { "offsetDeg": { "heading": 1.0 } }})");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -993,10 +998,15 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
     REQUIRE_FALSE(cfg.igConfig->hostAddr.empty());
 }
 
+// =============================================================================
+// syncSystem 整组可解析，JSON heading 取反后进入 OffsetDeg.yaw
+// （sync模块化设计.md §4.2，码 CFG-parse-syncsystem）。
+// heading -18.05 对应内部 yaw +18.05；pitch/roll 不取反。
+// =============================================================================
 TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem][CFG-parse-syncsystem]")
 {
     const TempConfigFile file(
-        R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "yaw": 18.05, "pitch": 1.0, "roll": 2.0 }, )"
+        R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "heading": -18.05, "pitch": 1.0, "roll": 2.0 }, )"
         R"("requireConnectedIg": true }, )"
         R"("injectEllipsoidIfMissing": true, )"
         R"("igConfig": { "udpRecvPort": 8003, )"
@@ -1029,9 +1039,14 @@ TEST_CASE("loadEngineChannelConfig rejects removed hostEyeStalePolicy key", "[un
     REQUIRE_FALSE(error.empty());
 }
 
+// =============================================================================
+// syncSystem.offsetDeg 只写 heading、缺 pitch/roll 时拒绝加载
+// （多通道同步模块设计.md §3.1 方案 A，码 CFG-reject-partial-syncsystem-offset）。
+// 与顶层半填用例同一规则；不验未知键 yaw。
+// =============================================================================
 TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit][config][parse][syncSystem][CFG-reject-partial-syncsystem-offset]")
 {
-    const TempConfigFile file(R"({ "syncSystem": { "offsetDeg": { "yaw": 1.0 } }, "model": "models/lz.vsgt" })");
+    const TempConfigFile file(R"({ "syncSystem": { "offsetDeg": { "heading": 1.0 } }, "model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));

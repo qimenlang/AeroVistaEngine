@@ -28,9 +28,10 @@ namespace
 {
     OffsetDeg parseOffsetDeg(const Json& obj)
     {
-        rejectUnknownKeys(obj, {"yaw", "pitch", "roll"});
+        rejectUnknownKeys(obj, {"heading", "pitch", "roll"});
         OffsetDeg offset;
-        offset.yaw = requireNumber(obj, "yaw");
+        // 配置写顺时针 heading；内部 yaw 仍是右手绕 +Z，只在读入时取反一次。
+        offset.yaw = -requireNumber(obj, "heading");
         offset.pitch = requireNumber(obj, "pitch");
         offset.roll = requireNumber(obj, "roll");
         return offset;
