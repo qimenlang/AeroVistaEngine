@@ -1,0 +1,15 @@
+{
+  "syncSystem": {
+    "channelId": 4,
+    "offsetDeg": { "yaw": 21.5758, "pitch": -30.0000, "roll": 0.0000 },
+    "requireConnectedIg": false
+  },
+  "igConfig": {
+    "udpRecvPort": 9004,
+    "hostAddr": "127.0.0.1",
+    "hostTcpPort": 8100,
+    "hostUdpRecvPort": 8000
+  },
+  "window": { "x": 384, "y": 540, "width": 384, "height": 540 },
+  "entitiesFilePath": "config/entities.json"
+}

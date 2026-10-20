@@ -111,7 +111,6 @@ public:
     const CameraDriver& cameraDriver() const { return _cameraDriver; }
 
 private:
-    void applyConfigToEngine();
     /// 注册 IG 业务回调（眼点 / 命令实体）；报文自检订阅走 PacketProbeHandler::bindRecvProbes。
     void registerIgCallbacks();
     bool initSceneFromEntities(const std::vector<EntityConfig>& entities);

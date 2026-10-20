@@ -485,15 +485,7 @@ bool Engine::loadConfig(const std::string& path)
         return false;
     }
     config = std::move(loaded);
-    applyConfigToEngine();
     return true;
-}
-
-void Engine::applyConfigToEngine()
-{
-    extent.width = static_cast<uint32_t>(config.window.width);
-    extent.height = static_cast<uint32_t>(config.window.height);
-    // 窗口可见性始终是 Engine::showWindow（默认 true）；不来自配置。
 }
 
 IgSync& Engine::igSync()
@@ -737,7 +729,6 @@ bool Engine::init()
 {
     // 顺序（实体管理设计.md §8）：applyConfig → reset → 场景构建 → 接缝网格 → initSync → Graphics。
     // 场景先于 sync，保证收 EntityCtrl 时 _entityMap 已建；Graphics 依赖 _scene，放最后。
-    applyConfigToEngine();
     resetGraphicsResources();
 
     // 实体目录文件（entitiesFilePath）非空 → loadEntitiesFile 解析实体列表走实体装配；否则单模型。
