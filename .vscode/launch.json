@@ -56,6 +56,32 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "aerovistaConfig Tests Console",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/thirdparty/config/tests/aerovistaConfigTests.exe",
+            "args": [
+                "-s",
+                "-d yes"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "aerovistaConfig Tests Output File",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/thirdparty/config/tests/aerovistaConfigTests.exe",
+            "args": [
+                "-s",
+                "-d yes",
+                "-o",
+                "test_out.txt"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "vsgEngine Tests Output File",
             "type": "lldb",
             "request": "launch",

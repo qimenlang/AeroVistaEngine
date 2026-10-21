@@ -14,8 +14,9 @@ set(JSON_BuildTests OFF CACHE BOOL "nlohmann_json: skip upstream tests" FORCE)
 set(JSON_Install OFF CACHE BOOL "nlohmann_json: skip install from in-tree build" FORCE)
 set(JSON_SystemInclude ON CACHE BOOL "nlohmann_json: system includes (skip clang-tidy)" FORCE)
 add_subdirectory(nlohmannJson)
-add_subdirectory(config)
 
-# Catch2 必须先于 sync：sync 测试目标链接 Catch2::Catch2WithMain。
+# Catch2 先于 config / sync：两边的测试目标链接 Catch2::Catch2WithMain。
+# 库本身不依赖 Catch2。测试开关分别在各自的 CMakeLists.txt。
 add_subdirectory(Catch2)
+add_subdirectory(config)
 add_subdirectory(sync)

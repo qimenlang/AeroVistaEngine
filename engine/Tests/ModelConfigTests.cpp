@@ -26,8 +26,6 @@
 
 namespace
 {
-    const char* kWindow =
-        R"("viewDefinition": { "vfov": 30.0, "near": 1.0, "far": 1000.0, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } })";
     const char* kTeapot = "models/teapot.vsgt";
     const char* kLz = "models/lz.vsgt";
 
@@ -123,15 +121,6 @@ namespace
     {
         return R"({ "local": )" + jsonLocalPose(localPos, localYpr) + R"(, "ellipsoid": )" +
                jsonEllipsoidPose(lla, ellYpr) + " }";
-    }
-
-    void requireLoadFails(const std::string& jsonBody)
-    {
-        const TempConfigFile file(jsonBody);
-        EngineChannelConfig cfg;
-        std::string error;
-        REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
-        REQUIRE_FALSE(error.empty());
     }
 
     void initOffscreen(Engine& engine, const std::string& configPath)
@@ -550,67 +539,6 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
             }
         }
     }
-}
-
-// -----------------------------------------------------------------------------
-// Parse rejects (unit)
-// -----------------------------------------------------------------------------
-
-TEST_CASE("loadEngineChannelConfig rejects singular entity key",
-          "[unit][config][parse][pose][entities][CFG-reject-singular-entity]")
-{
-    requireLoadFails(std::string("{ \"entity\": { \"model\": \"") + kLz + "\" }, " + kWindow + " }");
-}
-
-TEST_CASE("loadEntitiesFile accepts pose with only the non-selected half",
-          "[unit][config][parse][pose][entities-catalog][CFG-entities-pose-nonsel-half]")
-{
-    // 双轨自由解析：不再按 injectEllipsoidIfMissing 强制某半，两半均可解析。
-    const TempConfigFile file(
-        std::string(R"({ "entities": [ )") +
-        jsonEntity(1, kTeapot, jsonPoseEllipsoidOnly(vsg::dvec3{39.9, 116.4, 0}, vsg::dvec3{0, 0, 0})) + R"( ] })");
-    std::vector<EntityConfig> entities;
-    std::string error;
-    REQUIRE(loadEntitiesFile(file.path(), entities, &error));
-    REQUIRE(entities.size() == 1);
-    REQUIRE(entities[0].hasPoseEllipsoid);
-    REQUIRE_FALSE(entities[0].hasPoseLocal);
-}
-
-TEST_CASE("loadEntitiesFile accepts pose with ellipsoid half absent", "[unit][config][parse][pose][entities-catalog][CFG-entities-pose-no-ellipsoid]")
-{
-    // 双轨自由解析：不强制 pose 必须带某半。
-    const TempConfigFile file(
-        std::string(R"({ "entities": [ )") +
-        jsonEntity(1, kTeapot, jsonPoseLocalOnly(vsg::dvec3{0, 0, 0}, vsg::dvec3{0, 0, 0})) + R"( ] })");
-    std::vector<EntityConfig> entities;
-    std::string error;
-    REQUIRE(loadEntitiesFile(file.path(), entities, &error));
-    REQUIRE(entities.size() == 1);
-    REQUIRE(entities[0].hasPoseLocal);
-    REQUIRE_FALSE(entities[0].hasPoseEllipsoid);
-}
-
-TEST_CASE("loadEngineChannelConfig accepts camera pose with only the non-selected half",
-          "[unit][config][parse][pose][camera][CFG-camera-pose-nonsel-half]")
-{
-    // 双轨自由解析：不强制 camera pose 必须带「选中」半，运行时按场景有无椭球选半。
-    const TempConfigFile file(std::string("{ ") + kWindow +
-                              R"(, "camera": { "pose": { "ellipsoid": { "lla": { "lat": 39.9, "lon": 116.4, "alt": 500 }, )"
-                              R"("eulerYprDeg": [0, 0, 0] } } } })");
-    EngineChannelConfig cfg;
-    std::string error;
-    REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.camera.has_value());
-    REQUIRE(cfg.camera->hasPoseEllipsoid);
-    REQUIRE_FALSE(cfg.camera->hasPoseLocal);
-}
-
-TEST_CASE("loadEngineChannelConfig rejects camera local pose with incomplete eulerYprDeg",
-          "[unit][config][parse][pose][camera][CFG-camera-reject-incomplete-ypr]")
-{
-    requireLoadFails(std::string("{ ") + kWindow +
-                     R"(, "camera": { "pose": { "local": { "position": [0, -10, 5], "eulerYprDeg": [0, 0] } } } })");
 }
 
 // -----------------------------------------------------------------------------
