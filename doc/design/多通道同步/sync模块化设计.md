@@ -17,8 +17,8 @@
 
 ```text
 vsgEngine (exe)
-  └→ vsgEngineLib           （引擎：scene / viewer / 相机 / 配置解析）
-       ├→ AeroVistaConfig   （JSON 契约辅助：thirdparty/config；语法走 nlohmann/json）
+  └→ vsgEngineLib           （引擎：scene / viewer / 相机；消费已解析的通道配置）
+       ├→ AeroVistaConfig   （JSON → 结构体：thirdparty/config；语法走 nlohmann/json）
        └→ aerovistaSync     （sync 库：thirdparty/sync；传输层 + Host 任务状态 + HostDriver）
             ├─ 传输层：UdpSocket / TcpSocket / CigiWire / EventProcess / SyncInterface / HostSync / IgSync / RttTracker / NetProbe
             │           / SyncConfig
@@ -29,7 +29,7 @@ vsgEngine (exe)
 
 - 库含传输层、**Host 任务状态**（`HostDataManager`）、**HostDriver**（`HostSync` + 权威数据 + 可选虚 `IgSync`）。viewhost 直接持 `HostDriver`。engine 直接持 `IgSync`。
 - 库公开接口零 vsg；sync 实现 TU 不 `#include <vsg/...>`（眼点数学在 engine `CameraDriver`）。不依赖 `Engine`。vsg 依赖策略见 §3.0。
-- **命名空间**：库公开类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::IgSync`、`aerovista::sync::HostDriver`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON 契约辅助在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。
+- **命名空间**：库公开类型/函数在 `namespace aerovista::sync`（顶层 `aerovista` 符合 CONTRIBUTING.md 约定；`sync` 子层标识库边界）。子命名空间 `cigi_wire` 嵌套在 `aerovista::sync` 下。外部引用示例：`aerovista::sync::IgSync`、`aerovista::sync::HostDriver`、`aerovista::sync::cigi_wire::EyePose`。配置 JSON → 结构体在独立库 `AeroVistaConfig`（`namespace aerovista::config`）。sync 头文件只重新导出这些名字。
 
 ### 1.3 非目标
 
@@ -116,7 +116,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 **写死：权威表在 sync 库，不并入 `HostSync`；viewhost 只做 UI。**
 
-`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体），用 `AeroVistaConfig` 读 `entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`；`pose.local` 与完整双轨仍由 engine `loadEntitiesFile` 服务 IG 预建）。物理文件仍放 engine 资源目录（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4），**不把文件迁进 sync 库**。
+`HostDataManager`（`namespace aerovista::sync`）是 Host 侧任务状态门面：维护按报文族划分的权威表（首版仅实体）。`entities.json` **子集**（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`）由 `AeroVistaConfig::loadHostEntityCatalog` 解析；`pose.local` 与完整双轨仍由 `loadEntitiesFile` 服务 IG 预建。Manager 只收解析结果建表、运行期改表、按行组包，不再读 JSON。物理文件仍放 engine 资源目录（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4），**不把文件迁进 sync 库**。
 
 - **做**：建表、运行期更新、`snapshot()`、按当前行填 CIGI 报文对象。
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
@@ -163,10 +163,10 @@ IG 侧传输是 `IgSync`，眼点合成在 Engine `CameraDriver`。Host 侧为 `
 viewhost（纯 Host）与独立 IG 进程（外部引擎挂载 sync，不用引擎整体配置）分别从**独立配置文件**读取各自的传输参数初始化，不依赖引擎侧配置。
 
 **实现**：
-- `aerovistaSync` 通过独立库 `AeroVistaConfig`（`thirdparty/config`）读 JSON：语法走 nlohmann/json v3.12.0，契约辅助（`find`/`require*`/`rejectUnknownKeys`）在 `aerovista::config`。零 vsg 零引擎依赖。
-- 库内两个对称入口：
-  - `loadHostConfig(path, HostConfig&, error)`：解析 Host 进程配置。本地调试只含 `hostConfig`；中继时另含 `relay` / `igConfig`（[平台同步设计.md](./平台同步设计.md) §9）。
-  - `loadIgConfig(path, IgConfig&, error)`：解析只含 `igConfig` 块的文件（独立 IG / 外部引擎）。
+- JSON 解析在 `AeroVistaConfig`（`thirdparty/config`，`namespace aerovista::config`）：语法走 nlohmann/json v3.12.0，契约辅助是 `find` / `require*` / `rejectUnknownKeys`。零 vsg 零引擎依赖。`aerovistaSync` 的 `SyncConfig.h` 只 `using` 重新导出这些名字。
+- 两个对称入口都在 config：
+  - `loadHostConfig(path, HostConfig&, error)` / `parseHostConfig`：解析 Host 进程配置。本地调试只含 `hostConfig`；中继时另含 `relay` / `igConfig`（[平台同步设计.md](./平台同步设计.md) §9）。
+  - `loadIgConfig(path, IgConfig&, error)` / `parseIgConfig`：解析只含 `igConfig` 块的文件（独立 IG / 外部引擎）。
 - viewhost（纯 Host）用法：直接持 `HostSync` 传输层。`initialize` 绑定 UDP、监听 TCP 并起 accept/UDP 线程；是否起来只看返回值。每帧 `outMsgWithIgCtrlUdp() << 眼点 → flushUdp()` 扇出（IGCtrl 帧号/时间戳由 `outMsgWithIgCtrlUdp()` 自动填充，§7.1）：
 
 ```cpp
@@ -203,7 +203,7 @@ igSync.connect(ig.target);
 
 `hostConfig` 可选 `messageSync` / `masterChannelId`（缺省 FreeRun；会话中途不切）见 [状态同步设计.md](./状态同步设计.md) §3.1。实现前 JSON 多写这两键会因未知键拒绝。
 
-**解析器分层**：JSON **语法**走 nlohmann/json；**契约辅助**（`parseJsonText`/`find`/`requireInt`/`rejectUnknownKeys` 等）归独立库 `AeroVistaConfig`（`namespace aerovista::config`），engine 与 sync **共用**。`loadHostConfig`/`loadIgConfig`/`parseHostConfig`/`parseIgConfig` 仍归 sync（sync 自己的结构体）；引擎窗口/实体/相机 schema 仍在 `EngineConfig.cpp`。引擎不重复实现 `parseHostConfig`/`parseIgConfig`。
+**解析器分层**：JSON **语法**走 nlohmann/json。契约辅助和 **JSON → 结构体** 都在 `AeroVistaConfig`（`namespace aerovista::config`）：`parseHostConfig` / `loadHostConfig`、`parseIgConfig` / `loadIgConfig`、`loadEngineChannelConfig`、`loadEntitiesFile`、`loadHostEntityCatalog`，以及 `HostConfig` / `Relay` / `IgConfig` / `OffsetDeg` / `ViewDefinition` / `EngineChannelConfig` / `EntityAuthorityRow`。`loadHostEntityCatalog` 与 `loadEntitiesFile` 不合并：前者只出 Host 权威表子集。sync 不再解析 JSON；`SyncConfig.h` 与 `HostDataManager.h` 只 `using` 重新导出这些名字。引擎不再自己解析通道 JSON。
 
 **`requireInt` 严格整数**：整数字段（端口、窗口、实体 `id` 等）拒绝小数（`1.5`）；JSON 写成 `1.0` 仍视为整数。sync 侧与引擎侧行为一致。
 
@@ -212,32 +212,34 @@ igSync.connect(ig.target);
 - `thirdparty/sync/tests/HostIGLinkTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `IgSync`），`channelId` 程序化传入 `IgSync::initialize`，双通道 CIGI 收发。`offsetDeg` 由 Engine `CameraDriver` 消费，本场景不覆盖。
 - `thirdparty/sync/tests/SyncConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。
 
-### 4.2 `syncSystem` 配置组（通道装配）
+### 4.2 `viewDefinition` 配置组（通道装配）
 
-`channelId`/`offsetDeg`/`requireConnectedIg` 是 **`syncSystem` 组字段**，与 engine 渲染属性、host/ig 传输属性正交。独立成组后 engine 属性 / syncSystem 属性 / ig·host 属性三类分明，配置项可自由组合成不同配置文件。
+`viewID`/`offsetDeg`/`requireConnectedIg` 是 **`viewDefinition` 组字段**，与 engine 渲染属性、host/ig 传输属性正交。独立成组后 engine 属性 / viewDefinition 属性 / ig·host 属性三类分明，配置项可自由组合成不同配置文件。
 
 **配置形态**：
 ```jsonc
 {
-  "syncSystem": {
-    "channelId": 0,
-    "offsetDeg": { "yaw": 0.0, "pitch": 0.0, "roll": 0.0 },
-    "requireConnectedIg": true
+  "viewDefinition": {
+    "viewID": 0,
+    "offsetDeg": { "heading": 0.0, "pitch": 0.0, "roll": 0.0 },
+    "requireConnectedIg": true,
+    "vfov": 30.0, "near": 1.0, "far": 1000.0,
+    "window": { "posX": 0, "posY": 0, "width": 1920, "height": 1080 }
   },
   "igConfig": { ... },
-  "model": ..., "window": ...     // engine 渲染属性，不进 syncSystem
+  "model": ...                     // engine 渲染属性；窗口与视场在 viewDefinition 内
   // "hostConfig" 仅存在于 Host 进程配置（viewhost.json），engine 配置不含
 }
 ```
 
 **归属边界**：
-- `syncSystem` 组：`requireConnectedIg` 由 `Engine::initSync` 消费（connect 失败是否拒绝）；`channelId` 由 IgSync **HELLO 上报**（= 本端 `syncSystem.channelId`；[平台同步设计.md](./平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。
+- `viewDefinition` 组对应结构体 `ViewDefinition`（成员与 JSON 键同名：`viewID` / `offsetDeg` / `requireConnectedIg` / `vfov` / `window`）。`near` / `far` 的成员是 `nearClip` / `farClip`（Windows 历史宏会吞掉 `near`、`far`）。`requireConnectedIg` 由 `Engine::initSync` 消费（connect 失败是否拒绝）；`viewID` 由 IgSync **HELLO 上报**（报文里仍叫 `channelId`；[平台同步设计.md](./平台同步设计.md) §6.3）；`offsetDeg` 由 Engine `CameraDriver` 消费。JSON 键是 `heading` / `pitch` / `roll`（三者同时出现才合法）。`heading` 为顺时针航向，读入时 `OffsetDeg.yaw = -heading`，之后只使用右手 yaw。`window` 成员是 `posX` / `posY` / `width` / `height`。
 - `hostConfig`/`igConfig` = 传输参数（sync 库，§4.1）。
-- `model`/`window`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性（不进 sync）。
+- `model`/`entitiesFilePath`/`camera`/`injectEllipsoidIfMissing`/`groundGrid` = engine 渲染属性。`window` 与视场写在 `viewDefinition` 对象内。
 
-**消费路径**：`Engine::initSync(igConfig, syncSystem)`：`igConfig` 非空才建 `IgSync`；`requireConnectedIg` 决定 connect 失败是否拒绝；`channelId` 由 `IgSync::initialize` 填入 CIGI HELLO；`offsetDeg` 注入 `CameraDriver`。配置路径传入 `config.igConfig` + `config.syncSystem`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `syncSystem` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。独立 IG 进程不经 Engine 时，自行 `IgSync::initialize(udpRecvPort, channelId)` + `connect`。
+**消费路径**：`Engine::initSync(igConfig, viewDefinition)`：`igConfig` 非空才建 `IgSync`；`requireConnectedIg` 决定 connect 失败是否拒绝；`viewID` 由 `IgSync::initialize` 填入 CIGI HELLO 的 `channelId`；`offsetDeg` 注入 `CameraDriver`。配置路径传入 `config.igConfig` + `config.viewDefinition`。运行时联调标定用 `cameraDriver().setOffsetDeg`。viewhost 纯 Host 可缺省 `viewDefinition` 组（默认值全 0/false）。虚 IG 对平台的 HELLO 不走该字段，填 `0`。独立 IG 进程不经 Engine 时，自行 `IgSync::initialize(udpRecvPort, channelId)` + `connect`。
 
-> **配置格式统一**：JSON 顶层不保留旧扁平字段（`channelId`/`offsetDeg`/`requireConnectedIg` 已并入 `syncSystem` 组）。`EngineChannelConfig` 与 JSON 一一对应（`syncSystem`/`igConfig`/`model`/`window`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`hostConfig` 仅 Host 进程配置，engine schema 不再含它）。
+> **配置格式统一**：JSON 顶层不保留旧扁平字段（`viewID`/`offsetDeg`/`requireConnectedIg` 在 `viewDefinition` 组内）。`EngineChannelConfig` 与 JSON 一一对应（`viewDefinition`/`igConfig`/`model`/`injectEllipsoidIfMissing`/`entitiesFilePath`/`camera`/`groundGrid`；`window` 在 `viewDefinition` 内；`hostConfig` 仅 Host 进程配置，engine schema 不再含它）。
 
 ## 5. 否决与决策记录
 

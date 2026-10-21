@@ -178,8 +178,8 @@ Rz(+θ) * (0,1,0) = (−sin θ, cos θ, 0)
 ⇒ +yaw = 左转（朝西），不是右转朝东
 ```
 
-本地世界系已约定同一事实：`Rz(+yaw)` 转向 **−X / 左侧**（见 [多通道同步模块设计.md](./多通道同步模块设计.md) §3.2），故左通道 `offsetDeg.yaw = +hFOV`、右通道 `−hFOV`。椭球 ENU 下沿用：**+yaw → 西 / 左**；邻通道符号不变。  
-若对外需要「航向角顺时针从北起算」的 UI/任务语义，在进出本引擎 YPR 时单独换算（`heading_cw = -yaw` 或等价），**不要**改同步与 `setCameraPoseLla` 内部符号。
+本地世界系已约定同一事实：`Rz(+yaw)` 转向 **−X / 左侧**（见 [多通道同步模块设计.md](./多通道同步模块设计.md) §3.2），故左通道内部 `offsetDeg.yaw = +hFOV`、右通道 `−hFOV`。椭球 ENU 下沿用：**+yaw → 西 / 左**；邻通道符号不变。  
+配置 JSON 的键是 `heading`（顺时针、北为 0）。解析只做一次 `OffsetDeg.yaw = -heading`：左通道文件写 `heading ≈ −hFOV`，结构体里仍是 `yaw = +hFOV`。`CameraDriver` 与 `setCameraPoseLla` 继续用右手 yaw，不再取反。
 
 - **禁止**：把当地航向角直接塞进现有 `setCameraPose` 的世界轴 YPR（ECEF 的 +Z 是地轴，不是当地天）。同步层禁止在椭球模式下调用 `setCameraPose(lla或ecef, 当地YPR)` 冒充写入。
 - **与 CIGI ICD**：EntityPosition 的 Yaw/Pitch/Roll 在标准文档中常作 Heading（多为顺时针）等，轴系未必等同本节。本项目规定：**线字段按本节（含 +yaw→西）解释，作为应用层约定**；不声称与任意第三方 CIGI 视景姿态一一兼容。

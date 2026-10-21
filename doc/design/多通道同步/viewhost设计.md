@@ -61,17 +61,17 @@ _host.flushUdp();                        // PackageMsg + 扇出
 
 ## 2. 需求澄清结论（多通道在 IG 侧）
 
-「多通道」由**各 IG 进程自己的 `channelId` + `offsetDeg`** 决定，viewhost **不感知**通道数与偏移。例证（`engine/resources/config/`）：
+「多通道」由**各 IG 进程自己的 `viewID` + `offsetDeg`** 决定（结构体成员 `ViewDefinition.viewID`，HELLO 仍报 `channelId`），viewhost **不感知**通道数与偏移。例证（`engine/resources/config/`）：
 
-- `scene_ecef_ig_left.json`：`channelId: 1`、`offsetDeg.yaw: +18.05`。
-- `scene_ecef_ig_right.json`：`channelId: 2`、`offsetDeg.yaw: −18.05`（对称负偏移）。
+- `scene_ecef_ig_left.json`：`viewID: 1`、`offsetDeg.heading: −18.05`（读入后 yaw `+18.05`）。
+- `scene_ecef_ig_right.json`：`viewID: 2`、`offsetDeg.heading: +18.05`（读入后 yaw `−18.05`）。
 
 ```text
 viewhost（纯 Host）
   └→ HostSync（initialize 成功只看返回值 + 每帧 HostDriver::update 扇出同一眼点）
        ├→ IG A（Engine，channelId=0，offset 0）
-       ├→ IG B（Engine，channelId=1，offset +18.05°）
-       └→ IG C（Engine，channelId=2，offset −18.05°）
+       ├→ IG B（Engine，channelId=1，内部 yaw +18.05°）
+       └→ IG C（Engine，channelId=2，内部 yaw −18.05°）
         各 IG 自己 Host ⊕ offsetDeg → setCameraPose
 ```
 
@@ -363,9 +363,9 @@ viewhost 侧：`HostDriver::pollIncoming()`（转发 `HostSync::drainIncoming`�
 
 **目标**：完整的实体控制界面（平级树 + 属性面板，见下）。协议语义见 [实体与运动控制设计.md](./实体与运动控制设计.md)（Host 权威、组包与广播）。IG 侧实例启动全量预建、`EntityCtrl` 只切 Switch，见 [实体管理设计.md](../引擎基础功能/实体管理设计.md)。动画为首版之外。
 
-**数据来源（写死：Host 读独立实体目录文件，非网络获取）**：实体目录为独立 `entities.json`（契约见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4——**文件暂放** `engine/resources/config/entities.json`，Host 与各 IG 读到一致内容、人工确保）。树与属性面板初值来自 `HostDataManager` 对该文件的**子集**解析（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`），不通过网络从 IG 拉取。IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`。**路径（落地）**：不进 `viewhost.json` / `hostConfig`（避免改 sync 配置 schema）。与 `viewhost.json` 相同，从**工作目录**读 `entities.json`；构建时 POST_BUILD 把 `engine/resources/config/entities.json` 拷到 exe 旁。加载失败弹出提示、实体树为空，Host 眼点仍可用。
+**数据来源（写死：Host 读独立实体目录文件，非网络获取）**：实体目录为独立 `entities.json`（契约见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4——**文件暂放** `engine/resources/config/entities.json`，Host 与各 IG 读到一致内容、人工确保）。树与属性面板初值来自 `loadHostEntityCatalog` 对该文件的**子集**解析（`id` / `name` / `model` / `initialEntityState` / `pose.ellipsoid`），`HostDataManager` 收结果建表，不通过网络从 IG 拉取。IG 完整 schema（含 `pose` 双轨）仍走 `loadEntitiesFile`。**路径（落地）**：不进 `viewhost.json` / `hostConfig`（避免改 sync 配置 schema）。与 `viewhost.json` 相同，从**工作目录**读 `entities.json`；构建时 POST_BUILD 把 `engine/resources/config/entities.json` 拷到 exe 旁。加载失败弹出提示、实体树为空，Host 眼点仍可用。
 
-**数据流（写死，分层见 §4.0）**：`HostDataManager` 从 `entities.json` 子集初始化实体权威表（含 last pose 初值，运行期不回写文件）；Dlg 按 `HostDriver` 提供的 snapshot 刷新树；双击打开属性面板时初值来自表，编辑为草稿，**Apply** 才调 Driver 意图 API（先写表再组包 `flushTcp`）。一次性 TCP「填参 → Apply」，持续 UDP「toggle 持续模式」；ownship 眼点走每帧循环、不进表。其它报文族以后仍进同一 `HostDataManager`、同一 `HostDriver`（[多通道同步模块设计.md](./多通道同步模块设计.md) §9 P2）。
+**数据流（写死，分层见 §4.0）**：`HostDataManager::loadEntityCatalog` 调用 `loadHostEntityCatalog` 后建实体权威表（含 last pose 初值，运行期不回写文件）；Dlg 按 `HostDriver` 提供的 snapshot 刷新树；双击打开属性面板时初值来自表，编辑为草稿，**Apply** 才调 Driver 意图 API（先写表再组包 `flushTcp`）。一次性 TCP「填参 → Apply」，持续 UDP「toggle 持续模式」；ownship 眼点走每帧循环、不进表。其它报文族以后仍进同一 `HostDataManager`、同一 `HostDriver`（[多通道同步模块设计.md](./多通道同步模块设计.md) §9 P2）。
 
 **初始广播（写死：自动全量 + 按 `initialEntityState` / `pose.ellipsoid` 初始化权威表）**：`HostDriver` 在检测到 **新增** ready IG 后调用 `broadcastEntityAuthority()`——从表当前值组 `EntityCtrl` 与 `EntityPositionCtrl` 全量 `flushTcp`（表由 `initialEntityState` + `pose.ellipsoid` 初始化，见 [实体与运动控制设计.md](./实体与运动控制设计.md) §7）。不经按钮。IG 侧实例启动已全量预建（[实体管理设计.md](../引擎基础功能/实体管理设计.md)），`Standby` 项只是初始隐藏。后续控制走树 + 双击属性面板，**不提供销毁按钮**。
 
@@ -409,7 +409,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 
 > 组包实现在 `HostDataManager`，Driver 先写表再发送。脏判定按**报文族**（一张 `EntityCtrl` 的字段一起提交），不按字段拆同一张包。否决综合 `applyEntity`（把 Ctrl+Position 无条件一次发全）。否决 Apply 内对同一张 `EntityCtrl` 连 flush 两次。无加载结果上报订阅（首版实体加载失败不上报，[实体管理设计.md](../引擎基础功能/实体管理设计.md) §7.1）。
 
-**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `thirdparty/sync/tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的 IG 可观察结果以 `[acceptance]` 覆盖（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §10 的 `ENT-02-*` / `ENT-03-*`；多 IG 广播 `ENT-04-late-join` 仍在控制面 §11）。Host 侧 `entities.json` **子集**解析归 `HostDataManager`（契约辅助 `AeroVistaConfig`）；IG 完整 schema（含 `pose` 双轨）仍走 engine `loadEntitiesFile`（文件不迁 sync 库，[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4）。
+**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `thirdparty/sync/tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的 IG 可观察结果以 `[acceptance]` 覆盖（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §10 的 `ENT-02-*` / `ENT-03-*`；多 IG 广播 `ENT-04-late-join` 仍在控制面 §11）。Host 侧 `entities.json` **子集**解析是 `AeroVistaConfig::loadHostEntityCatalog`，`HostDataManager` 只建表；IG 完整 schema（含 `pose` 双轨）仍走 `loadEntitiesFile`。两份解析器不合并（文件不迁 sync 库，[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4）。
 
 ### 4.9 命令行（`CigiSymbolTextDefV4`）
 
@@ -421,7 +421,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 
 ## 5. 配置设计
 
-- 复用 sync 库 `loadHostConfig`。本地调试顶层仅 `hostConfig`（未知键拒绝）：
+- 调用 `loadHostConfig`（实现在 AeroVistaConfig，`SyncConfig.h` 重新导出）。本地调试顶层仅 `hostConfig`（未知键拒绝）：
 
 ```jsonc
 { "hostConfig": { "udpPortRecv": 8000, "tcpPort": 8100 } }
