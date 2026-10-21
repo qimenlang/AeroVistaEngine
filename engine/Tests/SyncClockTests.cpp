@@ -113,8 +113,8 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
         engineB.showWindow = engineC.showWindow = false;
 
         REQUIRE(hostA.initialize(makeTestHostConfig(kBase)));
-        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestSyncSystem(0)));
-        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase), makeTestSyncSystem(1)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase), makeTestViewDefinition(1)));
         REQUIRE(hostA.readyIgCount() == 2);
 
         WHEN("Host fans out real time stamps to both IGs")

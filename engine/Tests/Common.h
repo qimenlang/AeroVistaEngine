@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <aerovista/config/EngineChannelConfig.h>
 #include <aerovista/sync/SyncConfig.h>
 
 #include <algorithm>
@@ -10,9 +11,9 @@
 #include <memory>
 #include <string>
 
+using aerovista::config::ViewDefinition;
 using aerovista::sync::HostConfig;
 using aerovista::sync::IgConfig;
-using aerovista::sync::SyncSystem;
 
 class TempConfigFile
 {
@@ -82,10 +83,10 @@ inline IgConfig makeTestIgConfig(int udpRecvPort, int base)
     return IgConfig{udpRecvPort, "127.0.0.1", base + 100, base};
 }
 
-inline SyncSystem makeTestSyncSystem(int channelId, bool requireConnectedIg = true)
+inline ViewDefinition makeTestViewDefinition(int viewID, bool requireConnectedIg = true)
 {
-    SyncSystem syncSystem;
-    syncSystem.channelId = channelId;
-    syncSystem.requireConnectedIg = requireConnectedIg;
-    return syncSystem;
+    ViewDefinition viewDefinition;
+    viewDefinition.viewID = viewID;
+    viewDefinition.requireConnectedIg = requireConnectedIg;
+    return viewDefinition;
 }

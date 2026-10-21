@@ -54,16 +54,16 @@ namespace
 
     void requireConfigEquals(const EngineChannelConfig& actual, const EngineChannelConfig& expected)
     {
-        REQUIRE(actual.syncSystem.channelId == expected.syncSystem.channelId);
-        REQUIRE(offsetEquals(actual.syncSystem.offsetDeg, expected.syncSystem.offsetDeg));
+        REQUIRE(actual.viewDefinition.viewID == expected.viewDefinition.viewID);
+        REQUIRE(offsetEquals(actual.viewDefinition.offsetDeg, expected.viewDefinition.offsetDeg));
         REQUIRE(actual.igConfig.has_value() == expected.igConfig.has_value());
         if (actual.igConfig)
             REQUIRE(igConfigEquals(*actual.igConfig, *expected.igConfig));
         REQUIRE(actual.model == expected.model);
-        REQUIRE(actual.window.x == expected.window.x);
-        REQUIRE(actual.window.y == expected.window.y);
-        REQUIRE(actual.window.width == expected.window.width);
-        REQUIRE(actual.window.height == expected.window.height);
+        REQUIRE(actual.viewDefinition.window.posX == expected.viewDefinition.window.posX);
+        REQUIRE(actual.viewDefinition.window.posY == expected.viewDefinition.window.posY);
+        REQUIRE(actual.viewDefinition.window.width == expected.viewDefinition.window.width);
+        REQUIRE(actual.viewDefinition.window.height == expected.viewDefinition.window.height);
     }
 
     const char* kMinimalWindow =
@@ -669,7 +669,7 @@ SCENARIO("channel offset is applied to the camera driver after init",
         Engine engine;
         const TempConfigFile file(kLeftJson);
         REQUIRE(engine.loadConfig(file.path()));
-        REQUIRE_FALSE(nearlyEqual(engine.config.syncSystem.offsetDeg.yaw, 0.0));
+        REQUIRE_FALSE(nearlyEqual(engine.config.viewDefinition.offsetDeg.yaw, 0.0));
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -678,7 +678,7 @@ SCENARIO("channel offset is applied to the camera driver after init",
 
             THEN("the camera driver uses the channel offset")
             {
-                REQUIRE(offsetEquals(engine.cameraDriver().offsetDeg(), engine.config.syncSystem.offsetDeg));
+                REQUIRE(offsetEquals(engine.cameraDriver().offsetDeg(), engine.config.viewDefinition.offsetDeg));
             }
         }
     }
@@ -688,7 +688,7 @@ SCENARIO("channel offset is applied to the camera driver after init",
 
 // =============================================================================
 // 只有 viewID、没有 igConfig 时不启同步（多通道同步模块设计.md §3.1，码 CFG-channelid-no-sync）。
-// 通道号读入 SyncSystem.channelId，但不按该号决定是否建 IG。
+// 通道号读入 ViewDefinition.viewID，但不按该号决定是否建 IG。
 // =============================================================================
 SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][bdd][config][CFG-channelid-no-sync]")
 {
@@ -699,7 +699,7 @@ SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][bd
             kMinimalModel + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
-        REQUIRE(engine.config.syncSystem.channelId == 0);
+        REQUIRE(engine.config.viewDefinition.viewID == 0);
         engine.showWindow = false;
 
         WHEN("the Engine initializes")
@@ -981,13 +981,13 @@ TEST_CASE("loadEngineChannelConfig accepts default config with only model and wi
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
     REQUIRE(cfg.model == "models/lz.vsgt");
-    REQUIRE(cfg.window.width == 1920);
-    REQUIRE(cfg.window.height == 1080);
+    REQUIRE(cfg.viewDefinition.window.width == 1920);
+    REQUIRE(cfg.viewDefinition.window.height == 1080);
 }
 
 // =============================================================================
 // 含 viewDefinition 的 IG 样例能加载（多通道同步模块设计.md §3.1，码 CFG-accept-ig-sample-syncsystem）。
-// viewID 读入 SyncSystem.channelId；不验收窗口像素。
+// viewID 读入 ViewDefinition.viewID；不验收窗口像素。
 // =============================================================================
 TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with viewDefinition", "[unit][config][parse][CFG-accept-ig-sample-syncsystem]")
 {
@@ -998,7 +998,7 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with viewDefini
     REQUIRE(cfg.igConfig.has_value());
     REQUIRE(cfg.igConfig->udpRecvPort == 8001);
     REQUIRE_FALSE(cfg.igConfig->hostAddr.empty());
-    REQUIRE(cfg.syncSystem.channelId == 0);
+    REQUIRE(cfg.viewDefinition.viewID == 0);
 }
 
 TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][config][parse][CFG-accept-ig-sample]")
@@ -1028,9 +1028,9 @@ TEST_CASE("loadEngineChannelConfig parses viewDefinition group", "[unit][config]
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.syncSystem.channelId == 3);
-    REQUIRE(offsetEquals(cfg.syncSystem.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
-    REQUIRE(cfg.syncSystem.requireConnectedIg);
+    REQUIRE(cfg.viewDefinition.viewID == 3);
+    REQUIRE(offsetEquals(cfg.viewDefinition.offsetDeg, OffsetDeg{18.05, 1.0, 2.0}));
+    REQUIRE(cfg.viewDefinition.requireConnectedIg);
 }
 
 // =============================================================================
@@ -1275,9 +1275,9 @@ TEST_CASE("loadEngineChannelConfig accepts integer-valued floats for window ints
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.window.x == 0);
-    REQUIRE(cfg.window.width == 640);
-    REQUIRE(cfg.window.height == 480);
+    REQUIRE(cfg.viewDefinition.window.posX == 0);
+    REQUIRE(cfg.viewDefinition.window.width == 640);
+    REQUIRE(cfg.viewDefinition.window.height == 480);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects fractional window ints",
@@ -1308,7 +1308,7 @@ TEST_CASE("loadEngineChannelConfig accepts UTF-8 BOM", "[unit][config][parse][js
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
-    REQUIRE(cfg.window.width == 640);
+    REQUIRE(cfg.viewDefinition.window.width == 640);
 }
 
 TEST_CASE("loadEngineChannelConfig rejects trailing comma", "[unit][config][parse][json-adapter][negative][CFG-reject-trailing-comma]")
@@ -1344,14 +1344,14 @@ SCENARIO("on-screen window position and size match the channel config", "[accept
                 auto traits = win->traits();
                 REQUIRE(traits);
 
-                REQUIRE(traits->x == engine.config.window.x);
-                REQUIRE(traits->y == engine.config.window.y);
-                REQUIRE(traits->width == static_cast<uint32_t>(engine.config.window.width));
-                REQUIRE(traits->height == static_cast<uint32_t>(engine.config.window.height));
+                REQUIRE(traits->x == engine.config.viewDefinition.window.posX);
+                REQUIRE(traits->y == engine.config.viewDefinition.window.posY);
+                REQUIRE(traits->width == static_cast<uint32_t>(engine.config.viewDefinition.window.width));
+                REQUIRE(traits->height == static_cast<uint32_t>(engine.config.viewDefinition.window.height));
 
                 const VkExtent2D extent = win->extent2D();
-                REQUIRE(extent.width == static_cast<uint32_t>(engine.config.window.width));
-                REQUIRE(extent.height == static_cast<uint32_t>(engine.config.window.height));
+                REQUIRE(extent.width == static_cast<uint32_t>(engine.config.viewDefinition.window.width));
+                REQUIRE(extent.height == static_cast<uint32_t>(engine.config.viewDefinition.window.height));
             }
         }
     }

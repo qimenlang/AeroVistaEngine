@@ -25,9 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
-using aerovista::sync::IgConfig;
 using aerovista::sync::IgSync;
-using aerovista::sync::SyncSystem;
 
 namespace
 {
@@ -429,15 +427,15 @@ namespace
 
     // initialize 失败，或 connect 失败且 requireConnectedIg，返回空。
     // 连失败但允许未就绪时留下对象，调用方还可再 connect。
-    std::unique_ptr<IgSync> openIg(const IgConfig& igConfig, const SyncSystem& syncSystem)
+    std::unique_ptr<IgSync> openIg(const IgConfig& igConfig, const ViewDefinition& viewDefinition)
     {
         auto ig = std::make_unique<IgSync>();
-        if (!ig->initialize(igConfig.udpRecvPort, syncSystem.channelId))
+        if (!ig->initialize(igConfig.udpRecvPort, viewDefinition.viewID))
         {
             std::cerr << "Engine: IgSync initialize failed\n";
             return nullptr;
         }
-        if (!ig->connect(igConfig) && syncSystem.requireConnectedIg)
+        if (!ig->connect(igConfig) && viewDefinition.requireConnectedIg)
         {
             std::cerr << "Engine: IgSync connect failed\n";
             return nullptr;
@@ -560,7 +558,7 @@ void Engine::applyCameraPoseFromConfig()
                 const double minFar = eyeDistance + _aabbRadius;
                 const double defaultFar = initial_camera::kLocalFarMultiplier * _aabbRadius;
                 const double newFar = std::max(defaultFar, minFar);
-                const double newNear = config.nearFarRatio() * newFar;
+                const double newNear = config.viewDefinition.nearFarRatio() * newFar;
                 perspective->nearDistance = newNear;
                 perspective->farDistance = newFar;
             }
@@ -749,7 +747,7 @@ bool Engine::init()
     if (!attachConfiguredGroundGrid())
         return false;
 
-    if (!initSync(config.igConfig, config.syncSystem))
+    if (!initSync(config.igConfig, config.viewDefinition))
         return false;
 
     try
@@ -771,25 +769,25 @@ bool Engine::init(const vsg::Path& modelPath)
 bool Engine::initSync(const std::optional<IgConfig>& igConfig, bool requireConnectedIg)
 {
     // 程序化路径（测试）：仅指定 requireConnectedIg，其余装配配置用默认值。
-    SyncSystem syncSystem;
-    syncSystem.requireConnectedIg = requireConnectedIg;
-    return initSync(igConfig, syncSystem);
+    ViewDefinition viewDefinition;
+    viewDefinition.requireConnectedIg = requireConnectedIg;
+    return initSync(igConfig, viewDefinition);
 }
 
-bool Engine::initSync(const std::optional<IgConfig>& igConfig, const SyncSystem& syncSystem)
+bool Engine::initSync(const std::optional<IgConfig>& igConfig, const ViewDefinition& viewDefinition)
 {
     // 写入 config.igConfig，供场景装配（ensureEllipsoidModel）按「有无 igConfig」注入椭球。
     config.igConfig = igConfig;
     // offset 由 CameraDriver 持有；写相机在 update / stepSync。
-    // requireConnectedIg 决定 connect 失败是否拒绝；channelId 写入 IgSync HELLO。
+    // requireConnectedIg 决定 connect 失败是否拒绝；viewID 写入 IgSync HELLO 的 channelId。
     _cameraDriver.resetEyeCaches();
-    _cameraDriver.setOffsetDeg(syncSystem.offsetDeg);
+    _cameraDriver.setOffsetDeg(viewDefinition.offsetDeg);
 
     // igConfig 为空时只拆掉旧 IG。
     _ig.reset();
     if (igConfig.has_value())
     {
-        _ig = openIg(*igConfig, syncSystem);
+        _ig = openIg(*igConfig, viewDefinition);
         if (!_ig)
             return false;
     }
@@ -876,10 +874,10 @@ bool Engine::createVulkanDevice(int& queueFamily)
     if (showWindow)
     {
         auto windowTraits = vsg::WindowTraits::create(
-            config.window.x,
-            config.window.y,
-            static_cast<uint32_t>(config.window.width),
-            static_cast<uint32_t>(config.window.height),
+            config.viewDefinition.window.posX,
+            config.viewDefinition.window.posY,
+            static_cast<uint32_t>(config.viewDefinition.window.width),
+            static_cast<uint32_t>(config.viewDefinition.window.height),
             "AeroVistaEngine");
         windowTraits->hdpi = false;
         windowTraits->decoration = false; // 无边框客户区
@@ -979,7 +977,7 @@ vsg::ref_ptr<vsg::ProjectionMatrix> Engine::createInitialProjection(
     if (ellipsoidModel)
     {
         // EllipsoidPerspective 动态计算 near/far，horizonMountainHeight=0
-        return vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, config.verticalFovDeg, aspect, nearFarRatio,
+        return vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, config.viewDefinition.vfov, aspect, nearFarRatio,
                                                  initial_camera::kEllipsoidHorizonMountainHeight);
     }
 
@@ -987,10 +985,10 @@ vsg::ref_ptr<vsg::ProjectionMatrix> Engine::createInitialProjection(
     // 半径过小：near/far 用绝对兜底 0.1/100，视场角仍用配置 vfov（位姿配置设计.md §4.1）
     if (radius < initial_camera::kRadiusThreshold)
     {
-        return vsg::Perspective::create(config.verticalFovDeg, aspect, 0.1, 100.0);
+        return vsg::Perspective::create(config.viewDefinition.vfov, aspect, 0.1, 100.0);
     }
 
-    return vsg::Perspective::create(config.verticalFovDeg, aspect, nearFarRatio * radius,
+    return vsg::Perspective::create(config.viewDefinition.vfov, aspect, nearFarRatio * radius,
                                     radius * initial_camera::kLocalFarMultiplier);
 }
 
@@ -1063,7 +1061,7 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
     vsg::dvec3 centre{};
     double radius = 0.0;
     sceneBoundsCentreRadius(computeBounds.bounds, centre, radius);
-    const double nearFarRatio = config.nearFarRatio();
+    const double nearFarRatio = config.viewDefinition.nearFarRatio();
 
     // 保存供相机位姿调整使用（位姿配置设计.md §4.1 D3）
     _aabbCentre = centre;

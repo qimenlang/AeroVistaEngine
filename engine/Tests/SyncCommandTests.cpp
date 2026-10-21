@@ -54,8 +54,8 @@ namespace
         a.extent = b.extent = {640, 480};
         a.showWindow = b.showWindow = false;
         REQUIRE(hostA.initialize(makeTestHostConfig(base)));
-        REQUIRE(a.initSync(makeTestIgConfig(base + 1, base), makeTestSyncSystem(0)));
-        REQUIRE(b.initSync(makeTestIgConfig(base + 3, base), makeTestSyncSystem(1)));
+        REQUIRE(a.initSync(makeTestIgConfig(base + 1, base), makeTestViewDefinition(0)));
+        REQUIRE(b.initSync(makeTestIgConfig(base + 3, base), makeTestViewDefinition(1)));
         REQUIRE(hostA.readyIgCount() == 2);
         REQUIRE(a.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }
@@ -73,9 +73,9 @@ namespace
         a.extent = b.extent = c.extent = {640, 480};
         a.showWindow = b.showWindow = c.showWindow = false;
         REQUIRE(hostA.initialize(makeTestHostConfig(base)));
-        REQUIRE(a.initSync(makeTestIgConfig(base + 1, base), makeTestSyncSystem(0)));
-        REQUIRE(b.initSync(makeTestIgConfig(base + 3, base), makeTestSyncSystem(1)));
-        REQUIRE(c.initSync(makeTestIgConfig(base + 5, base), makeTestSyncSystem(2)));
+        REQUIRE(a.initSync(makeTestIgConfig(base + 1, base), makeTestViewDefinition(0)));
+        REQUIRE(b.initSync(makeTestIgConfig(base + 3, base), makeTestViewDefinition(1)));
+        REQUIRE(c.initSync(makeTestIgConfig(base + 5, base), makeTestViewDefinition(2)));
         REQUIRE(hostA.readyIgCount() == 3);
         REQUIRE(a.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
     }

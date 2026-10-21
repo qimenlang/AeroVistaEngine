@@ -93,10 +93,9 @@ public:
     // ===== 测试接口 =====
 
     /// 仅同步平面（无 Vulkan）。设备数受限的多 IG 测试用。`igConfig` 空 = 不启 IG。
-    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig, bool requireConnectedIg = true);
-    /// 仅同步平面，装配配置完整传入（含 channelId / offsetDeg / requireConnectedIg）。
-    bool initSync(const std::optional<aerovista::sync::IgConfig>& igConfig,
-                  const aerovista::sync::SyncSystem& syncSystem);
+    bool initSync(const std::optional<IgConfig>& igConfig, bool requireConnectedIg = true);
+    /// 仅同步平面，装配配置完整传入（含 viewID / offsetDeg / requireConnectedIg）。
+    bool initSync(const std::optional<IgConfig>& igConfig, const ViewDefinition& viewDefinition);
     /// 加载场景并按配置注入 EllipsoidModel（不创建 Vulkan Device）。
     bool initSceneMode(const vsg::Path& modelPath);
     /// preFrame → stepSync → postFrame，不渲染（仅同步引擎）。

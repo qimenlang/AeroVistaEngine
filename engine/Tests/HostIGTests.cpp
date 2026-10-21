@@ -36,7 +36,6 @@ using aerovista::sync::IgConfig;
 using aerovista::sync::IgSync;
 using aerovista::sync::OffsetDeg;
 using aerovista::sync::SyncInterface;
-using aerovista::sync::SyncSystem;
 using aerovista::sync::TcpSocket;
 namespace cigi_wire = aerovista::sync::cigi_wire;
 
@@ -216,9 +215,9 @@ SCENARIO("three IG Engines exchange CIGI frame control across one independent Ho
         engineA.extent = engineB.extent = engineC.extent = {1920, 1080};
         engineA.showWindow = engineB.showWindow = engineC.showWindow = false;
 
-        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase), makeTestSyncSystem(0)));
-        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestSyncSystem(1)));
-        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase), makeTestSyncSystem(2)));
+        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestViewDefinition(1)));
+        REQUIRE(engineC.initSync(makeTestIgConfig(kBase + 5, kBase), makeTestViewDefinition(2)));
         REQUIRE(host.sync.readyIgCount() == 3);
         REQUIRE(engineA.initGraphics(vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt"));
 
@@ -497,7 +496,7 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
 
         const IgConfig igCfg = makeIgLocalEye(18001, 18000);
         // Host 未启动 → connect 失败，requireConnectedIg=false 仍完成本地 Init。
-        SyncSystem unlinked;
+        ViewDefinition unlinked;
         unlinked.requireConnectedIg = false;
         REQUIRE(engine.initSync(igCfg, unlinked));
         REQUIRE_FALSE(engine.igLinked());
@@ -719,12 +718,12 @@ namespace
             REQUIRE(c.loadConfig(igCFile.path()));
             REQUIRE(a.init());
             // B/C：sync + scene mode only（单进程避免第三个 Vulkan Device）。
-            REQUIRE(b.initSync(b.config.igConfig, b.config.syncSystem));
+            REQUIRE(b.initSync(b.config.igConfig, b.config.viewDefinition));
             REQUIRE(b.initSceneMode(vsg::Path(RESOURCE_DIR) / b.config.model));
-            b.cameraDriver().setOffsetDeg(b.config.syncSystem.offsetDeg);
-            REQUIRE(c.initSync(c.config.igConfig, c.config.syncSystem));
+            b.cameraDriver().setOffsetDeg(b.config.viewDefinition.offsetDeg);
+            REQUIRE(c.initSync(c.config.igConfig, c.config.viewDefinition));
             REQUIRE(c.initSceneMode(vsg::Path(RESOURCE_DIR) / c.config.model));
-            c.cameraDriver().setOffsetDeg(c.config.syncSystem.offsetDeg);
+            c.cameraDriver().setOffsetDeg(c.config.viewDefinition.offsetDeg);
 
             // 握手是异步网络时序：Windows 下偶发 UDP_SYNC 丢包/调度延迟会让 connect 失败。
             // B/C 的 requireConnectedIg=false 会静默继续，此时对未同步的 IG 重连并等待全部 ready。
@@ -793,8 +792,8 @@ namespace
             REQUIRE(vsg::length(upEcef - upEcefExpected) < kDirEps);           // up == R_host·Up（ECEF）
             REQUIRE(vsg::length(forwardEcef - forwardEcefExpected) < kDirEps); // forward == R_host·Rz(δ)·ŷ（ECEF）
         };
-        check(h.b.cameraDriver().lastAppliedEye(), h.b.config.syncSystem.offsetDeg, h.b);
-        check(h.c.cameraDriver().lastAppliedEye(), h.c.config.syncSystem.offsetDeg, h.c);
+        check(h.b.cameraDriver().lastAppliedEye(), h.b.config.viewDefinition.offsetDeg, h.b);
+        check(h.c.cameraDriver().lastAppliedEye(), h.c.config.viewDefinition.offsetDeg, h.c);
     }
 
     vsg::dvec3 lookAtEye(Engine& engine)
@@ -819,8 +818,8 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestSyncSystem(0)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestSyncSystem(1)));
+        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestViewDefinition(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -997,8 +996,8 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestSyncSystem(0)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestSyncSystem(1)));
+        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestViewDefinition(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1086,8 +1085,8 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestSyncSystem(0)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestSyncSystem(1)));
+        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestViewDefinition(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1174,9 +1173,9 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         REQUIRE(engineB.loadConfig(igFile.path()));
         REQUIRE(engineA.init());
         // B：sync + scene mode only（部分机器单 Vulkan Device 限制）。
-        REQUIRE(engineB.initSync(engineB.config.igConfig, engineB.config.syncSystem));
+        REQUIRE(engineB.initSync(engineB.config.igConfig, engineB.config.viewDefinition));
         REQUIRE(engineB.initSceneMode(vsg::Path(RESOURCE_DIR) / engineB.config.model));
-        engineB.cameraDriver().setOffsetDeg(engineB.config.syncSystem.offsetDeg);
+        engineB.cameraDriver().setOffsetDeg(engineB.config.viewDefinition.offsetDeg);
 
         auto emA = ellipsoidOf(engineA);
         auto emB = engineB.ellipsoidModel();

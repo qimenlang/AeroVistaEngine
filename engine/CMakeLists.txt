@@ -20,7 +20,6 @@ endif()
 
 add_library(vsgEngineLib STATIC
     source/engine.cpp
-    source/function/config/EngineConfig.cpp
     source/function/entity/Entity.cpp
     source/function/driver/CameraDriver.cpp
     source/function/handler/FrameStatsHandler.cpp

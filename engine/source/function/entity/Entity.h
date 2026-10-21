@@ -1,12 +1,13 @@
 ﻿#pragma once
 
+#include "function/config/EngineConfig.h"
+
 #include <vsg/all.h>
 
 #include <cstdint>
 #include <string>
 
 class CigiEntityCtrlV4;
-struct EntityConfig;
 
 /// IG 侧运行时实体：场景图实例 + 语义位姿 / 显隐 / 属性。
 /// 存在性由启动预建写入 Engine 表；本类不负责 loadScene / compile。
