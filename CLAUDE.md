@@ -123,7 +123,7 @@ Authority: `doc/测试用例书写规范.md`. Form ≠ test level. Prefer observ
 
 ATDD is two turns. Do not collapse them. Authority: `doc/测试用例书写规范.md` §6.
 
-1. **Review-tests turn**（新验收 / 新码 / 「补测试」）：only `engine/Tests` or `thirdparty/sync/tests` + owning 「验收要点」. Stop for Then review. No production in this turn.
+1. **Review-tests turn**（新验收 / 新码 / 「补测试」）：only `engine/Tests`, `thirdparty/sync/tests`, or `thirdparty/config/tests` + owning 「验收要点」. Stop for Then review. No production in this turn.
 2. **Implement turn**：`engine/source` / `thirdparty/sync` / `thirdparty/config` (and behavior-changing headers) only after **「开始实施」** or **「测试没问题」**.
 3. **Same-turn ban**：new/red acceptance tests and production must not ship together. Compile-only empty stubs allowed if declared（「仅编译切口，未实现」）; do not fill in logic.
 
@@ -144,7 +144,7 @@ Ambiguous 「帮我实现」with no reviewed tests → gate 1 first. Exceptions:
 
 Authority: `doc/测试用例书写规范.md` §1.1. Prefix → design-doc map: `doc/测试验收码.md` (do **not** copy that table here).
 
-Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must carry a **stable code** as a same-name Catch2 tag (e.g. `[CIGI-ownship-lla]`). One code may cover multiple cases (1:n). Codes are PKs: once assigned, **never** rename, reuse, or reshuffle. Do **not** use serial numbers (`REQ-001`, `TEST-42`).
+Every `TEST_CASE` / `SCENARIO` in `engine/Tests`, `thirdparty/sync/tests`, or `thirdparty/config/tests` must carry a **stable code** as a same-name Catch2 tag (e.g. `[CIGI-ownship-lla]`). One code may cover multiple cases (1:n). Codes are PKs: once assigned, **never** rename, reuse, or reshuffle. Do **not** use serial numbers (`REQ-001`, `TEST-42`).
 
 - **New code** → add a row to the owning design doc’s 「验收要点」 (columns: 码 / 场景 / 验收 / Catch2). Lookup via `doc/测试验收码.md`. That is a **doc-sync** trigger.
 - **Reuse an existing code** when the case is another observable of the same contract; do not invent a sibling number.
@@ -161,7 +161,7 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must
 
 ### Case comment (required)
 
-**Every** `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must have this block comment immediately above it. The template is the steady state, not a rule for new cases only.
+**Every** `TEST_CASE` / `SCENARIO` in `engine/Tests`, `thirdparty/sync/tests`, or `thirdparty/config/tests` must have this block comment immediately above it. The template is the steady state, not a rule for new cases only.
 
 **过渡（当前）**：大量既有用例还没有这块注释。缺注释的旧用例先留着，不要在无关改动里顺手补全，也不要一次扫完全部文件。补注释走逐条审核：先判断这条用例是否还该留，人确认后再写注释。审核或改动到的那一条，离开时必须带上注释。
 
@@ -193,7 +193,7 @@ Every `TEST_CASE` / `SCENARIO` in `engine/Tests` or `thirdparty/sync/tests` must
 ❌ Rename / reuse / reshuffle an assigned 验收码; serial numbers as PK
 ❌ Dump unit-test lists into ENT/CLK product 验收 tables
 
-✅ Review-tests turn: engine/Tests or thirdparty/sync/tests + 验收要点 only; stop for Then review
+✅ Review-tests turn: engine/Tests, thirdparty/sync/tests, or thirdparty/config/tests + 验收要点 only; stop for Then review
 ✅ Implement turn: after explicit go-ahead; then make green
 ✅ Empty stub + 「仅编译切口，未实现」 if the red test cannot compile
 ✅ Split connect-fail / connect-ok / host-offline disconnect

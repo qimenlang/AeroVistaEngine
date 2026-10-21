@@ -44,7 +44,7 @@ vsgEngine (exe)
 - Host 任务状态（`HostDataManager`）**零 vsg、零 Engine、不持 `HostSync`**：权威表与按行组包；发送仍走 `HostSync::flush*`。见 §3.4。
 - `HostDriver` **零 vsg、零 Engine**：持有 `HostSync` + `HostDataManager`；中继时另持虚 `IgSync`。viewhost 直接使用。报文自检 / 命令行也在本类（[viewhost设计.md](./viewhost设计.md) §4.0）。
 - `IgSync` **零 vsg、零 Engine**：UDP bind、`connect`、收包解包、帧维护、`linked()`。眼点 offset 合成在 Engine `CameraDriver`，写相机在 `Engine::applyLastHostEye`（§3.1）。空 `igConfig` 与 `requireConnectedIg` 由 `Engine::initSync` 决定。
-- 配置类型（`OffsetDeg`/`IgConfig`/`HostConfig`）全部归 sync 库（`SyncConfig.h`）；`EngineConfig.h` 只保留引擎侧配置。
+- 配置类型（`OffsetDeg` / `IgConfig` / `HostConfig`，以及通道与实体结构体）归 `AeroVistaConfig`。`SyncConfig.h` 与 `EngineConfig.h` 只重新导出，不再自己解析 JSON。
 - 目录布局：`include/aerovista/sync/*.h`（公共头）+ `src/*.cpp`（实现）+ `examples/`（接入示例）。
 
 ## 3. 关键设计决策
@@ -104,8 +104,8 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 ### 3.2 配置结构归属
 
-- `OffsetDeg`、`IgConfig`、`HostConfig` **全部归 sync 库**（`SyncConfig.h`）。
-- `EngineConfig.h` 保留引擎侧配置（窗口/模型/实体/相机），跨库引用只走 sync 库公开头。
+- `OffsetDeg`、`IgConfig`、`HostConfig`，以及通道 / 实体结构体，归 `AeroVistaConfig`（`namespace aerovista::config`）。见 §4.1。
+- `SyncConfig.h` 只重新导出 Host / IG 名字。`EngineConfig.h` 只重新导出通道与实体名字。两边都不再解析 JSON。
 - **`IgConfig` 成员与 JSON 键同名**：`udpRecvPort` / `hostAddr` / `hostTcpPort` / `hostUdpRecvPort`。`HostConfig` 成员与 JSON 键同名：`udpPortRecv` / `tcpPort`。传输块仍是 `hostConfig` 与 `igConfig`；viewhost 中继另加 `relay.enable` / `expectedIgCount`（[平台同步设计.md](./平台同步设计.md) §9）。见 §4。
 
 ### 3.3 命令面桥
@@ -120,7 +120,7 @@ std::optional<ChannelEye> lastAppliedEye() const;      // 最近合成位姿
 
 - **做**：建表、运行期更新、`snapshot()`、按当前行填 CIGI 报文对象。
 - **不做**：`initialize` socket、`flushTcp` / `flushUdp`、ready 判定、每帧眼点。这些归 `HostSync` / `HostDriver`。
-- **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](./viewhost设计.md) §4.0）。`thirdparty/sync/tests` 直接测 Manager（不启网络）并测 `HostDriver`（`PLT-ig-first` 等）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
+- **消费方**：`aerovista::sync::HostDriver` 持有 `HostSync` + `HostDataManager`（[viewhost设计.md](./viewhost设计.md) §4.0）。子集解析（`ENT-04-table-init` / `name` / `pose` / `pose-local` / `reject-*`）在 `thirdparty/config/tests`；`thirdparty/sync/tests` 测查空、失败重载、运行期更新与 `HostDriver`（`PLT-ig-first` 等）。运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。IG 完整 schema 见 [实体管理设计.md](../引擎基础功能/实体管理设计.md) §4。
 
 IG 侧传输是 `IgSync`，眼点合成在 Engine `CameraDriver`。Host 侧为 `HostDriver`（持 `HostSync` + `HostDataManager` + 可选虚 `IgSync`）。`HostDataManager` 不做眼点合成，只承担 CIGI 任务状态的 last-value。
 
@@ -210,7 +210,7 @@ igSync.connect(ig.target);
 **验收测试**：
 - `engine/Tests/HostIGTests.cpp` 的 `[viewhost]` 场景——`loadHostConfig` 读 host-only 配置 → 直接持 `HostSync`（`initialize(host)`，是否起来只看返回值）拉起，与带 IG 的 Engine 真实 TCP/UDP 握手 + CIGI IGCtrl→SOF 收发。
 - `thirdparty/sync/tests/HostIGLinkTests.cpp` 的 `[standalone]` 场景——**host 与 IG 双侧都走 sync 库独立配置文件**（host 侧 `loadHostConfig` → `HostSync`；IG 侧 `loadIgConfig` → `IgSync`），`channelId` 程序化传入 `IgSync::initialize`，双通道 CIGI 收发。`offsetDeg` 由 Engine `CameraDriver` 消费，本场景不覆盖。
-- `thirdparty/sync/tests/SyncConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。
+- `thirdparty/config/tests/HostConfigTests.cpp` 的 `loadHostConfig` / `loadIgConfig` 单元用例（正常解析 / 未知顶层键拒绝 / 部分对象拒绝 / `CFG-host-relay-*`）。单跑：`aerovistaConfigTests.exe "[CFG-host-parse-ok]"`。
 
 ### 4.2 `viewDefinition` 配置组（通道装配）
 
@@ -265,7 +265,7 @@ igSync.connect(ig.target);
 
 ## 7. 验收要点
 
-> 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `thirdparty/sync/tests` 的 `SyncConfigTests.cpp` / `TcpSocketTests.cpp` / `UdpSocketTests.cpp`。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。单跑：`aerovistaSyncTests.exe "[TCP-loopback-connect]"`。
+> 对齐 [测试用例书写规范.md](../../测试用例书写规范.md)。对照 `thirdparty/config/tests/HostConfigTests.cpp`（`CFG-host-*` / `CFG-ig-*`）与 `thirdparty/sync/tests` 的 `TcpSocketTests.cpp` / `UdpSocketTests.cpp`。码一经分配不改号、不复用、不重排。Catch2 挂同名 tag。单跑：`aerovistaConfigTests.exe "[CFG-host-parse-ok]"` 或 `aerovistaSyncTests.exe "[TCP-loopback-connect]"`。
 >
 > engine 通道 JSON（window / `igConfig` 嵌在通道文件）见 [多通道同步模块设计.md](./多通道同步模块设计.md) §11。本节只登记 **Host/IG 独立配置入口** 与 **库内套接字**。
 

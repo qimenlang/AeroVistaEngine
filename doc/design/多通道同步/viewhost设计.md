@@ -409,7 +409,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 
 > 组包实现在 `HostDataManager`，Driver 先写表再发送。脏判定按**报文族**（一张 `EntityCtrl` 的字段一起提交），不按字段拆同一张包。否决综合 `applyEntity`（把 Ctrl+Position 无条件一次发全）。否决 Apply 内对同一张 `EntityCtrl` 连 flush 两次。无加载结果上报订阅（首版实体加载失败不上报，[实体管理设计.md](../引擎基础功能/实体管理设计.md) §7.1）。
 
-**测试（写死）**：MFC UI **不测**（§6）。`HostDataManager`（建表 / 运行期更新 / 组包字段）在 `thirdparty/sync/tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。建表码 `ENT-04-table-*`；运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的 IG 可观察结果以 `[acceptance]` 覆盖（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §10 的 `ENT-02-*` / `ENT-03-*`；多 IG 广播 `ENT-04-late-join` 仍在控制面 §11）。Host 侧 `entities.json` **子集**解析是 `AeroVistaConfig::loadHostEntityCatalog`，`HostDataManager` 只建表；IG 完整 schema（含 `pose` 双轨）仍走 `loadEntitiesFile`。两份解析器不合并（文件不迁 sync 库，[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4）。
+**测试（写死）**：MFC UI **不测**（§6）。子集解析 `ENT-04-table-init` / `name` / `pose` / `reject-*` 在 `thirdparty/config/tests`（`loadHostEntityCatalog`）。`HostDataManager` 的查空、失败重载、运行期更新与组包在 `thirdparty/sync/tests` 以 `[unit]` 覆盖（链 `aerovistaSync`，不启 socket、不编 MFC）。运行期更新 / 组包码 `ENT-04-update-*` / `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。生命周期 / 显隐 / 位姿的 IG 可观察结果以 `[acceptance]` 覆盖（[实体管理设计.md](../引擎基础功能/实体管理设计.md) §10 的 `ENT-02-*` / `ENT-03-*`；多 IG 广播 `ENT-04-late-join` 仍在控制面 §11）。Host 侧 `entities.json` **子集**解析是 `AeroVistaConfig::loadHostEntityCatalog`，`HostDataManager` 只建表；IG 完整 schema（含 `pose` 双轨）仍走 `loadEntitiesFile`。两份解析器不合并（文件不迁 sync 库，[实体管理设计.md](../引擎基础功能/实体管理设计.md) §4）。
 
 ### 4.9 命令行（`CigiSymbolTextDefV4`）
 
@@ -438,7 +438,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 **分层原则**：
 
 - **不测**：MFC UI（`CFrameWndEx` 消息循环 / `GetAsyncKeyState` 轮询）。`HostSync` 的握手 / 扇出 / LLA 组包由 `thirdparty/sync/tests` 的 `HostIGLinkTests` 覆盖；与 Engine 联调的 `[viewhost]` 仍在 `engine/Tests/HostIGTests`。
-- **测（`[unit]`）**：（1）键盘步进→LLA 换算（§4.2，`ViewHostMath`，与示例共源；验收码 `VH-*` 见 §10，用例在 `thirdparty/sync/tests/ViewHostMathTests.cpp`）。（2）`HostDataManager` 权威表：建表 `ENT-04-table-*`；运行期更新 `ENT-04-update-*`；按行组包 `ENT-04-pack-*`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11，用例在 `thirdparty/sync/tests/HostDataManagerTests.cpp`）。库内 `HostDriver` 在 `thirdparty/sync/tests/HostDriverTests.cpp` 覆盖（如 `PLT-ig-first`）；探测 / 命令行与 MFC 不测。表逻辑在 Manager 上测，发送仍走既有 Host↔IG 用例（`CIGI-viewhost-exchange` 见 §10，留在 `engine/Tests`）。
+- **测（`[unit]`）**：（1）键盘步进→LLA 换算（§4.2，`ViewHostMath`，与示例共源；验收码 `VH-*` 见 §10，用例在 `thirdparty/sync/tests/ViewHostMathTests.cpp`）。（2）`HostDataManager` 权威表：子集解析 `ENT-04-table-init` / `name` / `pose` / `pose-local` / `reject-*` 在 `thirdparty/config/tests/EntityCatalogTests.cpp`（直接调 `loadHostEntityCatalog`）；查空、失败重载不改表、运行期更新 `ENT-04-update-*`、按行组包 `ENT-04-pack-*` 仍在 `thirdparty/sync/tests/HostDataManagerTests.cpp`（[实体与运动控制设计.md](./实体与运动控制设计.md) §11）。库内 `HostDriver` 在 `thirdparty/sync/tests/HostDriverTests.cpp` 覆盖（如 `PLT-ig-first`）；探测 / 命令行与 MFC 不测。表逻辑在 Manager 上测，发送仍走既有 Host↔IG 用例（`CIGI-viewhost-exchange` 见 §10，留在 `engine/Tests`）。
 
 **约束（写死）**：步进换算必须保持**纯 C++**——不依赖 MFC / vsg，只依赖 `cigi_wire::EyePose` 这一 POD 类型（include `CigiWire.h` 即可，不产生链接依赖），以便编进 `aerovistaSyncTests`。
 
@@ -468,7 +468,7 @@ void broadcastEntityAuthority();                 // ready 路径：按表当前�
 - **恒 LLA 眼点（非 ECEF）**：viewhost 发 LLA（lat/lon/alt + 当地 ENU YPR），配合 engine 椭球场景；ECEF 仅是 IG 侧渲染坐标，`cigi_wire::EyePose` 无发 ECEF 选项（§4.2）。
 - **程序放 `thirdparty/sync/examples/`**：viewhost 是 sync 库的 Host 接入示例，与 `minimal_viewhost.cpp` 并列，不进 `tools/`（§3）。
 - **平移参考系 = 机头局部（否决地理固定 N/S/E/W）**：WASD 沿当前 `yaw` 的机头局部水平面移动，配合方向键 yaw/pitch 的姿态控制更符合「驾驶」直觉；上下用绝对垂直 alt（§4.2）。
-- **测试范围分层（写死）**：MFC UI 不测；`HostDataManager` 与步进换算挂 `thirdparty/sync/tests` `[unit]`（§6）。`HostDriver` 通过测 Manager + Host↔IG / 中继门闩用例覆盖，不测对话框与探测包。
+- **测试范围分层（写死）**：MFC UI 不测。子集解析挂 `thirdparty/config/tests`；`HostDataManager` 的查空、失败重载、运行期更新、组包，以及步进换算，挂 `thirdparty/sync/tests` `[unit]`（§6）。`HostDriver` 通过测 Manager + Host↔IG / 中继门闩用例覆盖，不测对话框与探测包。
 - **Host 分层（§4.0；进库）**：`aerovista::sync::HostDriver` = `HostSync` + `HostDataManager` + 可选虚 `IgSync`；viewhost 直接持该类型，UI 只调 Driver。否决权威表并入 `HostSync`，否决 MFC 组包，否决 examples 第二套 `HostDriver`。
 - **眼点操控（决策）**：viewhost 只保留键盘手动操控眼点，不做自动圆周轨迹。眼点由初始值起步，经 `applyManualStep` 累积。
 - **眼点操控入口（§4.4 / §4.8）**：场景树 `root` → `eyePoint` + `entities{…}`；单击 `eyePoint` 开始键盘操控，单击其它项停止。已取消 toggle 按钮与空格热键。
