@@ -645,13 +645,15 @@ namespace
                                       const std::string& model)
     {
         std::string body = std::string(R"({
-              "syncSystem": {
-              "channelId": )") +
+              "viewDefinition": {
+              "viewID": )") +
                            std::to_string(channelId) + R"(,
               "offsetDeg": { "heading": )" +
                            std::to_string(-yawOffset) + R"(, "pitch": 0.0, "roll": 0.0 },
               "requireConnectedIg": )" +
-                           (requireConnectedIg ? std::string("true") : std::string("false")) + R"(
+                           (requireConnectedIg ? std::string("true") : std::string("false")) + R"(,
+              "vfov": 30.0, "near": 1.0, "far": 1000.0,
+              "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 }
               },
               "injectEllipsoidIfMissing": )" +
                            (injectEllipsoidIfMissing ? std::string("true") : std::string("false")) + R"(,
@@ -660,8 +662,7 @@ namespace
                            R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
                            R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + R"( },
               "model": ")" +
-                           model + R"(",
-              "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
+                           model + R"("
             })";
         return body;
     }
@@ -1133,34 +1134,36 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
         // engine A（IG，readymap 自带椭球）。
         const TempConfigFile igAFile(
             std::string(R"({
-              "syncSystem": {
-              "channelId": 0,
+              "viewDefinition": {
+              "viewID": 0,
               "offsetDeg": { "heading": 0.0, "pitch": 0.0, "roll": 0.0 },
-              "requireConnectedIg": true
+              "requireConnectedIg": true,
+              "vfov": 30.0, "near": 1.0, "far": 1000.0,
+              "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 }
               },
               "injectEllipsoidIfMissing": true,
               "igConfig": { "udpRecvPort": )") +
             std::to_string(kBase + 1) +
             R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + R"( },
-              "model": "models/readymap.vsgt",
-              "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
+              "model": "models/readymap.vsgt"
             })");
 
         const TempConfigFile igFile(
             std::string(R"({
-              "syncSystem": {
-              "channelId": 1,
+              "viewDefinition": {
+              "viewID": 1,
               "offsetDeg": { "heading": 0.0, "pitch": 0.0, "roll": 0.0 },
-              "requireConnectedIg": false
+              "requireConnectedIg": false,
+              "vfov": 30.0, "near": 1.0, "far": 1000.0,
+              "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 }
               },
               "injectEllipsoidIfMissing": true,
               "igConfig": { "udpRecvPort": )") +
             std::to_string(kBase + 3) +
             R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(kBase + 100) +
             R"(, "hostUdpRecvPort": )" + std::to_string(kBase) + R"( },
-              "model": "models/lz.vsgt",
-              "window": { "x": 0, "y": 0, "width": 640, "height": 480 }
+              "model": "models/lz.vsgt"
             })");
 
         Engine engineA;

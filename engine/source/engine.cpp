@@ -560,7 +560,7 @@ void Engine::applyCameraPoseFromConfig()
                 const double minFar = eyeDistance + _aabbRadius;
                 const double defaultFar = initial_camera::kLocalFarMultiplier * _aabbRadius;
                 const double newFar = std::max(defaultFar, minFar);
-                const double newNear = initial_camera::kNearFarRatio * newFar;
+                const double newNear = config.nearFarRatio() * newFar;
                 perspective->nearDistance = newNear;
                 perspective->farDistance = newFar;
             }
@@ -979,19 +979,18 @@ vsg::ref_ptr<vsg::ProjectionMatrix> Engine::createInitialProjection(
     if (ellipsoidModel)
     {
         // EllipsoidPerspective 动态计算 near/far，horizonMountainHeight=0
-        return vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, initial_camera::kFieldOfViewDegrees,
-                                                 aspect, nearFarRatio,
+        return vsg::EllipsoidPerspective::create(lookAt, ellipsoidModel, config.verticalFovDeg, aspect, nearFarRatio,
                                                  initial_camera::kEllipsoidHorizonMountainHeight);
     }
 
-    // 本地：near = kNearFarRatio·radius，far = kLocalFarMultiplier·radius
-    // 半径过小：near/far 用绝对兜底，视场角仍用 kFieldOfViewDegrees（位姿配置设计.md §4.1）
+    // 本地：near = (near/far)·radius，far = kLocalFarMultiplier·radius
+    // 半径过小：near/far 用绝对兜底 0.1/100，视场角仍用配置 vfov（位姿配置设计.md §4.1）
     if (radius < initial_camera::kRadiusThreshold)
     {
-        return vsg::Perspective::create(initial_camera::kFieldOfViewDegrees, aspect, 0.1, 100.0);
+        return vsg::Perspective::create(config.verticalFovDeg, aspect, 0.1, 100.0);
     }
 
-    return vsg::Perspective::create(initial_camera::kFieldOfViewDegrees, aspect, nearFarRatio * radius,
+    return vsg::Perspective::create(config.verticalFovDeg, aspect, nearFarRatio * radius,
                                     radius * initial_camera::kLocalFarMultiplier);
 }
 
@@ -1064,7 +1063,7 @@ bool Engine::finishGraphicsAfterScene(vsg::ref_ptr<vsg::EllipsoidModel> ellipsoi
     vsg::dvec3 centre{};
     double radius = 0.0;
     sceneBoundsCentreRadius(computeBounds.bounds, centre, radius);
-    constexpr double nearFarRatio = initial_camera::kNearFarRatio;
+    const double nearFarRatio = config.nearFarRatio();
 
     // 保存供相机位姿调整使用（位姿配置设计.md §4.1 D3）
     _aabbCentre = centre;

@@ -1,8 +1,21 @@
-﻿{
-  "syncSystem": {
-    "channelId": 0,
-    "offsetDeg": { "heading": 0.0, "pitch": 0.0, "roll": 0.0 },
-    "requireConnectedIg": false
+{
+  "viewDefinition": {
+    "viewID": 0,
+    "offsetDeg": {
+      "heading": 0.0,
+      "pitch": 0.0,
+      "roll": 0.0
+    },
+    "requireConnectedIg": false,
+    "vfov": 30.0,
+    "near": 1.0,
+    "far": 1000.0,
+    "window": {
+      "posX": 640,
+      "posY": 0,
+      "width": 640,
+      "height": 1080
+    }
   },
   "igConfig": {
     "udpRecvPort": 9000,
@@ -10,6 +23,5 @@
     "hostTcpPort": 8100,
     "hostUdpRecvPort": 8000
   },
-  "window": { "x": 640, "y": 0, "width": 640, "height": 1080 },
   "entitiesFilePath": "config/entities.json"
 }

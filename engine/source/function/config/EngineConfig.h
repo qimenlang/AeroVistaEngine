@@ -87,7 +87,7 @@ struct GroundGridConfig
 /// 每进程 Engine 通道配置（见 engine/resources/config/*.json，多通道同步模块设计.md §3.1）。
 struct EngineChannelConfig
 {
-    // syncSystem 组：channelId / offsetDeg / requireConnectedIg。
+    // JSON viewDefinition：viewID / offsetDeg / requireConnectedIg，读入本结构体。
     SyncSystem syncSystem{};
 
     /// IG 传输配置；nullopt = 未启用同步（无 igConfig）。optional 承载「有/无」语义。
@@ -98,6 +98,17 @@ struct EngineChannelConfig
 
     std::string model = "models/lz.vsgt";
     WindowConfig window{};
+    /// 垂直视场角（度）。JSON `viewDefinition.vfov`，缺省 30。水平视场由窗口宽高比推出。
+    double verticalFovDeg = 30.0;
+    /// 近远比的两端。JSON `viewDefinition.near` / `far`，缺省 1 与 1000，比值 0.001。
+    /// 不是裁剪面的绝对距离：本地 near = 比值 × radius，椭球 near = 动态 far × 比值。
+    double nearClip = 1.0;
+    double farClip = 1000.0;
+
+    double nearFarRatio() const
+    {
+        return nearClip / farClip;
+    }
     /// 场景模型无自带 EllipsoidModel 时，是否注入一个 WGS-84 椭球（lla设计 §2）。
     /// 仅对「单机椭球渲染」（无 igConfig）生效；启用 IG 同步（有 igConfig）时引擎自动注入，无需此开关。
     /// 运行时坐标系由「场景有无 EllipsoidModel」决定，与此开关解耦。

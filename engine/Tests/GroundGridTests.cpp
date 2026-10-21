@@ -17,7 +17,8 @@ namespace
 {
     const vsg::dvec3 kGridLla{39.9087, 116.3975, 0.0};
 
-    const char* kMinimalWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
+    const char* kMinimalWindow =
+        R"("viewDefinition": { "vfov": 30.0, "near": 1.0, "far": 1000.0, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } })";
     const char* kMinimalModel = R"("model": "models/lz.vsgt")";
     const char* kGridLlaJson = R"("lla": { "lat": 39.9087, "lon": 116.3975, "alt": 0.0 })";
 

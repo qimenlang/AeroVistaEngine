@@ -28,12 +28,12 @@ using aerovista::sync::OffsetDeg;
 
 namespace
 {
-    const char* kDefaultJson = R"({"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":1920,"height":1080}})";
+    const char* kDefaultJson = R"({"model":"models/lz.vsgt","viewDefinition":{"vfov":30.0,"near":1.0,"far":1000.0,"window":{"posX":0,"posY":0,"width":1920,"height":1080}}})";
     // engine 配置不含 hostConfig（含它即未知键拒绝）；kMainJson 对应纯 IG 通道配置。
     const char* kMainJson =
-        R"({"syncSystem":{"channelId":0,"offsetDeg":{"heading":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8001,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":640,"y":0,"width":640,"height":1080}})";
+        R"({"viewDefinition":{"viewID":0,"offsetDeg":{"heading":0.0,"pitch":0.0,"roll":0.0},"requireConnectedIg":true,"vfov":30.0,"near":1.0,"far":1000.0,"window":{"posX":640,"posY":0,"width":640,"height":1080}},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8001,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt"})";
     const char* kLeftJson =
-        R"({"syncSystem":{"channelId":1,"offsetDeg":{"heading":-18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8003,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt","window":{"x":0,"y":0,"width":640,"height":1080}})";
+        R"({"viewDefinition":{"viewID":1,"offsetDeg":{"heading":-18.05,"pitch":0.0,"roll":0.0},"requireConnectedIg":false,"vfov":30.0,"near":1.0,"far":1000.0,"window":{"posX":0,"posY":0,"width":640,"height":1080}},"injectEllipsoidIfMissing":true,"igConfig":{"udpRecvPort":8003,"hostAddr":"127.0.0.1","hostTcpPort":8100,"hostUdpRecvPort":8000},"model":"models/lz.vsgt"})";
 
     bool nearlyEqual(double a, double b, double eps = 1e-9)
     {
@@ -66,7 +66,8 @@ namespace
         REQUIRE(actual.window.height == expected.window.height);
     }
 
-    const char* kMinimalWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
+    const char* kMinimalWindow =
+        R"("viewDefinition": { "vfov": 30.0, "near": 1.0, "far": 1000.0, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } })";
     const char* kMinimalModel = R"("model": "models/lz.vsgt")";
     const char* kReadymapModel = R"("model": "models/readymap.vsgt")";
 
@@ -685,12 +686,17 @@ SCENARIO("channel offset is applied to the camera driver after init",
 
 // engine 配置不含 hostConfig；Host 进程由 sync 库 loadHostConfig 消费（CFG-host-* 在 sync 库测试）。
 
-SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance][bdd][config][CFG-channelid-no-sync]")
+// =============================================================================
+// 只有 viewID、没有 igConfig 时不启同步（多通道同步模块设计.md §3.1，码 CFG-channelid-no-sync）。
+// 通道号读入 SyncSystem.channelId，但不按该号决定是否建 IG。
+// =============================================================================
+SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][bdd][config][CFG-channelid-no-sync]")
 {
-    GIVEN("a config with channelId 0 but no igConfig")
+    GIVEN("a config with viewID 0 but no igConfig")
     {
-        const TempConfigFile file(std::string(R"({ "syncSystem": { "channelId": 0 }, )") + kMinimalModel + ", " +
-                                  kMinimalWindow + "}");
+        const TempConfigFile file(
+            std::string(R"({ "viewDefinition": { "viewID": 0, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } }, )") +
+            kMinimalModel + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
         REQUIRE(engine.config.syncSystem.channelId == 0);
@@ -700,7 +706,7 @@ SCENARIO("channelId does not enable sync when igConfig is absent", "[acceptance]
         {
             REQUIRE(engine.init());
 
-            THEN("sync stays off despite channelId 0")
+            THEN("sync stays off despite viewID 0")
             {
                 REQUIRE_FALSE(engine.hasIg());
             }
@@ -760,8 +766,9 @@ SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
-        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + jsonIgConfig(18003) + R"(, "syncSystem": { "requireConnectedIg": true }, )" +
-                                  kMinimalModel + ", " + kMinimalWindow + "}");
+        const TempConfigFile file(std::string(R"({ "injectEllipsoidIfMissing": true, )") + jsonIgConfig(18003) +
+                                  R"(, "viewDefinition": { "requireConnectedIg": true, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } }, )" +
+                                  kMinimalModel + "}");
         Engine engine;
         REQUIRE(engine.loadConfig(file.path()));
         engine.showWindow = false;
@@ -841,7 +848,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown top-level keys", "[unit][conf
 TEST_CASE("loadEngineChannelConfig rejects unknown nested keys", "[unit][config][parse][CFG-reject-unknown-nested]")
 {
     const TempConfigFile file(std::string("{") + kMinimalModel +
-                              R"(, "window": { "x": 0, "y": 0, "width": 640, "height": 480, "fullscreen": true }})");
+                              R"(, "viewDefinition": { "window": { "posX": 0, "posY": 0, "width": 640, "height": 480, "fullscreen": true } }})");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -860,8 +867,9 @@ TEST_CASE("loadEngineChannelConfig accepts igConfig without requireConnectedIg",
 
 TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig", "[unit][config][parse][CFG-reject-require-without-ig]")
 {
-    const TempConfigFile file(std::string(R"({ "syncSystem": { "requireConnectedIg": true }, )") + kMinimalModel + ", " +
-                              kMinimalWindow + "}");
+    const TempConfigFile file(
+        std::string(R"({ "viewDefinition": { "requireConnectedIg": true, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } }, )") +
+        kMinimalModel + "}");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -870,7 +878,8 @@ TEST_CASE("loadEngineChannelConfig rejects requireConnectedIg without igConfig",
 
 TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[unit][config][parse][CFG-reject-partial-window]")
 {
-    const TempConfigFile file(std::string("{") + kMinimalModel + R"(, "window": { "width": 800 }})");
+    const TempConfigFile file(std::string("{") + kMinimalModel +
+                              R"(, "viewDefinition": { "window": { "width": 800 } }})");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -884,8 +893,8 @@ TEST_CASE("loadEngineChannelConfig rejects partial window object (scheme A)", "[
 // =============================================================================
 TEST_CASE("loadEngineChannelConfig rejects partial offsetDeg object (scheme A)", "[unit][config][parse][CFG-reject-partial-offset]")
 {
-    const TempConfigFile file(std::string("{") + kMinimalModel + ", " + kMinimalWindow +
-                              R"(, "syncSystem": { "offsetDeg": { "heading": 1.0 } }})");
+    const TempConfigFile file(std::string("{") + kMinimalModel +
+                              R"(, "viewDefinition": { "offsetDeg": { "heading": 1.0 }, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } }})");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -976,7 +985,11 @@ TEST_CASE("loadEngineChannelConfig accepts default config with only model and wi
     REQUIRE(cfg.window.height == 1080);
 }
 
-TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with syncSystem", "[unit][config][parse][CFG-accept-ig-sample-syncsystem]")
+// =============================================================================
+// 含 viewDefinition 的 IG 样例能加载（多通道同步模块设计.md §3.1，码 CFG-accept-ig-sample-syncsystem）。
+// viewID 读入 SyncSystem.channelId；不验收窗口像素。
+// =============================================================================
+TEST_CASE("loadEngineChannelConfig accepts IG-only sample config with viewDefinition", "[unit][config][parse][CFG-accept-ig-sample-syncsystem]")
 {
     const TempConfigFile file(kMainJson);
     EngineChannelConfig cfg;
@@ -999,14 +1012,14 @@ TEST_CASE("loadEngineChannelConfig accepts IG-only sample config", "[unit][confi
 }
 
 // =============================================================================
-// syncSystem 整组可解析，JSON heading 取反后进入 OffsetDeg.yaw
+// viewDefinition 整组可解析，JSON heading 取反后进入 OffsetDeg.yaw
 // （sync模块化设计.md §4.2，码 CFG-parse-syncsystem）。
 // heading -18.05 对应内部 yaw +18.05；pitch/roll 不取反。
 // =============================================================================
-TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][parse][syncSystem][CFG-parse-syncsystem]")
+TEST_CASE("loadEngineChannelConfig parses viewDefinition group", "[unit][config][parse][syncSystem][CFG-parse-syncsystem]")
 {
     const TempConfigFile file(
-        R"({ "syncSystem": { "channelId": 3, "offsetDeg": { "heading": -18.05, "pitch": 1.0, "roll": 2.0 }, )"
+        R"({ "viewDefinition": { "viewID": 3, "offsetDeg": { "heading": -18.05, "pitch": 1.0, "roll": 2.0 }, )"
         R"("requireConnectedIg": true }, )"
         R"("injectEllipsoidIfMissing": true, )"
         R"("igConfig": { "udpRecvPort": 8003, )"
@@ -1020,9 +1033,14 @@ TEST_CASE("loadEngineChannelConfig parses syncSystem group", "[unit][config][par
     REQUIRE(cfg.syncSystem.requireConnectedIg);
 }
 
-TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group", "[unit][config][parse][syncSystem][CFG-reject-unknown-syncsystem]")
+// =============================================================================
+// viewDefinition 里出现 schema 未声明的键时拒绝加载
+// （多通道同步模块设计.md §3.1，码 CFG-reject-unknown-syncsystem）。
+// 旧键 syncSystem / channelId 同样是未知键；本例用 bogus 代表任意未声明键。
+// =============================================================================
+TEST_CASE("loadEngineChannelConfig rejects unknown key inside viewDefinition group", "[unit][config][parse][syncSystem][CFG-reject-unknown-syncsystem]")
 {
-    const TempConfigFile file(R"({ "syncSystem": { "channelId": 0, "bogus": 1 }, "model": "models/lz.vsgt" })");
+    const TempConfigFile file(R"({ "viewDefinition": { "viewID": 0, "bogus": 1 }, "model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1032,7 +1050,7 @@ TEST_CASE("loadEngineChannelConfig rejects unknown key inside syncSystem group",
 TEST_CASE("loadEngineChannelConfig rejects removed hostEyeStalePolicy key", "[unit][config][parse][syncSystem][CFG-reject-host-eye-stale]")
 {
     const TempConfigFile file(
-        R"({ "syncSystem": { "channelId": 0, "hostEyeStalePolicy": "ReuseLast" }, "model": "models/lz.vsgt" })");
+        R"({ "viewDefinition": { "viewID": 0, "hostEyeStalePolicy": "ReuseLast" }, "model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1040,13 +1058,13 @@ TEST_CASE("loadEngineChannelConfig rejects removed hostEyeStalePolicy key", "[un
 }
 
 // =============================================================================
-// syncSystem.offsetDeg 只写 heading、缺 pitch/roll 时拒绝加载
+// viewDefinition.offsetDeg 只写 heading、缺 pitch/roll 时拒绝加载
 // （多通道同步模块设计.md §3.1 方案 A，码 CFG-reject-partial-syncsystem-offset）。
 // 与顶层半填用例同一规则；不验未知键 yaw。
 // =============================================================================
-TEST_CASE("loadEngineChannelConfig rejects partial syncSystem offsetDeg", "[unit][config][parse][syncSystem][CFG-reject-partial-syncsystem-offset]")
+TEST_CASE("loadEngineChannelConfig rejects partial viewDefinition offsetDeg", "[unit][config][parse][syncSystem][CFG-reject-partial-syncsystem-offset]")
 {
-    const TempConfigFile file(R"({ "syncSystem": { "offsetDeg": { "heading": 1.0 } }, "model": "models/lz.vsgt" })");
+    const TempConfigFile file(R"({ "viewDefinition": { "offsetDeg": { "heading": 1.0 } }, "model": "models/lz.vsgt" })");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1252,7 +1270,8 @@ TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][confi
 TEST_CASE("loadEngineChannelConfig accepts integer-valued floats for window ints",
           "[unit][config][parse][json-adapter][CFG-accept-int-window]")
 {
-    const TempConfigFile file(R"({ "window": { "x": 0.0, "y": 0, "width": 640.0, "height": 480 } })");
+    const TempConfigFile file(
+        R"({ "viewDefinition": { "window": { "posX": 0.0, "posY": 0, "width": 640.0, "height": 480 } } })");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE(loadEngineChannelConfig(file.path(), cfg, &error));
@@ -1264,7 +1283,8 @@ TEST_CASE("loadEngineChannelConfig accepts integer-valued floats for window ints
 TEST_CASE("loadEngineChannelConfig rejects fractional window ints",
           "[unit][config][parse][json-adapter][negative][CFG-reject-fractional-window]")
 {
-    const TempConfigFile file(R"({ "window": { "x": 0, "y": 0, "width": 640.5, "height": 480 } })");
+    const TempConfigFile file(
+        R"({ "viewDefinition": { "window": { "posX": 0, "posY": 0, "width": 640.5, "height": 480 } } })");
     EngineChannelConfig cfg;
     std::string error;
     REQUIRE_FALSE(loadEngineChannelConfig(file.path(), cfg, &error));

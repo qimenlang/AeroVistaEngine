@@ -22,12 +22,8 @@ namespace initial_camera
     // 本地透视 far = 倍数 × radius。有 camera.pose 且眼点离 AABB 更远时，far 会再抬到能包住场景。
     inline constexpr double kLocalFarMultiplier = 4.5;
 
-    // near 与 far 的比例。本地 near = 比例 × radius；椭球 near = 每帧动态 far × 比例。
-    // 椭球 far 随海拔变化，比例固定，近裁面才跟着远裁面走。
-    inline constexpr double kNearFarRatio = 0.001;
-
-    // 垂直视场角（度）。水平视场由窗口宽高比在运行时推出。
-    inline constexpr double kFieldOfViewDegrees = 30.0;
+    // 垂直视场角与近远比来自配置 viewDefinition.vfov / near / far（缺省 30° 与 1/1000）。
+    // 本地 near = (near/far) × radius；椭球 near = 每帧动态 far × (near/far)。
 
     // 椭球远裁在地平线之外再留出的山高（米）。0 表示远裁贴地平线。
     // 须显式传入：VSG EllipsoidPerspective 缺省 horizonMountainHeight 为 1000 m。

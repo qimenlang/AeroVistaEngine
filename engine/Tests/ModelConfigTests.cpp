@@ -26,7 +26,8 @@
 
 namespace
 {
-    const char* kWindow = R"("window": { "x": 0, "y": 0, "width": 640, "height": 480 })";
+    const char* kWindow =
+        R"("viewDefinition": { "vfov": 30.0, "near": 1.0, "far": 1000.0, "window": { "posX": 0, "posY": 0, "width": 640, "height": 480 } })";
     const char* kTeapot = "models/teapot.vsgt";
     const char* kLz = "models/lz.vsgt";
 

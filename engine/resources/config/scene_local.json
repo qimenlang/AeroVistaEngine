@@ -1,12 +1,30 @@
-﻿{
+{
   "entitiesFilePath": "config/entities_scene_local.json",
   "camera": {
     "pose": {
       "local": {
-        "position": [0.0, 0.0, 0.0],
-        "eulerYprDeg": [-90.0, 0.0, 0.0]
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "eulerYprDeg": [
+          -90.0,
+          0.0,
+          0.0
+        ]
       }
     }
   },
-  "window": { "x": 100, "y": 100, "width": 1280, "height": 720 }
+  "viewDefinition": {
+    "vfov": 30.0,
+    "near": 1.0,
+    "far": 1000.0,
+    "window": {
+      "posX": 100,
+      "posY": 100,
+      "width": 1280,
+      "height": 720
+    }
+  }
 }

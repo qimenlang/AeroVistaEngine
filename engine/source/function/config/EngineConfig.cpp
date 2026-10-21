@@ -39,10 +39,10 @@ namespace
 
     WindowConfig parseWindow(const Json& obj)
     {
-        rejectUnknownKeys(obj, {"x", "y", "width", "height"});
+        rejectUnknownKeys(obj, {"posX", "posY", "width", "height"});
         WindowConfig window;
-        window.x = requireInt(obj, "x");
-        window.y = requireInt(obj, "y");
+        window.x = requireInt(obj, "posX");
+        window.y = requireInt(obj, "posY");
         window.width = requireInt(obj, "width");
         window.height = requireInt(obj, "height");
         return window;
@@ -267,36 +267,68 @@ namespace
         }
     }
 
-    SyncSystem parseSyncSystem(const Json& obj)
+    double requirePositiveNumber(const Json& obj, const char* key)
     {
-        rejectUnknownKeys(obj, {"channelId", "offsetDeg", "requireConnectedIg"});
-        SyncSystem ss;
-        ss.channelId = parseOptionalInt(obj, "channelId", ss.channelId);
+        const double value = requireNumber(obj, key);
+        if (!(value > 0.0))
+            throw std::runtime_error(std::string(key) + " must be > 0");
+        return value;
+    }
+
+    void parseVerticalFov(const Json& obj, EngineChannelConfig& cfg)
+    {
+        if (find(obj, "vfov") == nullptr)
+            return;
+        const double vfov = requirePositiveNumber(obj, "vfov");
+        if (!(vfov < 180.0))
+            throw std::runtime_error("vfov must be < 180");
+        cfg.verticalFovDeg = vfov;
+    }
+
+    void parseNearFar(const Json& obj, EngineChannelConfig& cfg)
+    {
+        const bool hasNear = find(obj, "near") != nullptr;
+        const bool hasFar = find(obj, "far") != nullptr;
+        if (hasNear != hasFar)
+            throw std::runtime_error("near and far must both be set");
+        if (!hasNear)
+            return;
+        cfg.nearClip = requirePositiveNumber(obj, "near");
+        cfg.farClip = requirePositiveNumber(obj, "far");
+        if (!(cfg.farClip > cfg.nearClip))
+            throw std::runtime_error("far must be greater than near");
+    }
+
+    void parseSyncSystem(const Json& obj, EngineChannelConfig& cfg)
+    {
+        rejectUnknownKeys(obj, {"viewID", "offsetDeg", "requireConnectedIg", "vfov", "near", "far", "window"});
+        SyncSystem& ss = cfg.syncSystem;
+        ss.channelId = parseOptionalInt(obj, "viewID", ss.channelId);
         if (const Json* v = find(obj, "offsetDeg"))
             ss.offsetDeg = parseOffsetDeg(requireObject(*v, "offsetDeg"));
         if (find(obj, "requireConnectedIg") != nullptr)
             ss.requireConnectedIg = requireBool(obj, "requireConnectedIg");
-        return ss;
+        parseVerticalFov(obj, cfg);
+        parseNearFar(obj, cfg);
+        if (const Json* v = find(obj, "window"))
+            cfg.window = parseWindow(requireObject(*v, "window"));
     }
 
     EngineChannelConfig parseConfig(const Json& root)
     {
         // engine 配置含 hostConfig 属未知键拒绝（Host 用 loadHostConfig）。
-        rejectUnknownKeys(root, {"syncSystem", "igConfig", "model", "window",
-                                 "injectEllipsoidIfMissing", "entitiesFilePath", "camera", "groundGrid"});
+        rejectUnknownKeys(root, {"viewDefinition", "igConfig", "model", "injectEllipsoidIfMissing", "entitiesFilePath",
+                                 "camera", "groundGrid"});
 
         EngineChannelConfig cfg;
 
-        if (const Json* v = find(root, "syncSystem"))
-            cfg.syncSystem = parseSyncSystem(requireObject(*v, "syncSystem"));
+        if (const Json* v = find(root, "viewDefinition"))
+            parseSyncSystem(requireObject(*v, "viewDefinition"), cfg);
 
         if (const Json* v = find(root, "igConfig"))
         {
             cfg.igConfig = parseIgConfig(requireObject(*v, "igConfig"));
         }
-
-        if (const Json* v = find(root, "window"))
-            cfg.window = parseWindow(requireObject(*v, "window"));
 
         if (const Json* v = find(root, "injectEllipsoidIfMissing"))
         {
