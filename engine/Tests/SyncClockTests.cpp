@@ -28,7 +28,7 @@ namespace
 
     /// UDP 回环仍可能跨过「同一次 tick」：发送后轮询 drain，直到可观察条件成立。
     template<typename Pred>
-    bool tickUntil(Engine& engine, Pred ready, int maxAttempts = 50)
+    bool tickUntil(Engine& engine, Pred ready, int maxAttempts = 10)
     {
         for (int i = 0; i < maxAttempts; ++i)
         {
@@ -37,7 +37,7 @@ namespace
             engine.tickSync();
             if (ready())
                 return true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         return ready();
     }
@@ -48,7 +48,7 @@ namespace
 // =============================================================================
 
 SCENARIO("IG derives simulation time from live Host time stamps plus local elapsed",
-         "[acceptance][bdd][sync][clock][e2e][CLK-consume]")
+         "[acceptance][sync][clock][e2e][CLK-consume]")
 {
     GIVEN("an independent HostSync and IG-only Engine B, linked over real sockets")
     {
@@ -101,7 +101,7 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
 }
 
 SCENARIO("two IG channels derive nearly identical simulation time from the shared Host",
-         "[acceptance][bdd][sync][clock][e2e][consistency][CLK-consistent]")
+         "[acceptance][sync][clock][e2e][consistency][CLK-consistent]")
 {
     GIVEN("an independent HostSync and two IG-only engines B and C, linked over real sockets")
     {
@@ -170,7 +170,7 @@ TEST_CASE("simTimeUs does not go backwards on consecutive reads",
 }
 
 SCENARIO("IG freezes when the Host stops sending time stamps over the real link",
-         "[acceptance][bdd][sync][clock][e2e][freeze][CLK-freeze]")
+         "[acceptance][sync][clock][e2e][freeze][CLK-freeze]")
 {
     GIVEN("an independent HostSync and IG-only Engine B linked with a short freeze timeout")
     {
@@ -221,7 +221,7 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
 }
 
 SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps",
-         "[acceptance][bdd][sync][clock][e2e][real-time][CLK-realtime]")
+         "[acceptance][sync][clock][e2e][real-time][CLK-realtime]")
 {
     GIVEN("an independent HostSync and IG-only Engine B linked over real sockets")
     {
@@ -265,7 +265,7 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
 }
 
 SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
-         "[acceptance][bdd][sync][clock][e2e][freeze][host-offline][CLK-freeze]")
+         "[acceptance][sync][clock][e2e][freeze][host-offline][CLK-freeze]")
 {
     GIVEN("an independent HostSync and IG-only Engine B linked with a short freeze timeout")
     {

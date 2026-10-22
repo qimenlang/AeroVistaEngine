@@ -362,7 +362,7 @@ namespace
 // -----------------------------------------------------------------------------
 
 SCENARIO("local entity pose from config matches sampled engine pose",
-         "[acceptance][bdd][config][pose][local][entity][POSE-local-entity-sampled]")
+         "[acceptance][config][pose][local][entity][POSE-local-entity-sampled]")
 {
     GIVEN("a Local channel config with entities[].pose.local")
     {
@@ -388,7 +388,7 @@ SCENARIO("local entity pose from config matches sampled engine pose",
 }
 
 SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
-         "[acceptance][bdd][config][pose][ellipsoid][entity][POSE-ellipsoid-not-local]")
+         "[acceptance][config][pose][ellipsoid][entity][POSE-ellipsoid-not-local]")
 {
     GIVEN("an Ellipsoid config with both pose halves deliberately different")
     {
@@ -420,7 +420,7 @@ SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
 }
 
 SCENARIO("loaded entity is parented under a MatrixTransform",
-         "[acceptance][bdd][config][pose][entity][POSE-parented-matrix]")
+         "[acceptance][config][pose][entity][POSE-parented-matrix]")
 {
     GIVEN("a Local entity config with pose.local")
     {
@@ -443,7 +443,7 @@ SCENARIO("loaded entity is parented under a MatrixTransform",
 // -----------------------------------------------------------------------------
 
 SCENARIO("multiple entities: catalog entries are registered and hung on the scene",
-         "[acceptance][bdd][config][pose][entities][id][ENT-02-preload]")
+         "[acceptance][config][pose][entities][id][ENT-02-preload]")
 {
     GIVEN("a Local channel config with two entities")
     {
@@ -477,7 +477,7 @@ SCENARIO("multiple entities: catalog entries are registered and hung on the scen
 }
 
 SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
-         "[acceptance][bdd][config][pose][entities][local][transform][POSE-multi-local-matrix]")
+         "[acceptance][config][pose][entities][local][transform][POSE-multi-local-matrix]")
 {
     GIVEN("a Local config with two entities, each with distinct pose.local")
     {
@@ -504,7 +504,7 @@ SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
 }
 
 SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF config",
-         "[acceptance][bdd][config][pose][entities][ellipsoid][transform][POSE-multi-ellipsoid-ecef]")
+         "[acceptance][config][pose][entities][ellipsoid][transform][POSE-multi-ellipsoid-ecef]")
 {
     GIVEN("an Ellipsoid config with two entities and distinct pose.ellipsoid")
     {
@@ -546,7 +546,7 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
 // -----------------------------------------------------------------------------
 
 SCENARIO("entity name defaults to model basename and explicit name is kept",
-         "[acceptance][bdd][config][pose][entities][name][CFG-entity-name-basename]")
+         "[acceptance][config][pose][entities][name][CFG-entity-name-basename]")
 {
     GIVEN("two entities: one omits name, one sets name explicitly")
     {
@@ -568,7 +568,7 @@ SCENARIO("entity name defaults to model basename and explicit name is kept",
 }
 
 SCENARIO("entity without pose uses an origin MatrixTransform",
-         "[acceptance][bdd][config][pose][entities][default-place][ENT-02-pose-default]")
+         "[acceptance][config][pose][entities][default-place][ENT-02-pose-default]")
 {
     GIVEN("a Local entity with id/model but no pose")
     {
@@ -594,7 +594,7 @@ SCENARIO("entity without pose uses an origin MatrixTransform",
 }
 
 SCENARIO("single entities entry still registers in the id map",
-         "[acceptance][bdd][config][pose][entities][id][ENT-02-preload]")
+         "[acceptance][config][pose][entities][id][ENT-02-preload]")
 {
     GIVEN("a Local config with exactly one entities item and pose.local")
     {
@@ -617,7 +617,7 @@ SCENARIO("single entities entry still registers in the id map",
 }
 
 SCENARIO("sampled entity pose matches MatrixTransform for local pose",
-         "[acceptance][bdd][config][pose][entities][local][sample][POSE-sampled-local-matrix]")
+         "[acceptance][config][pose][entities][local][sample][POSE-sampled-local-matrix]")
 {
     GIVEN("a Local entity with pose.local")
     {
@@ -643,7 +643,7 @@ SCENARIO("sampled entity pose matches MatrixTransform for local pose",
 }
 
 SCENARIO("duplicate entity names are allowed; lookup is by id only",
-         "[acceptance][bdd][config][pose][entities][name][id][CFG-dup-names-id-lookup]")
+         "[acceptance][config][pose][entities][name][id][CFG-dup-names-id-lookup]")
 {
     GIVEN("two entities sharing the same display name but different ids")
     {
@@ -673,7 +673,7 @@ SCENARIO("duplicate entity names are allowed; lookup is by id only",
 // -----------------------------------------------------------------------------
 
 SCENARIO("Standby entity is hidden at startup without a Host",
-         "[acceptance][bdd][config][entities][visibility][ENT-02-visibility]")
+         "[acceptance][config][entities][visibility][ENT-02-visibility]")
 {
     GIVEN("a Local entity configured Standby")
     {
@@ -693,7 +693,7 @@ SCENARIO("Standby entity is hidden at startup without a Host",
 }
 
 SCENARIO("Active entity is visible at startup without a Host",
-         "[acceptance][bdd][config][entities][visibility][ENT-02-visibility]")
+         "[acceptance][config][entities][visibility][ENT-02-visibility]")
 {
     GIVEN("a Local entity that omits initialEntityState")
     {
@@ -713,7 +713,7 @@ SCENARIO("Active entity is visible at startup without a Host",
 }
 
 SCENARIO("two entities with the same model share one geometry node",
-         "[acceptance][bdd][config][entities][shared-geometry][ENT-02-shared-geom]")
+         "[acceptance][config][entities][shared-geometry][ENT-02-shared-geom]")
 {
     GIVEN("two Local teapot entities at different poses")
     {
@@ -742,7 +742,7 @@ SCENARIO("two entities with the same model share one geometry node",
 }
 
 SCENARIO("hidden Standby sibling is excluded from the scene AABB",
-         "[acceptance][bdd][config][entities][aabb][ENT-02-aabb-hidden]")
+         "[acceptance][config][entities][aabb][ENT-02-aabb-hidden]")
 {
     GIVEN("an Active teapot at the origin and a Standby teapot far on +X")
     {
@@ -767,7 +767,7 @@ SCENARIO("hidden Standby sibling is excluded from the scene AABB",
 }
 
 SCENARIO("init continues when one entity model fails to load",
-         "[acceptance][bdd][config][entities][negative][ENT-02-load-skip]")
+         "[acceptance][config][entities][negative][ENT-02-load-skip]")
 {
     GIVEN("one valid teapot and one missing model path")
     {
@@ -793,7 +793,7 @@ SCENARIO("init continues when one entity model fails to load",
 }
 
 SCENARIO("all Standby entities use the local camera fallback",
-         "[acceptance][bdd][config][entities][aabb][camera][ENT-02-aabb-hidden]")
+         "[acceptance][config][entities][aabb][camera][ENT-02-aabb-hidden]")
 {
     GIVEN("two Local Standby entities and no camera pose")
     {
@@ -822,7 +822,7 @@ SCENARIO("all Standby entities use the local camera fallback",
 // -----------------------------------------------------------------------------
 
 SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-active]")
+         "[acceptance][entities][entity-ctrl][ENT-03-active]")
 {
     GIVEN("a Local Standby teapot with no pose packet yet")
     {
@@ -845,7 +845,7 @@ SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
 }
 
 SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-standby]")
+         "[acceptance][entities][entity-ctrl][ENT-03-standby]")
 {
     GIVEN("a Local Active teapot")
     {
@@ -871,7 +871,7 @@ SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance"
 }
 
 SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-destroyed]")
+         "[acceptance][entities][entity-ctrl][ENT-03-destroyed]")
 {
     GIVEN("a Local Active teapot")
     {
@@ -906,7 +906,7 @@ SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again
 }
 
 SCENARIO("Host EntityCtrl Remove hides like Destroyed",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-destroyed]")
+         "[acceptance][entities][entity-ctrl][ENT-03-destroyed]")
 {
     GIVEN("a Local Active teapot")
     {
@@ -930,7 +930,7 @@ SCENARIO("Host EntityCtrl Remove hides like Destroyed",
 }
 
 SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-active-idempotent]")
+         "[acceptance][entities][entity-ctrl][ENT-03-active-idempotent]")
 {
     GIVEN("a Local Active teapot")
     {
@@ -956,7 +956,7 @@ SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
 }
 
 SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
-         "[acceptance][bdd][entities][entity-ctrl][negative][ENT-03-unmapped]")
+         "[acceptance][entities][entity-ctrl][negative][ENT-03-unmapped]")
 {
     GIVEN("one Local Active teapot")
     {
@@ -981,7 +981,7 @@ SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
 }
 
 SCENARIO("EntityCtrl for a skipped load id has no effect",
-         "[acceptance][bdd][entities][entity-ctrl][negative][ENT-03-failed-id]")
+         "[acceptance][entities][entity-ctrl][negative][ENT-03-failed-id]")
 {
     GIVEN("one valid teapot and one missing model path")
     {
@@ -1010,7 +1010,7 @@ SCENARIO("EntityCtrl for a skipped load id has no effect",
 }
 
 SCENARIO("activating a Standby entity keeps the configured pose",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-standby-pose]")
+         "[acceptance][entities][entity-ctrl][ENT-03-standby-pose]")
 {
     GIVEN("a Local Standby teapot with a configured pose")
     {
@@ -1039,7 +1039,7 @@ SCENARIO("activating a Standby entity keeps the configured pose",
 }
 
 SCENARIO("hiding and showing does not restore the configured pose",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-pose-keep]")
+         "[acceptance][entities][entity-ctrl][ENT-03-pose-keep]")
 {
     GIVEN("an Ellipsoid Active teapot at a configured LLA")
     {
@@ -1073,7 +1073,7 @@ SCENARIO("hiding and showing does not restore the configured pose",
 }
 
 SCENARIO("hiding and showing reuses the prebuilt geometry",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-no-reload]")
+         "[acceptance][entities][entity-ctrl][ENT-03-no-reload]")
 {
     GIVEN("a Local Active teapot")
     {
@@ -1099,7 +1099,7 @@ SCENARIO("hiding and showing reuses the prebuilt geometry",
 }
 
 SCENARIO("Host EntityPositionCtrl places an Active entity",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-place]")
+         "[acceptance][entities][entity-ctrl][ENT-03-place]")
 {
     GIVEN("an Ellipsoid Standby teapot")
     {
@@ -1131,7 +1131,7 @@ SCENARIO("Host EntityPositionCtrl places an Active entity",
 }
 
 SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
-         "[acceptance][bdd][entities][entity-ctrl][ENT-03-attrs]")
+         "[acceptance][entities][entity-ctrl][ENT-03-attrs]")
 {
     GIVEN("a Local Active teapot")
     {
@@ -1159,7 +1159,7 @@ SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
 // -----------------------------------------------------------------------------
 
 SCENARIO("local camera pose from config matches LookAt",
-         "[acceptance][bdd][config][pose][local][camera][CAM-local-config-lookat]")
+         "[acceptance][config][pose][local][camera][CAM-local-config-lookat]")
 {
     GIVEN("a Local config with camera.pose.local")
     {
@@ -1185,7 +1185,7 @@ SCENARIO("local camera pose from config matches LookAt",
 }
 
 SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
-         "[acceptance][bdd][config][pose][ellipsoid][camera][CAM-ellipsoid-config-lookat]")
+         "[acceptance][config][pose][ellipsoid][camera][CAM-ellipsoid-config-lookat]")
 {
     GIVEN("an Ellipsoid config with different camera pose halves")
     {
@@ -1218,7 +1218,7 @@ SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
 // -----------------------------------------------------------------------------
 
 SCENARIO("no camera config: Local default LookAt frames entities AABB",
-         "[acceptance][bdd][config][pose][local][camera][aabb-default][CAM-local-default-aabb]")
+         "[acceptance][config][pose][local][camera][aabb-default][CAM-local-default-aabb]")
 {
     GIVEN("a Local entities config without camera")
     {
@@ -1241,7 +1241,7 @@ SCENARIO("no camera config: Local default LookAt frames entities AABB",
 }
 
 SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
-         "[acceptance][bdd][config][pose][ellipsoid][camera][aabb-default][CAM-ellipsoid-default-aabb]")
+         "[acceptance][config][pose][ellipsoid][camera][aabb-default][CAM-ellipsoid-default-aabb]")
 {
     GIVEN("an Ellipsoid entities config without camera, model pinned away from Beijing default")
     {
@@ -1271,7 +1271,7 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 // -----------------------------------------------------------------------------
 
 SCENARIO("system loads scene_local config with one local entity and camera",
-         "[system][bdd][config][pose][local][resource][CFG-load-scene-local]")
+         "[system][config][pose][local][resource][CFG-load-scene-local]")
 {
     GIVEN("a Local teapot pose config")
     {
@@ -1312,7 +1312,7 @@ SCENARIO("system loads scene_local config with one local entity and camera",
 }
 
 SCENARIO("system loads scene_ecef config with one ECEF entity and camera",
-         "[system][bdd][config][pose][ellipsoid][resource][CFG-load-scene-ecef]")
+         "[system][config][pose][ellipsoid][resource][CFG-load-scene-ecef]")
 {
     GIVEN("an Ellipsoid Tiananmen teapot pose config")
     {

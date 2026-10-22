@@ -86,7 +86,7 @@ namespace
 // =============================================================================
 
 SCENARIO("injectEllipsoidIfMissing injects EllipsoidModel on scene; otherwise lz has none",
-         "[acceptance][bdd][config][ellipsoid-inject][CFG-inject-ellipsoid-on-scene]")
+         "[acceptance][config][ellipsoid-inject][CFG-inject-ellipsoid-on-scene]")
 {
     GIVEN("a channel config that uses lz.vsgt (model has no built-in EllipsoidModel)")
     {
@@ -122,7 +122,7 @@ SCENARIO("injectEllipsoidIfMissing injects EllipsoidModel on scene; otherwise lz
 }
 
 SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfMissing",
-         "[acceptance][bdd][config][ellipsoid-inject][CFG-keep-builtin-ellipsoid]")
+         "[acceptance][config][ellipsoid-inject][CFG-keep-builtin-ellipsoid]")
 {
     GIVEN("a channel config that uses readymap.vsgt (model already has EllipsoidModel)")
     {
@@ -161,7 +161,7 @@ SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfM
 // 覆盖「注入在相机创建前」：lz 无自带椭球，靠 injectEllipsoidIfMissing 注入后才能建 EllipsoidPerspective。
 // 无 pose 实体默认摆在地心，会触发 fallback 到北京上空（见 §4.2 fallback 判据）。
 SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LLA LookAt",
-         "[acceptance][bdd][config][ellipsoid][initial-lla][CFG-inject-before-camera]")
+         "[acceptance][config][ellipsoid][initial-lla][CFG-inject-before-camera]")
 {
     // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
     //       待实现后移除 !hide 标签并验证 AABB 关系。
@@ -205,7 +205,7 @@ SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LL
 }
 
 SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardcoded Beijing",
-         "[acceptance][bdd][config][ellipsoid][initial-lla][CFG-builtin-ellipsoid-aabb]")
+         "[acceptance][config][ellipsoid][initial-lla][CFG-builtin-ellipsoid-aabb]")
 {
     // NOTE: 当前实现仍写死北京 500m，尚未实现 AABB 计算。本测试先写定新设计目标，
     //       待实现后移除 !hide 标签并验证 AABB 关系。
@@ -253,7 +253,7 @@ SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardco
 // =============================================================================
 
 SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
-         "[acceptance][bdd][config][initial-camera][aabb][CFG-local-single-aabb]")
+         "[acceptance][config][initial-camera][aabb][CFG-local-single-aabb]")
 {
     // A1: Local：单实体无 pose，无 camera → eye = AABB centre - Y方向 3.5·radius
     GIVEN("lz.vsgt in local cartesian without pose")
@@ -290,7 +290,7 @@ SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
 }
 
 SCENARIO("Local multiple entities no pose camera uses overall AABB",
-         "[acceptance][bdd][config][initial-camera][aabb][CFG-local-multi-aabb]")
+         "[acceptance][config][initial-camera][aabb][CFG-local-multi-aabb]")
 {
     // A2: Local：多实体分散，无 camera → eye 按整体 AABB
     GIVEN("two lz.vsgt entities at different positions without camera pose")
@@ -327,7 +327,7 @@ SCENARIO("Local multiple entities no pose camera uses overall AABB",
 }
 
 SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
-         "[acceptance][bdd][config][initial-camera][aabb][CFG-ellipsoid-lla-aabb]")
+         "[acceptance][config][initial-camera][aabb][CFG-ellipsoid-lla-aabb]")
 {
     // A3: Ellipsoid：单实体有 LLA pose，无 camera → eye 按整体 AABB
     // 注意：小模型（lz.vsgt ~1.4km）即使摆放在天安门，AABB centre 的 ECEF 坐标
@@ -371,7 +371,7 @@ SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
 }
 
 SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
-         "[acceptance][bdd][config][initial-camera][fallback][CFG-ellipsoid-beijing-fallback]")
+         "[acceptance][config][initial-camera][fallback][CFG-ellipsoid-beijing-fallback]")
 {
     // A4 + B2: Ellipsoid：单实体无 pose（地心），无 camera → 触发 fallback
     GIVEN("lz.vsgt without pose with injected ellipsoid (sits at origin)")
@@ -410,7 +410,7 @@ SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
 }
 
 SCENARIO("camera pose overrides AABB computed position",
-         "[acceptance][bdd][config][initial-camera][override][CFG-camera-overrides-aabb]")
+         "[acceptance][config][initial-camera][override][CFG-camera-overrides-aabb]")
 {
     // A5: 有 camera.pose → 覆盖 AABB
     GIVEN("lz.vsgt with both entity pose and camera pose in Local")
@@ -443,7 +443,7 @@ SCENARIO("camera pose overrides AABB computed position",
 }
 
 SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
-         "[acceptance][bdd][config][initial-camera][projection][CFG-ellipsoid-near-far-ratio]")
+         "[acceptance][config][initial-camera][projection][CFG-ellipsoid-near-far-ratio]")
 {
     // D2: Ellipsoid：EllipsoidPerspective 的 nearFarRatio = 0.001
     GIVEN("any Ellipsoid scene")
@@ -470,7 +470,7 @@ SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
 }
 
 SCENARIO("Local Perspective near far proportional to radius",
-         "[acceptance][bdd][config][initial-camera][projection][CFG-local-near-far-radius]")
+         "[acceptance][config][initial-camera][projection][CFG-local-near-far-radius]")
 {
     // D1: Local：Perspective 的 near/far = 0.001·radius / 4.5·radius
     GIVEN("lz.vsgt in local cartesian")
@@ -504,7 +504,7 @@ SCENARIO("Local Perspective near far proportional to radius",
 }
 
 SCENARIO("Local camera pose recomputes near far to prevent clipping",
-         "[acceptance][bdd][config][initial-camera][projection][CFG-local-pose-near-far]")
+         "[acceptance][config][initial-camera][projection][CFG-local-pose-near-far]")
 {
     // D3: Local + camera.pose → far = max(4.5·radius, |eye-centre| + radius)
     // 此用例依赖设计实现，当前未实现
@@ -548,7 +548,7 @@ SCENARIO("Local camera pose recomputes near far to prevent clipping",
 // 验收：默认配置与角色规则（§3.1：默认 default.json，父键决定 enable）
 // =============================================================================
 
-SCENARIO("default Engine config matches the default channel file", "[acceptance][bdd][config][CFG-default-matches-file]")
+SCENARIO("default Engine config matches the default channel file", "[acceptance][config][CFG-default-matches-file]")
 {
     GIVEN("an Engine constructed with no explicit config path")
     {
@@ -572,7 +572,7 @@ SCENARIO("default Engine config matches the default channel file", "[acceptance]
     }
 }
 
-SCENARIO("default initialization does not start the sync subsystem", "[acceptance][bdd][config][CFG-default-no-sync]")
+SCENARIO("default initialization does not start the sync subsystem", "[acceptance][config][CFG-default-no-sync]")
 {
     GIVEN("an Engine using the default config (no igConfig)")
     {
@@ -591,7 +591,7 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
     }
 }
 
-SCENARIO("loading a channel file replaces Engine config with that file", "[acceptance][bdd][config][CFG-channel-replaces-config]")
+SCENARIO("loading a channel file replaces Engine config with that file", "[acceptance][config][CFG-channel-replaces-config]")
 {
     GIVEN("an Engine and a channel file with left IG settings")
     {
@@ -617,7 +617,7 @@ SCENARIO("loading a channel file replaces Engine config with that file", "[accep
 // 验收：init 后同步角色与配置一致（父键 enable，非 channelId）
 // =============================================================================
 
-SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd][config][CFG-channel-starts-ig]")
+SCENARIO("channel file starts IG using configured addresses", "[acceptance][config][CFG-channel-starts-ig]")
 {
     GIVEN("an Engine loaded from a config with igConfig")
     {
@@ -639,7 +639,7 @@ SCENARIO("channel file starts IG using configured addresses", "[acceptance][bdd]
     }
 }
 
-SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][bdd][config][CFG-ig-only-no-host]")
+SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][config][CFG-ig-only-no-host]")
 {
     GIVEN("an Engine loaded from a config with igConfig")
     {
@@ -662,7 +662,7 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
 }
 
 SCENARIO("channel offset is applied to the camera driver after init",
-         "[acceptance][bdd][config][CFG-channel-offset]")
+         "[acceptance][config][CFG-channel-offset]")
 {
     GIVEN("an Engine loaded from a channel config with non-default offset")
     {
@@ -690,7 +690,7 @@ SCENARIO("channel offset is applied to the camera driver after init",
 // 只有 viewID、没有 igConfig 时不启同步（多通道同步模块设计.md §3.1，码 CFG-channelid-no-sync）。
 // 通道号读入 ViewDefinition.viewID，但不按该号决定是否建 IG。
 // =============================================================================
-SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][bdd][config][CFG-channelid-no-sync]")
+SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][config][CFG-channelid-no-sync]")
 {
     GIVEN("a config with viewID 0 but no igConfig")
     {
@@ -718,7 +718,7 @@ SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][bd
 // 验收：requireConnectedIg（配置项决定连失败是否令 init 失败；缺省恒 false）
 // =============================================================================
 
-SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[acceptance][bdd][config][CFG-ig-require-false-init]")
+SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[acceptance][config][CFG-ig-require-false-init]")
 {
     GIVEN("a config with requireConnectedIg false and no Host process")
     {
@@ -740,7 +740,7 @@ SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[a
 }
 
 SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init when Host is down",
-         "[acceptance][bdd][config][CFG-ig-require-omit-false]")
+         "[acceptance][config][CFG-ig-require-omit-false]")
 {
     GIVEN("an IG-only config that does not set requireConnectedIg")
     {
@@ -762,7 +762,7 @@ SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init whe
     }
 }
 
-SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[acceptance][bdd][config][CFG-ig-require-true-fail]")
+SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[acceptance][config][CFG-ig-require-true-fail]")
 {
     GIVEN("an IG-only config that requires a successful connect")
     {
@@ -783,7 +783,7 @@ SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[
     }
 }
 
-SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "[acceptance][bdd][config][CFG-ig-require-true-ok]")
+SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "[acceptance][config][CFG-ig-require-true-ok]")
 {
     GIVEN("an IG config that requires a successful connect, and an independent HostSync on those ports")
     {
@@ -845,7 +845,7 @@ TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][confi
 // 验收：窗口几何与通道配置一致
 // =============================================================================
 
-SCENARIO("on-screen window position and size match the channel config", "[acceptance][bdd][config][CFG-window-matches-channel]")
+SCENARIO("on-screen window position and size match the channel config", "[acceptance][config][CFG-window-matches-channel]")
 {
     GIVEN("an Engine loaded from a channel config with window shown")
     {

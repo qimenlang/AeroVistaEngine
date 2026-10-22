@@ -107,7 +107,7 @@ SCENARIO("configured groundGrid is pinned to ECEF at the origin LLA",
 }
 
 SCENARIO("scene_seam_grid.json loads a pinned ground grid",
-         "[system][bdd][config][meas][resource][MEAS-seam-grid]")
+         "[system][config][meas][resource][MEAS-seam-grid]")
 {
     GIVEN("the in-tree seam-grid channel config")
     {

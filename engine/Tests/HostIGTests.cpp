@@ -57,8 +57,8 @@ namespace
     // 条件成立即返回。短轮询只盖住 Host 就绪表晚于 IG connect 返回的缝，不空等固定超时。
     void connectUntil(const std::function<bool()>& linked)
     {
-        for (int i = 0; i < 40 && !linked(); ++i)
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        for (int i = 0; i < 10 && !linked(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     /// IGCtrl 由 outMsgWithIgCtrlUdp() 自动前置（帧号/自计时时间戳）；hostSendFrame 只发无眼点帧。
@@ -482,7 +482,7 @@ TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit
 // -----------------------------------------------------------------------------
 
 SCENARIO("unlinked IG still applies queued Host eye to the camera",
-         "[acceptance][bdd][sync][hostctrl][gate][LLA-unlinked-apply]")
+         "[acceptance][sync][hostctrl][gate][LLA-unlinked-apply]")
 {
     GIVEN("an Engine with graphics whose IG is not linked to a Host")
     {
@@ -519,7 +519,7 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
     }
 }
 
-SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][hostctrl][gate][LLA-linked-apply]")
+SCENARIO("linked IG applies Host eye to the camera", "[acceptance][sync][hostctrl][gate][LLA-linked-apply]")
 {
     GIVEN("an IG Engine linked to an independent Host")
     {
@@ -556,7 +556,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][bdd][sync][ho
 // -----------------------------------------------------------------------------
 
 SCENARIO("update re-applies last Host eye when no new eye arrives",
-         "[acceptance][bdd][sync][hostctrl][LLA-reuse-last]")
+         "[acceptance][sync][hostctrl][LLA-reuse-last]")
 {
     GIVEN("a linked Engine after one Host eye was applied")
     {
@@ -589,7 +589,7 @@ SCENARIO("update re-applies last Host eye when no new eye arrives",
 }
 
 SCENARIO("after disconnect, camera keeps the last Host eye pose",
-         "[acceptance][bdd][sync][hostctrl][disconnect][LLA-keep-after-disconnect]")
+         "[acceptance][sync][hostctrl][disconnect][LLA-keep-after-disconnect]")
 {
     GIVEN("a linked Engine that applied a Host eye then lost the IG link")
     {
@@ -805,7 +805,7 @@ namespace
 } // namespace
 
 SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
-         "[acceptance][bdd][sync][lla][follow][LLA-follow-aligned]")
+         "[acceptance][sync][lla][follow][LLA-follow-aligned]")
 {
     GIVEN("an independent Host, IG Engine A and IG-only Engine B both on readymap with zero offset")
     {
@@ -867,7 +867,7 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 // -----------------------------------------------------------------------------
 
 SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
-         "[acceptance][bdd][sync][lla][offset][LLA-zero-offset]")
+         "[acceptance][sync][lla][offset][LLA-zero-offset]")
 {
     GIVEN("an IG Engine on readymap linked to an independent Host with channel offset all zero")
     {
@@ -904,7 +904,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
 }
 
 SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
-         "[acceptance][bdd][sync][lla][offset][LLA-yaw-offset]")
+         "[acceptance][sync][lla][offset][LLA-yaw-offset]")
 {
     GIVEN("an IG Engine on readymap linked to an independent Host with yaw offset -60 deg")
     {
@@ -943,7 +943,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
 }
 
 SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R_host*Rz(delta))",
-         "[acceptance][bdd][sync][lla][offset][LLA-up-parallel]")
+         "[acceptance][sync][lla][offset][LLA-up-parallel]")
 {
     GIVEN("an IG Engine on readymap linked to an independent Host; Host LLA eye has pitch/roll; channel yaw-only")
     {
@@ -983,7 +983,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
 }
 
 SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
-         "[acceptance][bdd][sync][lla][offset][e2e][cigi][LLA-remote-yaw]")
+         "[acceptance][sync][lla][offset][e2e][cigi][LLA-remote-yaw]")
 {
     GIVEN("an independent Host, IG A (offset 0) and IG-only B (yaw +60) both on readymap")
     {
@@ -1040,7 +1040,7 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
 // R_ig=R_host·Rz(δ)。本地刚性用例的 ECEF 对应物；无自带椭球时用 injectEllipsoidIfMissing 注入 WGS-84
 // （lla位姿传输设计.md §2）。
 SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls over live CIGI",
-         "[acceptance][bdd][sync][lla][offset][e2e][multi-ig][cigi][rigid][LLA-three-up-parallel]")
+         "[acceptance][sync][lla][offset][e2e][multi-ig][cigi][rigid][LLA-three-up-parallel]")
 {
     GIVEN("an independent Host and IG-only A/B/C with injected WGS-84 ellipsoid, yaw offsets -60/+60")
     {
@@ -1072,7 +1072,7 @@ SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls o
 }
 
 SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with matching radii",
-         "[acceptance][bdd][sync][lla][smoke][LLA-radii-match]")
+         "[acceptance][sync][lla][smoke][LLA-radii-match]")
 {
     GIVEN("an independent Host, IG Engine A and IG-only Engine B both load readymap (built-in EllipsoidModel)")
     {
@@ -1115,7 +1115,7 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
 // 两份通道 JSON 的 heading 都是 0，解析后 yaw 仍是 0；本例不验通道偏移。
 // =============================================================================
 SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow disagree",
-         "[acceptance][bdd][sync][lla][radius-mismatch][LLA-radii-mismatch]")
+         "[acceptance][sync][lla][radius-mismatch][LLA-radii-mismatch]")
 {
     GIVEN("an independent HostSync and IG on lz with injected WGS-84 ellipsoid")
     {
@@ -1320,7 +1320,7 @@ SCENARIO("linked IG receives Host longitude wrapped into (-180,180]",
 // initGraphics 走 resetGraphicsResources，不拆 IgSync。
 // =============================================================================
 SCENARIO("initGraphics clears the applied eye cache while the IG link stays up",
-         "[acceptance][bdd][sync][lla][cache-reset][LLA-cache-reset]")
+         "[acceptance][sync][lla][cache-reset][LLA-cache-reset]")
 {
     GIVEN("a linked IG Engine with an applied Host eye")
     {
@@ -1363,7 +1363,7 @@ SCENARIO("initGraphics clears the applied eye cache while the IG link stays up",
 // =============================================================================
 
 SCENARIO("viewhost loads hostConfig and exchanges CIGI with an IG engine",
-         "[acceptance][bdd][sync][viewhost][cigi][CIGI-viewhost-exchange]")
+         "[acceptance][sync][viewhost][cigi][CIGI-viewhost-exchange]")
 {
     GIVEN("a viewhost HostSync loaded from a host-only config file, and an IG engine targeting it")
     {
