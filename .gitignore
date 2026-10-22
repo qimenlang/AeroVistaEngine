@@ -91,10 +91,12 @@ test_out.txt
 !.claude/skills/
 
 # Cursor/Codex copies of those skills, plus the generated AGENTS.md.
-# Canonical copies stay in .claude/skills/. find-skills is the third-party
-# skill installed under .agents and tracked with skills-lock.json.
+# Canonical copies stay in .claude/skills/. Third-party skills installed under
+# .agents are tracked with skills-lock.json. clean-test is wondelai/skills
+# clean-code, renamed so it does not collide with .claude/skills/clean-code.
 .agents/skills/*
 !.agents/skills/find-skills/
+!.agents/skills/clean-test/
 /AGENTS.md
 
 # golden-test runtime artifacts (RenderingTests writes actual/diff images into source tree)

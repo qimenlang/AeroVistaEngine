@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/find-skills/SKILL.md",
       "computedHash": "d6cb30212b3b19f531378574784af1da09928b2e5078f299eaeaedd50191a4af"
+    },
+    "clean-test": {
+      "source": "wondelai/skills",
+      "sourceType": "github",
+      "skillPath": "clean-code/SKILL.md",
+      "computedHash": "b267c92bb83a03c1ce762037a17ba0824c62ff01f27f6ed36552a16d266009f6"
     }
   }
 }
