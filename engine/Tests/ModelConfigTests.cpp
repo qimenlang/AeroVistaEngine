@@ -10,7 +10,7 @@
 #include "CigiBaseEntityPositionCtrl.h"
 #include "CigiEntityCtrlV4.h"
 #include "CigiEntityPositionCtrlV4.h"
-#include "Common.h"
+#include "Testutil.h"
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -83,13 +83,6 @@ namespace
         pose.SetPitch(static_cast<float>(eulerYprDeg.y));
         pose.SetRoll(static_cast<float>(eulerYprDeg.z));
         return pose;
-    }
-
-    Entity& requireEntity(Engine& engine, int id)
-    {
-        Entity* entity = engine.findEntity(id);
-        REQUIRE(entity);
-        return *entity;
     }
 
     std::string jsonEntity(int id, const std::string& model, const std::string& poseObject = {},
@@ -181,14 +174,6 @@ namespace
         REQUIRE(vsg::length(lookAt->eye - position) < 1e-6);
         REQUIRE(vsg::length(vsg::normalize(lookAt->center - lookAt->eye) - vsg::normalize(expectedForward)) < 1e-6);
         REQUIRE(vsg::length(vsg::normalize(lookAt->up) - vsg::normalize(expectedUp)) < 1e-6);
-    }
-
-    vsg::dvec3 rotateEnuToEcef(const vsg::dmat4& localToWorld, const vsg::dvec3& enuDir)
-    {
-        const vsg::dvec3 east = vsg::normalize(vsg::dvec3(localToWorld(0, 0), localToWorld(0, 1), localToWorld(0, 2)));
-        const vsg::dvec3 north = vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
-        const vsg::dvec3 upAxis = vsg::normalize(vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
-        return enuDir.x * east + enuDir.y * north + enuDir.z * upAxis;
     }
 
     void requireLookAtMatchesLlaPose(Engine& engine, const vsg::EllipsoidModel& ellipsoid, const vsg::dvec3& lla,

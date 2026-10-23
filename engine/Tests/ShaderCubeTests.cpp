@@ -1,6 +1,6 @@
 ﻿#include <catch2/catch_test_macros.hpp>
 
-#include "Common.h"
+#include "Testutil.h"
 #include "function/scene/ShaderCube.h"
 
 #ifndef RESOURCE_DIR

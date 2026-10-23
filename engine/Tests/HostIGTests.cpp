@@ -1,4 +1,4 @@
-﻿#include <catch2/catch_approx.hpp>
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine.h"
@@ -28,7 +28,7 @@
 #include <thread>
 #include <vector>
 
-#include "Common.h"
+#include "Testutil.h"
 
 using aerovista::sync::HostConfig;
 using aerovista::sync::HostSync;
@@ -44,116 +44,6 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 // - 数据面（帧节拍 / 眼点 / SOF）：CIGI V4 CCL —— IGCtrl (+ 可选 EntityPositionCtrl) / SOF。
 //   数据面契约走 HostSync/IgSync 可观察收发（[wire-contract]）；CCL 首包约束仍为 session 反向用例单测。
 
-namespace
-{
-    // UDP 可丢：actual 落在 [expected-slack, expected]
-    bool approxAtMost(std::uint32_t actual, int expected, int slack)
-    {
-        const auto exp = static_cast<std::uint32_t>(expected);
-        const auto minOk = exp > static_cast<std::uint32_t>(slack) ? exp - static_cast<std::uint32_t>(slack) : 0u;
-        return actual >= minOk && actual <= exp;
-    }
-
-    // 条件成立即返回。短轮询只盖住 Host 就绪表晚于 IG connect 返回的缝，不空等固定超时。
-    void connectUntil(const std::function<bool()>& linked)
-    {
-        for (int i = 0; i < 10 && !linked(); ++i)
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    /// IGCtrl 由 outMsgWithIgCtrlUdp() 自动前置（帧号/自计时时间戳）；hostSendFrame 只发无眼点帧。
-    void hostSendFrame(HostSync& host)
-    {
-        host.outMsgWithIgCtrlUdp();
-        host.flushUdp();
-    }
-
-    void hostSendEyePose(HostSync& host, const cigi_wire::EyePose& eye)
-    {
-        auto& omsg = host.outMsgWithIgCtrlUdp();
-        cigi_wire::appendEye(omsg, &eye);
-        host.flushUdp();
-    }
-
-    // 业务侧扇出一帧 IGCtrl + 眼点（outMsgWithIgCtrlUdp 自动前置 IGCtrl，appendEye 追加 ownship）。
-    void hostSendEyeFrame(HostSync& host, const ChannelEye& eye)
-    {
-        cigi_wire::EyePose wire{};
-        wire.x = eye.lla.x;
-        wire.y = eye.lla.y;
-        wire.z = eye.lla.z;
-        wire.yawDeg = eye.eulerYprDeg.x;
-        wire.pitchDeg = eye.eulerYprDeg.y;
-        wire.rollDeg = eye.eulerYprDeg.z;
-        hostSendEyePose(host, wire);
-    }
-
-    bool linkHostIg(HostSync& host, IgSync& ig, int base)
-    {
-        if (!host.initialize(makeTestHostConfig(base)))
-            return false;
-        const IgConfig igConfig = makeTestIgConfig(base + 1, base);
-        if (!ig.initialize(igConfig.udpRecvPort) || !ig.connect(igConfig))
-            return false;
-        return true;
-    }
-
-    struct OwnshipEyeCapture
-    {
-        bool got = false;
-        std::uint16_t entityId = 0;
-        std::uint16_t parentId = 0;
-        CigiBaseEntityPositionCtrl::AttachStateGrp attachState = CigiBaseEntityPositionCtrl::Detach;
-        double lat = 0.0;
-        double lon = 0.0;
-        double alt = 0.0;
-        double yawDeg = 0.0;
-        double pitchDeg = 0.0;
-        double rollDeg = 0.0;
-    };
-
-    void captureOwnship(IgSync& ig, OwnshipEyeCapture& cap)
-    {
-        ig.addCallback<CigiEntityPositionCtrlV4>([&](const CigiEntityPositionCtrlV4& pose) {
-            if (pose.GetEntityID() != 0)
-                return;
-            cap.got = true;
-            cap.entityId = pose.GetEntityID();
-            cap.parentId = pose.GetParentID();
-            cap.attachState = pose.GetAttachState();
-            cap.lat = pose.GetLat();
-            cap.lon = pose.GetLon();
-            cap.alt = pose.GetAlt();
-            cap.yawDeg = pose.GetYaw();
-            cap.pitchDeg = pose.GetPitch();
-            cap.rollDeg = pose.GetRoll();
-        });
-    }
-
-    void pumpOwnshipEyeFrames(HostSync& host, IgSync& ig, const cigi_wire::EyePose& eye, int frames = 5)
-    {
-        for (int i = 0; i < frames; ++i)
-        {
-            hostSendEyePose(host, eye);
-            ig.drainIncoming();
-            ig.update();
-        }
-    }
-
-    // 独立 Host 端点（测试用）：持 HostSync，RAII 生命周期。
-    // 端口语义 = makeTestHostConfig（Common.h），与 makeTestIgConfig 的 target 对齐。
-    struct TestHost
-    {
-        HostSync sync;
-        bool init(int base)
-        {
-            if (!sync.initialize(makeTestHostConfig(base)))
-                return false;
-            return true;
-        }
-    };
-} // namespace
-
 // =============================================================================
 // 3. Engine + IgSync 集成（CIGI 帧交换契约；握手为 CIGI HELLO + UDP_SYNC）
 // =============================================================================
@@ -165,12 +55,10 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
     {
         constexpr int kBase = 23000;
         TestHost host;
-        REQUIRE(host.init(kBase));
         Engine engine;
         engine.extent = {1920, 1080};
         engine.showWindow = false;
-        REQUIRE(engine.initSync(makeTestIgConfig(kBase + 1, kBase)));
-        REQUIRE(host.sync.readyIgCount() == 1);
+        setupHostIgPair(host.sync, engine, kBase);
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
 
@@ -294,15 +182,6 @@ namespace
         REQUIRE(vsg::length(vsg::normalize(lookAt->up) - vsg::normalize(expectedUp)) < 1e-9);
     }
 
-    // Rotate ENU direction by orthonormalized LocalToWorld columns (lla设计 §3.3).
-    vsg::dvec3 rotateEnuToEcef(const vsg::dmat4& localToWorld, const vsg::dvec3& enuDir)
-    {
-        const vsg::dvec3 east = vsg::normalize(vsg::dvec3(localToWorld(0, 0), localToWorld(0, 1), localToWorld(0, 2)));
-        const vsg::dvec3 north = vsg::normalize(vsg::dvec3(localToWorld(1, 0), localToWorld(1, 1), localToWorld(1, 2)));
-        const vsg::dvec3 upAxis = vsg::normalize(vsg::dvec3(localToWorld(2, 0), localToWorld(2, 1), localToWorld(2, 2)));
-        return enuDir.x * east + enuDir.y * north + enuDir.z * upAxis;
-    }
-
     void requireLookAtMatchesLlaPose(Engine& engine, const vsg::EllipsoidModel& ellipsoid, const vsg::dvec3& lla,
                                      const vsg::dvec3& eulerYprDeg, double eyeEps = 1e-6, double dirEps = 1e-9)
     {
@@ -385,17 +264,6 @@ namespace
     {
         REQUIRE(vsg::length(actual.lla - expected.lla) < eps);
         REQUIRE(vsg::length(actual.eulerYprDeg - expected.eulerYprDeg) < eps);
-    }
-
-    // Host 眼点用例使用独立端口，避免与 §1–3 默认 8000/8001 并行冲突。
-    IgConfig makeIgLocalEye(int udpRecvPort, int base = 18000)
-    {
-        return IgConfig{udpRecvPort, "127.0.0.1", base + 100, base};
-    }
-
-    IgConfig makeIgOnlyRole(int igUdpRecv, int base = 18000)
-    {
-        return makeIgLocalEye(igUdpRecv, base);
     }
 } // namespace
 
@@ -494,7 +362,7 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
         engine.config.injectEllipsoidIfMissing = true;
         REQUIRE(engine.init(modelPath));
 
-        const IgConfig igCfg = makeIgLocalEye(18001, 18000);
+        const IgConfig igCfg = makeTestIgConfig(18001, 18000);
         // Host 未启动 → connect 失败，requireConnectedIg=false 仍完成本地 Init。
         ViewDefinition unlinked;
         unlinked.requireConnectedIg = false;
@@ -530,7 +398,7 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][sync][hostctr
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         TestHost host;
         REQUIRE(host.init(18000));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(18001, 18000)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(18001, 18000)));
         REQUIRE(engine.igLinked());
 
         const ChannelEye localPose{{39.9, 116.4, 400.0}, {10.0, 0.0, 0.0}};
@@ -567,7 +435,7 @@ SCENARIO("update re-applies last Host eye when no new eye arrives",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         TestHost host;
         REQUIRE(host.init(18300));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(18001, 18300)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(18001, 18300)));
         engine.cameraDriver().setOffsetDeg({});
 
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {15.0, 0.0, 0.0}};
@@ -600,7 +468,7 @@ SCENARIO("after disconnect, camera keeps the last Host eye pose",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         TestHost host;
         REQUIRE(host.init(18500));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(18001, 18500)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(18001, 18500)));
         engine.cameraDriver().setOffsetDeg({});
 
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {25.0, 0.0, 0.0}};
@@ -638,7 +506,7 @@ namespace
     // 刚性阵列 E2E 的通道配置 JSON：纯 IG（不含 hostConfig）；
     // requireConnectedIg 按通道指定（A 连 host 强制，B/C 宽松）。
     // yawOffset 是引擎内部右手 yaw；JSON 写 heading = -yawOffset。
-    // TempConfigFile 来自公共头 Common.h。
+    // TempConfigFile 来自公共头 Testutil.h。
     std::string makeChannelConfigBody(int kBase, int channelId, int udpRecv, double yawOffset,
                                       bool requireConnectedIg, bool injectEllipsoidIfMissing,
                                       const std::string& model)
@@ -818,8 +686,8 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestViewDefinition(0)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestViewDefinition(1)));
+        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestViewDefinition(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -880,7 +748,7 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
         engine.config.injectEllipsoidIfMissing = true;
         TestHost host;
         REQUIRE(host.init(kBase));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(kBase + 1, kBase)));
         auto em = ellipsoidOf(engine);
         REQUIRE(em);
 
@@ -917,7 +785,7 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
         engine.config.injectEllipsoidIfMissing = true;
         TestHost host;
         REQUIRE(host.init(kBase));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(kBase + 1, kBase)));
         auto em = ellipsoidOf(engine);
         REQUIRE(em);
 
@@ -956,7 +824,7 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
         engine.config.injectEllipsoidIfMissing = true;
         TestHost host;
         REQUIRE(host.init(kBase));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(kBase + 1, kBase)));
         auto em = ellipsoidOf(engine);
         REQUIRE(em);
 
@@ -996,8 +864,8 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestViewDefinition(0)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestViewDefinition(1)));
+        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestViewDefinition(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1085,8 +953,8 @@ SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with mat
         engineA.showWindow = engineB.showWindow = false;
 
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "readymap.vsgt";
-        REQUIRE(engineA.initSync(makeIgOnlyRole(kBase + 1, kBase), makeTestViewDefinition(0)));
-        REQUIRE(engineB.initSync(makeIgOnlyRole(kBase + 3, kBase), makeTestViewDefinition(1)));
+        REQUIRE(engineA.initSync(makeTestIgConfig(kBase + 1, kBase), makeTestViewDefinition(0)));
+        REQUIRE(engineB.initSync(makeTestIgConfig(kBase + 3, kBase), makeTestViewDefinition(1)));
         REQUIRE(host.sync.readyIgCount() == 2);
         engineA.config.injectEllipsoidIfMissing = true;
         engineB.config.injectEllipsoidIfMissing = true;
@@ -1332,7 +1200,7 @@ SCENARIO("initGraphics clears the applied eye cache while the IG link stays up",
         const vsg::Path modelPath = vsg::Path(RESOURCE_DIR) / "models" / "teapot.vsgt";
         TestHost host;
         REQUIRE(host.init(kBase));
-        REQUIRE(engine.init(modelPath, makeIgOnlyRole(kBase + 1, kBase)));
+        REQUIRE(engine.init(modelPath, makeTestIgConfig(kBase + 1, kBase)));
         REQUIRE(engine.igLinked());
 
         const ChannelEye hostPose{{39.9, 116.4, 500.0}, {12.0, 0.0, 0.0}};

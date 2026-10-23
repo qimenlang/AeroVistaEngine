@@ -3,7 +3,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "Common.h"
+#include "Testutil.h"
 #include "engine.h"
 #include <aerovista/sync/HostSync.h>
 #include <aerovista/sync/IgSync.h>
@@ -18,13 +18,6 @@ namespace
 {
     // 时钟同步方案.md §3/§4 注入结构体：IgSync::HostTimeStamp 提供真实实现。
     using HostTimeStamp = IgSync::HostTimeStamp;
-
-    /// 业务侧扇出一帧 IGCtrl（outMsgWithIgCtrlUdp 自动前置 IGCtrl + 自计时时间戳）。
-    void hostSendFrame(HostSync& host)
-    {
-        auto& omsg = host.outMsgWithIgCtrlUdp();
-        host.flushUdp();
-    }
 
     /// UDP 回环仍可能跨过「同一次 tick」：发送后轮询 drain，直到可观察条件成立。
     template<typename Pred>

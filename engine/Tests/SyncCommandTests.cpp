@@ -1,4 +1,4 @@
-﻿// 状态同步设计.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
+// 状态同步设计.md §10 验收（新契约：引用式发送 + 无业务回执 + CCL 标准报文 + processor）。
 // 命令面全绿：线格式契约 + E2E（TCP/UDP 收发对等）+ 分帧单测。
 // §7 双 session 隔离：2 条反向用例（flushUdp 不打包 TCP 缓冲 → 收不到）+ 2 条正向（flushTcp 正常送达）。
 
@@ -7,7 +7,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "Common.h"
+#include "Testutil.h"
 #include "engine.h"
 #include <aerovista/sync/CigiWire.h>
 #include <aerovista/sync/HostSync.h>
@@ -45,213 +45,6 @@
 using aerovista::sync::HostSync;
 using aerovista::sync::IgSync;
 namespace cigi_wire = aerovista::sync::cigi_wire;
-
-namespace
-{
-    // 独立 Host 端点 + 一台 IG-only。HostSync 由测试直接持有，不经 Engine。
-    void setupHostIgPair(HostSync& host, Engine& engine, int base)
-    {
-        REQUIRE(host.initialize(makeTestHostConfig(base)));
-        REQUIRE(engine.initSync(makeTestIgConfig(base + 1, base)));
-        REQUIRE(host.readyIgCount() == 1);
-    }
-
-    // 独立 Host 端点 + 两台 IG-only（viewID 0 与 1）。HostSync 由测试直接持有，不经 Engine。
-    void setupHostDoubleIgPair(HostSync& host, Engine& engineA, Engine& engineB, int base)
-    {
-        REQUIRE(host.initialize(makeTestHostConfig(base)));
-        REQUIRE(engineA.initSync(makeTestIgConfig(base + 1, base), makeTestViewDefinition(0)));
-        REQUIRE(engineB.initSync(makeTestIgConfig(base + 3, base), makeTestViewDefinition(1)));
-        REQUIRE(host.readyIgCount() == 2);
-    }
-
-    // 条件成立即返回。1ms 一拍，最多 10 拍，盖住回环晚到的报文。
-    void tickIgUntil(Engine& engine, const std::function<bool()>& done)
-    {
-        for (int i = 0; i < 10 && !done(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            engine.tickSync();
-        }
-    }
-
-    void tickIgUntil(Engine& engineA, Engine& engineB, const std::function<bool()>& done)
-    {
-        for (int i = 0; i < 10 && !done(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            engineA.tickSync();
-            engineB.tickSync();
-        }
-    }
-
-    void drainHostUntil(HostSync& host, const std::function<bool()>& done)
-    {
-        for (int i = 0; i < 10 && !done(); ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            host.drainIncoming();
-        }
-    }
-
-    Entity& requireEntity(Engine& engine, int id)
-    {
-        Entity* entity = engine.findEntity(id);
-        REQUIRE(entity);
-        return *entity;
-    }
-
-    std::string makeIgConfigExtra(int base)
-    {
-        return std::string(R"("igConfig": { "udpRecvPort": )") + std::to_string(base + 1) +
-               R"(, "hostAddr": "127.0.0.1", "hostTcpPort": )" + std::to_string(base + 100) +
-               R"(, "hostUdpRecvPort": )" + std::to_string(base) + " }";
-    }
-
-    template<typename PacketT, typename Proc>
-    void subscribe(IgSync& igSync, const std::shared_ptr<Proc>& proc)
-    {
-        igSync.addCallback<PacketT>([proc](const PacketT& packet) {
-            proc->OnPacketReceived(const_cast<PacketT*>(&packet));
-        });
-    }
-
-    template<typename PacketT, typename Proc>
-    void subscribe(HostSync& host, const std::shared_ptr<Proc>& proc)
-    {
-        host.addCallback<PacketT>([proc](const PacketT& packet) {
-            proc->OnPacketReceived(const_cast<PacketT*>(&packet));
-        });
-    }
-
-    void sendHostEntityCtrl(HostSync& host, Engine& engine, Cigi_uint16 entityId,
-                            CigiBaseEntityCtrl::EntityStateGrp state, Cigi_uint8 alpha = 255)
-    {
-        auto& tcp = host.outMsgWithIgCtrlTcp();
-        CigiEntityCtrlV4 ent;
-        ent.SetEntityID(entityId);
-        ent.SetEntityState(state);
-        ent.SetAlpha(alpha);
-        tcp << ent;
-        host.flushTcp();
-        engine.tickSync();
-    }
-
-    // engine 层定义的业务 processor（§8.1）：捕获 EntityPositionCtrlV4 字段。
-    // OnPacketReceived 只在主线程解包时调用（§6），测试主线程读写，无并发，用普通成员。
-    // ownship（EntityID==0）是数据面眼点保留实体（§4.1），业务 processor 须过滤。
-    class TestPlaceProcessor : public CigiBaseEventProcessor
-    {
-    public:
-        void OnPacketReceived(CigiBasePacket* packet) override
-        {
-            auto* place = dynamic_cast<CigiEntityPositionCtrlV4*>(packet);
-            if (!place || place->GetEntityID() == 0)
-                return;
-            received = true;
-            entityId = place->GetEntityID();
-            attachState = place->GetAttachState();
-            lat = place->GetLat();
-            lon = place->GetLon();
-            alt = place->GetAlt();
-        }
-        bool received = false;
-        std::uint16_t entityId = 0;
-        CigiBaseEntityPositionCtrl::AttachStateGrp attachState = CigiBaseEntityPositionCtrl::Detach;
-        double lat = 0.0;
-        double lon = 0.0;
-        double alt = 0.0;
-    };
-
-    // engine 层定义的业务 processor（§8.1）：捕获 SymbolTextDefV4 并记录文本（多指令分发用）。
-    class TestTextProcessor : public CigiBaseEventProcessor
-    {
-    public:
-        void OnPacketReceived(CigiBasePacket* packet) override
-        {
-            auto* txt = dynamic_cast<CigiSymbolTextDefV4*>(packet);
-            if (!txt)
-                return;
-            _texts.push_back(txt->GetText());
-        }
-        std::size_t count() const
-        {
-            return _texts.size();
-        }
-        std::vector<std::string> texts() const
-        {
-            return _texts;
-        }
-
-    private:
-        std::vector<std::string> _texts;
-    };
-
-    // 业务 processor：捕获 IG→Host 的 CigiIGMsgV4（CCL 原生 IG→Host 报文，§8.1 对等）。
-    class TestIgMsgProcessor : public CigiBaseEventProcessor
-    {
-    public:
-        void OnPacketReceived(CigiBasePacket* packet) override
-        {
-            auto* igmsg = dynamic_cast<CigiIGMsgV4*>(packet);
-            if (!igmsg)
-                return;
-            // CCL 把 IGMsg.Msg 按 8 字节对齐（含 NUL 填充），按 C 字符串语义取文本。
-            const std::size_t len = ::strnlen(igmsg->GetMsg(), igmsg->GetMsgLen());
-            _messages.emplace_back(igmsg->GetMsgID(), std::string(igmsg->GetMsg(), len));
-        }
-        std::size_t count() const
-        {
-            return _messages.size();
-        }
-        std::vector<std::pair<std::uint16_t, std::string>> messages() const
-        {
-            return _messages;
-        }
-
-    private:
-        std::vector<std::pair<std::uint16_t, std::string>> _messages;
-    };
-
-    // 捕获 CigiCollDetSegDefV4（Host→IG）：记录 EntityID / SegmentEn / Mask。
-    class TestCollDetSegDefProcessor : public CigiBaseEventProcessor
-    {
-    public:
-        void OnPacketReceived(CigiBasePacket* packet) override
-        {
-            auto* def = dynamic_cast<CigiCollDetSegDefV4*>(packet);
-            if (!def)
-                return;
-            got = true;
-            entityId = def->GetEntityID();
-            segmentEn = def->GetSegmentEn();
-            mask = def->GetMask();
-        }
-        bool got = false;
-        std::uint16_t entityId = 0;
-        bool segmentEn = false;
-        std::uint32_t mask = 0;
-    };
-
-    // 捕获 CigiCollDetSegRespV4（IG→Host）：记录 EntityID / Material。
-    class TestCollDetSegRespProcessor : public CigiBaseEventProcessor
-    {
-    public:
-        void OnPacketReceived(CigiBasePacket* packet) override
-        {
-            auto* resp = dynamic_cast<CigiCollDetSegRespV4*>(packet);
-            if (!resp)
-                return;
-            got = true;
-            entityId = resp->GetEntityID();
-            material = resp->GetMaterial();
-        }
-        bool got = false;
-        std::uint16_t entityId = 0;
-        std::uint32_t material = 0;
-    };
-
-} // namespace
 
 // =============================================================================
 // 2. E2E：真实 socket 收发（outMsgWithIgCtrlTcp/flushTcp/addCallback）
@@ -964,25 +757,6 @@ SCENARIO("IG TCP-filled message is delivered via flushTcp",
 //    outMsgWithIgCtrlTcp() 自动前置 IGCtrl（帧号=命令面、TimeStampValid=false、帧号连续）。
 // =============================================================================
 
-namespace
-{
-    // 捕获 IGCtrl 帧头字段（FrameCntr / TimeStampValid）——验证 Host 出站首包约束。
-    class TestIgCtrlCapture : public CigiBaseEventProcessor
-    {
-    public:
-        void OnPacketReceived(CigiBasePacket* packet) override
-        {
-            auto* ig = dynamic_cast<CigiIGCtrlV4*>(packet);
-            if (!ig)
-                return;
-            frameCntrs.push_back(ig->GetFrameCntr());
-            timeStampValids.push_back(ig->GetTimeStampValid());
-        }
-        std::vector<std::uint32_t> frameCntrs;
-        std::vector<bool> timeStampValids;
-    };
-} // namespace
-
 // =============================================================================
 // Host 连发两条 UDP 数据面帧，IG 收到的首包 IGCtrl 时间戳有效且帧号递增（状态同步设计.md §10，码 CIGI-udp-igctrl-ts）。
 // UDP 可丢一条。固定多拍 tickSync，不断言两条都必须到达。
@@ -1003,10 +777,7 @@ SCENARIO("Host UDP frames carry valid IGCtrl first packet with timestamp",
         {
             // outMsgWithIgCtrlUdp() 自动前置 IGCtrl（帧号=数据面、TimeStamp=自计时、TimeStampValid=true）。
             for (int i = 0; i < 2; ++i)
-            {
-                auto& udp = host.outMsgWithIgCtrlUdp();
-                host.flushUdp();
-            }
+                hostSendFrame(host);
             for (int i = 0; i < 10; ++i)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -1685,71 +1456,46 @@ SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
     }
 }
 
-// 一次 TCP 消息打满权威表量级的 EntityCtrl（设计文档启动期全量广播的量级），
-// 验 IG 分帧解包把每条都投递到业务回调。不是 Catch BENCHMARK：固定 200 条、
-// 自建 Host+IG 场景，断言条数与 id，不钉耗时。
+// =============================================================================
+// 一次 TCP 消息打满权威表量级的 EntityCtrl，验 IG 分帧解包把每条都投递到业务回调
+// （状态同步设计.md §10，码 CMD-burst-entityctrl）。
+// 不是 Catch BENCHMARK：固定 200 条，断言条数与 id，不钉耗时。
+// 不加载实体目录：本码不验收 entitySize，只数回调条数和互异 id。
+// =============================================================================
 SCENARIO("linked IG unpacks two hundred EntityCtrl from one Host TCP flush",
          "[integration][stress][sync][cmd][e2e][CMD-burst-entityctrl]")
 {
-    GIVEN("a linked Host and an IG with two hundred Standby catalog entities")
+    GIVEN("an independent Host and one IG-only engine linked over real sockets")
     {
-        constexpr int kBase = 34000;
         constexpr int kEntityCount = 200;
 
-        std::string entities = "[";
-        for (int id = 1; id <= kEntityCount; ++id)
-        {
-            if (id > 1)
-                entities += ",";
-            entities += R"({ "id": )" + std::to_string(id) +
-                        R"(, "model": "models/teapot.vsgt", "initialEntityState": "Standby" })";
-        }
-        entities += "]";
-
-        const EntitiesConfig igCfg(entities, {}, false, makeIgConfigExtra(kBase));
-
         HostSync host;
-        REQUIRE(host.initialize(makeTestHostConfig(kBase)));
-
         Engine engineA;
-        engineA.extent = {640, 480};
-        engineA.showWindow = false;
-        REQUIRE(engineA.loadConfig(igCfg.cfgFile->path()));
-        REQUIRE(engineA.init());
-        REQUIRE(host.readyIgCount() == 1);
-        REQUIRE(engineA.entitySize() == kEntityCount);
+        setupHostIgPair(host, engineA, 34000);
 
-        int unpacked = 0;
+        int unpackcount = 0;
         std::unordered_set<Cigi_uint16> unpackedIds;
         engineA.igSync().addCallback<CigiEntityCtrlV4>([&](const CigiEntityCtrlV4& ctrl) {
-            ++unpacked;
+            ++unpackcount;
             unpackedIds.insert(ctrl.GetEntityID());
         });
 
         WHEN("Host sends two hundred EntityCtrl Active in one TCP flush")
         {
+            auto& tcp = host.outMsgWithIgCtrlTcp();
+            for (int id = 1; id <= kEntityCount; ++id)
             {
-                auto& tcp = host.outMsgWithIgCtrlTcp();
-                for (int id = 1; id <= kEntityCount; ++id)
-                {
-                    CigiEntityCtrlV4 ent;
-                    ent.SetEntityID(static_cast<Cigi_uint16>(id));
-                    ent.SetEntityState(CigiBaseEntityCtrl::Active);
-                    tcp << ent;
-                }
-                host.flushTcp();
+                CigiEntityCtrlV4 ent;
+                ent.SetEntityID(static_cast<Cigi_uint16>(id));
+                ent.SetEntityState(CigiBaseEntityCtrl::Active);
+                tcp << ent;
             }
-            const auto unpackStart = std::chrono::steady_clock::now();
-            for (int i = 0; i < 20 && unpacked < kEntityCount; ++i)
-                engineA.tickSync();
-            const double unpackMs =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - unpackStart).count();
-            std::cout << "[INFO] EntityCtrl unpack: " << kEntityCount << " packets in " << unpackMs << " ms"
-                      << std::endl;
+            host.flushTcp();
+            tickIgUntil(engineA, [&] { return unpackcount == kEntityCount; });
 
-            THEN("the IG unpacked every EntityCtrl and all entities are visible")
+            THEN("the IG unpackcount every EntityCtrl and all entities are visible")
             {
-                REQUIRE(unpacked == kEntityCount);
+                REQUIRE(unpackcount == kEntityCount);
                 REQUIRE(unpackedIds.size() == static_cast<std::size_t>(kEntityCount));
             }
         }

@@ -13,7 +13,7 @@
 #include <fstream>
 #include <string>
 
-#include "Common.h"
+#include "Testutil.h"
 
 using aerovista::sync::HostSync;
 using aerovista::sync::OffsetDeg;
