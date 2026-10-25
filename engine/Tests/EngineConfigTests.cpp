@@ -121,6 +121,10 @@ SCENARIO("injectEllipsoidIfMissing injects EllipsoidModel on scene; otherwise lz
     }
 }
 
+// =============================================================================
+// 模型自带椭球时，注入开关省略或显式打开都不覆盖它（位姿配置设计.md §7，码 CFG-keep-builtin-ellipsoid）。
+// 两条路径都要求 init 成功，并且场景里仍有 EllipsoidModel。
+// =============================================================================
 SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfMissing",
          "[acceptance][config][ellipsoid-inject][CFG-keep-builtin-ellipsoid]")
 {
@@ -160,6 +164,11 @@ SCENARIO("model-built-in EllipsoidModel is kept regardless of injectEllipsoidIfM
 // 位姿配置设计.md §4：Ellipsoid 下默认初始相机由 AABB 计算，不写死北京。
 // 覆盖「注入在相机创建前」：lz 无自带椭球，靠 injectEllipsoidIfMissing 注入后才能建 EllipsoidPerspective。
 // 无 pose 实体默认摆在地心，会触发 fallback 到北京上空（见 §4.2 fallback 判据）。
+
+// =============================================================================
+// 无自带椭球的模型靠注入才能建椭球相机，眼点用回退 LLA（位姿配置设计.md §7，码 CFG-inject-before-camera）。
+// 无 pose 的实体在地心，触发回退。眼点是 (39.9, 116.4, 500) 的 ECEF，朝向为正北。
+// =============================================================================
 SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LLA LookAt",
          "[acceptance][config][ellipsoid][initial-lla][CFG-inject-before-camera]")
 {
@@ -204,6 +213,10 @@ SCENARIO("injectEllipsoidIfMissing injects before camera create with fallback LL
     }
 }
 
+// =============================================================================
+// 全球模型的默认眼点因包围盒中心靠近地心而回退到北京（位姿配置设计.md §7，码 CFG-builtin-ellipsoid-aabb）。
+// 眼点对准北京回退点，并确认中心模长小于 0.9 倍极半径。
+// =============================================================================
 SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardcoded Beijing",
          "[acceptance][config][ellipsoid][initial-lla][CFG-builtin-ellipsoid-aabb]")
 {
@@ -252,6 +265,10 @@ SCENARIO("model with built-in ellipsoid initializes camera from AABB, not hardco
 // 以下测试用例按新设计目标编写，当前实现未达标，标记
 // =============================================================================
 
+// =============================================================================
+// 单个无 pose 的局部实体，默认眼点在包围盒中心沿 -Y 退 3.5 倍半径（位姿配置设计.md §7，码 CFG-local-single-aabb）。
+// 注视点是包围盒中心，up 为 (0,0,1)。场景没有椭球。
+// =============================================================================
 SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
          "[acceptance][config][initial-camera][aabb][CFG-local-single-aabb]")
 {
@@ -289,6 +306,10 @@ SCENARIO("Local single entity no pose camera uses AABB with k_back=3.5",
     }
 }
 
+// =============================================================================
+// 多个无 pose 的局部实体，默认相机按整体包围盒取景（位姿配置设计.md §7，码 CFG-local-multi-aabb）。
+// 中心落在两实体之间，眼点从中心沿 -Y 退 3.5 倍半径。
+// =============================================================================
 SCENARIO("Local multiple entities no pose camera uses overall AABB",
          "[acceptance][config][initial-camera][aabb][CFG-local-multi-aabb]")
 {
@@ -326,6 +347,10 @@ SCENARIO("Local multiple entities no pose camera uses overall AABB",
     }
 }
 
+// =============================================================================
+// 椭球上带 LLA 的小模型，默认眼点可以在天安门附近，也可以回退北京（位姿配置设计.md §7，码 CFG-ellipsoid-lla-aabb）。
+// 两种都算通过。小模型的包围盒中心仍可能靠近地心。
+// =============================================================================
 SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
          "[acceptance][config][initial-camera][aabb][CFG-ellipsoid-lla-aabb]")
 {
@@ -370,6 +395,10 @@ SCENARIO("Ellipsoid entity with LLA pose camera uses AABB or fallback",
     }
 }
 
+// =============================================================================
+// 椭球上无 pose 的实体停在地心，默认眼点回退到北京正北（位姿配置设计.md §7，码 CFG-ellipsoid-beijing-fallback）。
+// 眼点是 (39.9, 116.4, 500) 的 ECEF。
+// =============================================================================
 SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
          "[acceptance][config][initial-camera][fallback][CFG-ellipsoid-beijing-fallback]")
 {
@@ -409,6 +438,10 @@ SCENARIO("Ellipsoid entity no pose triggers fallback to Beijing",
     }
 }
 
+// =============================================================================
+// 配置了相机 pose 时，眼点用该 pose，不用包围盒（位姿配置设计.md §7，码 CFG-camera-overrides-aabb）。
+// 眼点钉在 (10, 20, 30)。偏航 45° 时前向落在 -X 与 +Y。
+// =============================================================================
 SCENARIO("camera pose overrides AABB computed position",
          "[acceptance][config][initial-camera][override][CFG-camera-overrides-aabb]")
 {
@@ -442,6 +475,9 @@ SCENARIO("camera pose overrides AABB computed position",
     }
 }
 
+// =============================================================================
+// 椭球透视的 nearFarRatio 为 0.001（位姿配置设计.md §7，码 CFG-ellipsoid-near-far-ratio）。
+// =============================================================================
 SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
          "[acceptance][config][initial-camera][projection][CFG-ellipsoid-near-far-ratio]")
 {
@@ -469,6 +505,9 @@ SCENARIO("Ellipsoid Perspective nearFarRatio is 0.001",
     }
 }
 
+// =============================================================================
+// 局部透视的近远平面按包围盒半径的 0.001 与 4.5 倍取值（位姿配置设计.md §7，码 CFG-local-near-far-radius）。
+// =============================================================================
 SCENARIO("Local Perspective near far proportional to radius",
          "[acceptance][config][initial-camera][projection][CFG-local-near-far-radius]")
 {
@@ -503,6 +542,10 @@ SCENARIO("Local Perspective near far proportional to radius",
     }
 }
 
+// =============================================================================
+// 局部相机 pose 远离原点时，远平面盖住眼点到包围盒中心的距离（位姿配置设计.md §7，码 CFG-local-pose-near-far）。
+// 远平面至少为该距离加半径，近平面是远平面的 0.001。
+// =============================================================================
 SCENARIO("Local camera pose recomputes near far to prevent clipping",
          "[acceptance][config][initial-camera][projection][CFG-local-pose-near-far]")
 {
@@ -548,6 +591,9 @@ SCENARIO("Local camera pose recomputes near far to prevent clipping",
 // 验收：默认配置与角色规则（§3.1：默认 default.json，父键决定 enable）
 // =============================================================================
 
+// =============================================================================
+// 未指定路径时，Engine 默认配置与默认通道文件读出的配置一致（多通道同步模块设计.md §11，码 CFG-default-matches-file）。
+// =============================================================================
 SCENARIO("default Engine config matches the default channel file", "[acceptance][config][CFG-default-matches-file]")
 {
     GIVEN("an Engine constructed with no explicit config path")
@@ -572,6 +618,9 @@ SCENARIO("default Engine config matches the default channel file", "[acceptance]
     }
 }
 
+// =============================================================================
+// 默认配置没有 igConfig，init 之后不启动 IG（多通道同步模块设计.md §11，码 CFG-default-no-sync）。
+// =============================================================================
 SCENARIO("default initialization does not start the sync subsystem", "[acceptance][config][CFG-default-no-sync]")
 {
     GIVEN("an Engine using the default config (no igConfig)")
@@ -591,6 +640,10 @@ SCENARIO("default initialization does not start the sync subsystem", "[acceptanc
     }
 }
 
+// =============================================================================
+// 加载通道文件后，Engine 配置被换成该文件的内容（多通道同步模块设计.md §11，码 CFG-channel-replaces-config）。
+// 与同一文件再解析一次的结果比较，不钉 JSON 字面量。
+// =============================================================================
 SCENARIO("loading a channel file replaces Engine config with that file", "[acceptance][config][CFG-channel-replaces-config]")
 {
     GIVEN("an Engine and a channel file with left IG settings")
@@ -617,6 +670,9 @@ SCENARIO("loading a channel file replaces Engine config with that file", "[accep
 // 验收：init 后同步角色与配置一致（父键 enable，非 channelId）
 // =============================================================================
 
+// =============================================================================
+// 通道文件带 igConfig 时，init 后 IG 地址与该配置一致（多通道同步模块设计.md §11，码 CFG-channel-starts-ig）。
+// =============================================================================
 SCENARIO("channel file starts IG using configured addresses", "[acceptance][config][CFG-channel-starts-ig]")
 {
     GIVEN("an Engine loaded from a config with igConfig")
@@ -639,6 +695,10 @@ SCENARIO("channel file starts IG using configured addresses", "[acceptance][conf
     }
 }
 
+// =============================================================================
+// 只有 IG 配置的通道文件 init 后启动 IG，地址与 igConfig 一致（多通道同步模块设计.md §11，码 CFG-ig-only-no-host）。
+// 引擎配置不含 hostConfig，本条不另断言 Host 进程。
+// =============================================================================
 SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance][config][CFG-ig-only-no-host]")
 {
     GIVEN("an Engine loaded from a config with igConfig")
@@ -661,6 +721,10 @@ SCENARIO("IG-only channel file starts IG and does not start Host", "[acceptance]
     }
 }
 
+// =============================================================================
+// init 之后，通道 offset 写进相机驱动（多通道同步模块设计.md §11，码 CFG-channel-offset）。
+// 先确认配置里的偏航不是 0，再与驱动里的 offset 比较。
+// =============================================================================
 SCENARIO("channel offset is applied to the camera driver after init",
          "[acceptance][config][CFG-channel-offset]")
 {
@@ -718,6 +782,10 @@ SCENARIO("viewID does not enable sync when igConfig is absent", "[acceptance][co
 // 验收：requireConnectedIg（配置项决定连失败是否令 init 失败；缺省恒 false）
 // =============================================================================
 
+// =============================================================================
+// requireConnectedIg 显式为 false 时，Host 未起仍能 init（多通道同步模块设计.md §11，码 CFG-ig-require-false-init）。
+// IG 已创建，但未连上。
+// =============================================================================
 SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[acceptance][config][CFG-ig-require-false-init]")
 {
     GIVEN("a config with requireConnectedIg false and no Host process")
@@ -739,6 +807,10 @@ SCENARIO("IG-only with requireConnectedIg false can init when Host is down", "[a
     }
 }
 
+// =============================================================================
+// 省略 requireConnectedIg 时按 false 处理，Host 未起仍能 init（多通道同步模块设计.md §11，码 CFG-ig-require-omit-false）。
+// IG 已创建，但未连上。不从别的字段推导该开关。
+// =============================================================================
 SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init when Host is down",
          "[acceptance][config][CFG-ig-require-omit-false]")
 {
@@ -762,6 +834,9 @@ SCENARIO("IG-only omitting requireConnectedIg defaults to false and can init whe
     }
 }
 
+// =============================================================================
+// requireConnectedIg 为 true 且 Host 未起时，init 失败（多通道同步模块设计.md §11，码 CFG-ig-require-true-fail）。
+// =============================================================================
 SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[acceptance][config][CFG-ig-require-true-fail]")
 {
     GIVEN("an IG-only config that requires a successful connect")
@@ -783,6 +858,10 @@ SCENARIO("IG-only with requireConnectedIg true fails init when Host is down", "[
     }
 }
 
+// =============================================================================
+// requireConnectedIg 为 true 且 Host 已在听时，init 成功并连上（多通道同步模块设计.md §11，码 CFG-ig-require-true-ok）。
+// 只要求链路已建立。
+// =============================================================================
 SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "[acceptance][config][CFG-ig-require-true-ok]")
 {
     GIVEN("an IG config that requires a successful connect, and an independent HostSync on those ports")
@@ -812,6 +891,10 @@ SCENARIO("IG-only with requireConnectedIg true succeeds when Host is running", "
 // 命令行路径。通道 JSON 的解析校验在 thirdparty/config/tests。
 // =============================================================================
 
+// =============================================================================
+// 命令行没有 -c 时，配置路径是随仓 default.json（多通道同步模块设计.md §11，码 CFG-cli-default-path）。
+// 只比较路径字符串，不读文件。
+// =============================================================================
 TEST_CASE("resolveConfigPath defaults to default config when -c is omitted", "[unit][config][cli][CFG-cli-default-path]")
 {
     char arg0[] = "engine.exe";
@@ -820,6 +903,10 @@ TEST_CASE("resolveConfigPath defaults to default config when -c is omitted", "[u
     REQUIRE(Engine::resolveConfigPath(1, argv) == defaultPath);
 }
 
+// =============================================================================
+// -c 后面的参数原样作为配置路径（多通道同步模块设计.md §11，码 CFG-cli-c-path）。
+// 只比较路径字符串，不读文件。
+// =============================================================================
 TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli][CFG-cli-c-path]")
 {
     char arg0[] = "engine.exe";
@@ -829,6 +916,10 @@ TEST_CASE("resolveConfigPath uses the path after -c", "[unit][config][cli][CFG-c
     REQUIRE(Engine::resolveConfigPath(3, argv) == givenPath);
 }
 
+// =============================================================================
+// 随仓 viewhost IG 通道文件指向 entities.json，目录里有 5 条实体（实体管理设计.md §10，码 CFG-viewhost-ig-entities-path）。
+// 读随仓文件，核对路径字符串和条数。
+// =============================================================================
 TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][config][parse][entities-catalog][CFG-viewhost-ig-entities-path]")
 {
     EngineChannelConfig cfg;
@@ -845,6 +936,10 @@ TEST_CASE("shipped viewhost_ig_main.json points at entities.json", "[unit][confi
 // 验收：窗口几何与通道配置一致
 // =============================================================================
 
+// =============================================================================
+// 开窗后，窗口位置和尺寸与通道 window 一致（多通道同步模块设计.md §11，码 CFG-window-matches-channel）。
+// traits 与 extent2D 都要与配置相同。
+// =============================================================================
 SCENARIO("on-screen window position and size match the channel config", "[acceptance][config][CFG-window-matches-channel]")
 {
     GIVEN("an Engine loaded from a channel config with window shown")

@@ -40,6 +40,10 @@ namespace
 // 系统测试：真实 socket。验收码 CLK-consume / CLK-consistent / CLK-freeze / CLK-realtime。
 // =============================================================================
 
+// =============================================================================
+// 实链路上，IG 的模拟时间以 Host 时间戳为基准（时钟同步方案.md §6，码 CLK-consume）。
+// 基准大于 0，并且至少 100 ms，用来确认它来自 Host 自计时。消费时刻不早于该基准。不钉相等。
+// =============================================================================
 SCENARIO("IG derives simulation time from live Host time stamps plus local elapsed",
          "[acceptance][sync][clock][e2e][CLK-consume]")
 {
@@ -93,6 +97,10 @@ SCENARIO("IG derives simulation time from live Host time stamps plus local elaps
     }
 }
 
+// =============================================================================
+// 同一台 Host 给两台 IG 发时间戳后，两边的模拟时间差小于一帧（时钟同步方案.md §6，码 CLK-consistent）。
+// 走真实套接字。不要求两边相等，差的上限是 16670 微秒。
+// =============================================================================
 SCENARIO("two IG channels derive nearly identical simulation time from the shared Host",
          "[acceptance][sync][clock][e2e][consistency][CLK-consistent]")
 {
@@ -147,6 +155,10 @@ SCENARIO("two IG channels derive nearly identical simulation time from the share
     }
 }
 
+// =============================================================================
+// 连续两次读取 simTimeUs 不回退，且不低于已写入的基准（时钟同步方案.md §6，码 CLK-monotonic）。
+// 时刻取自函数内部的现在，本用例不拨墙钟。
+// =============================================================================
 TEST_CASE("simTimeUs does not go backwards on consecutive reads",
           "[unit][sync][clock][monotonic][CLK-monotonic]")
 {
@@ -162,6 +174,10 @@ TEST_CASE("simTimeUs does not go backwards on consecutive reads",
     REQUIRE(s2 >= s1);
 }
 
+// =============================================================================
+// Host 停止发送时间戳后，IG 继续 tick 并在短时限后冻结，模拟时间不再增加（时钟同步方案.md §6，码 CLK-freeze）。
+// 走真实链路。冻结前先确认已经收到过时间戳。
+// =============================================================================
 SCENARIO("IG freezes when the Host stops sending time stamps over the real link",
          "[acceptance][sync][clock][e2e][freeze][CLK-freeze]")
 {
@@ -213,6 +229,10 @@ SCENARIO("IG freezes when the Host stops sending time stamps over the real link"
     }
 }
 
+// =============================================================================
+// Host 两帧之间按墙钟暂停，IG 上的模拟时间增量跟着这次暂停走（时钟同步方案.md §6，码 CLK-realtime）。
+// 不是固定的 16.67 ms 步长。增量落在 80 ms 到 200 ms，给调度留余量。
+// =============================================================================
 SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps",
          "[acceptance][sync][clock][e2e][real-time][CLK-realtime]")
 {
@@ -257,6 +277,10 @@ SCENARIO("Host simulation time advances with wall-clock pauses, not fixed steps"
     }
 }
 
+// =============================================================================
+// Host 关闭连接后，IG 继续 tick 并冻结，模拟时间停住（时钟同步方案.md §6，码 CLK-freeze）。
+// 与停发那条不同：这里是 Host 套接字关掉。
+// =============================================================================
 SCENARIO("IG freezes when the Host goes offline and stops sending time stamps",
          "[acceptance][sync][clock][e2e][freeze][host-offline][CLK-freeze]")
 {

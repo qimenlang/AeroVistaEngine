@@ -48,6 +48,10 @@ namespace cigi_wire = aerovista::sync::cigi_wire;
 // 3. Engine + IgSync 集成（CIGI 帧交换契约；握手为 CIGI HELLO + UDP_SYNC）
 // =============================================================================
 
+// =============================================================================
+// 一台 Host 与一台 IG 引擎交换 10 拍帧控制（状态同步设计.md §10，码 CIGI-engine-ticks）。
+// IG 收到的 IGCtrl 允许少 3 条。发出的 SOF 条数等于收到的 IGCtrl。Host 收到的 SOF 不超过 IG 发出数，也允许少 3 条。
+// =============================================================================
 SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
          "[integration][sync][engine][cigi][CIGI-engine-ticks]")
 {
@@ -89,6 +93,10 @@ SCENARIO("IG exchanges CIGI frame control with an independent Host over ticks",
     }
 }
 
+// =============================================================================
+// 一台 Host 对三台 IG 引擎交换 10 拍帧控制（状态同步设计.md §10，码 CIGI-multi-ig）。
+// 每台 IG 允许少 3 条。Host 收到的 SOF 按三台合计，允许少 9 条。UDP 可丢。
+// =============================================================================
 SCENARIO("three IG Engines exchange CIGI frame control across one independent Host",
          "[integration][sync][engine][multi-ig][cigi][CIGI-multi-ig]")
 {
@@ -271,6 +279,10 @@ namespace
 // 4.1 位姿 API 标尺（单元，非验收）
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 局部位置和欧拉角写成 LookAt（lla位姿传输设计.md §7，码 CAM-lookat-ypr）。
+// 用茶壶模型，场景没有椭球。
+// =============================================================================
 TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][camera][CAM-lookat-ypr]")
 {
     Engine engine;
@@ -291,6 +303,11 @@ TEST_CASE("setCameraPose writes LookAt from position and euler YPR", "[unit][cam
 }
 
 // lla位姿传输设计.md §3.3 / §4.1 / §7：有 EllipsoidModel 时 LLA+当地 YPR → ECEF LookAt。
+
+// =============================================================================
+// 有椭球时，LLA 加当地航向俯仰滚转写成 ECEF LookAt（lla位姿传输设计.md §7，码 CAM-lookat-lla）。
+// 用非零航向和俯仰覆盖 ENU 到 ECEF。模型自带椭球。
+// =============================================================================
 TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[unit][camera][lla][CAM-lookat-lla]")
 {
     Engine engine;
@@ -316,6 +333,11 @@ TEST_CASE("setCameraPoseLla writes ECEF LookAt from LLA and local ENU YPR", "[un
 }
 
 // lla位姿传输设计.md §3.5 / §7：LLA 本机往返（单机、无网络）。
+
+// =============================================================================
+// 同一台引擎上，LLA 眼点写进 LookAt 再采样能回到原值（lla位姿传输设计.md §7，码 CAM-lla-roundtrip）。
+// 滚转为 0。非零滚转的往返不在这条里验。
+// =============================================================================
 TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit][camera][lla][roundtrip][CAM-lla-roundtrip]")
 {
     Engine engine;
@@ -349,6 +371,10 @@ TEST_CASE("setCameraPoseLla round-trips LLA and local YPR on one engine", "[unit
 // 4.2 未连接也会应用 / 已连接覆盖（验收行为；注入仅作测试手段）
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// IG 没连上 Host 时，排队的 Host 眼点仍会写进相机（lla位姿传输设计.md §7，码 LLA-unlinked-apply）。
+// Host 未启动，requireConnectedIg 为 false，init 仍完成。眼点经驱动注入，不走报文。
+// =============================================================================
 SCENARIO("unlinked IG still applies queued Host eye to the camera",
          "[acceptance][sync][hostctrl][gate][LLA-unlinked-apply]")
 {
@@ -387,6 +413,10 @@ SCENARIO("unlinked IG still applies queued Host eye to the camera",
     }
 }
 
+// =============================================================================
+// IG 已连上时，Host 眼点覆盖原先的本地眼点（lla位姿传输设计.md §7，码 LLA-linked-apply）。
+// 眼点经驱动注入。通道偏移清零。
+// =============================================================================
 SCENARIO("linked IG applies Host eye to the camera", "[acceptance][sync][hostctrl][gate][LLA-linked-apply]")
 {
     GIVEN("an IG Engine linked to an independent Host")
@@ -423,6 +453,10 @@ SCENARIO("linked IG applies Host eye to the camera", "[acceptance][sync][hostctr
 // 4.3 位姿合成（offset 的椭球版本见下方椭球 E2E；同步层只 LLA）
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 没有新眼点时，下一次 update 仍把相机拉回缓存的 Host 眼点（lla位姿传输设计.md §7，码 LLA-reuse-last）。
+// 中间用本地 pose 改过相机，用来确认缓存盖过它。
+// =============================================================================
 SCENARIO("update re-applies last Host eye when no new eye arrives",
          "[acceptance][sync][hostctrl][LLA-reuse-last]")
 {
@@ -456,6 +490,10 @@ SCENARIO("update re-applies last Host eye when no new eye arrives",
     }
 }
 
+// =============================================================================
+// 链路断开后，相机保持断开前的 Host 眼点（lla位姿传输设计.md §7，码 LLA-keep-after-disconnect）。
+// 断开后改本地 pose，再 update，相机回到缓存眼点。
+// =============================================================================
 SCENARIO("after disconnect, camera keeps the last Host eye pose",
          "[acceptance][sync][hostctrl][disconnect][LLA-keep-after-disconnect]")
 {
@@ -672,6 +710,10 @@ namespace
     }
 } // namespace
 
+// =============================================================================
+// 两台椭球半径一致时，IG 的 LookAt 跟上 Host 的 LLA 眼点（lla位姿传输设计.md §7，码 LLA-follow-aligned）。
+// B 用场景模式装配，避免再开一个 Vulkan 设备。偏移为 0。
+// =============================================================================
 SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
          "[acceptance][sync][lla][follow][LLA-follow-aligned]")
 {
@@ -734,6 +776,9 @@ SCENARIO("Host LLA eye is followed by IG LookAt ECEF on aligned ellipsoids",
 // lla设计 §3.4 / §7：椭球 offsetDeg — 刚性阵列旋转复合 R_ig=R_host·Rz(δ)（绕 Host ENU up）
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 通道偏移全为 0 时，椭球 IG 的 LookAt 等于 Host 的 LLA 与当地姿态（lla位姿传输设计.md §7，码 LLA-zero-offset）。
+// =============================================================================
 SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
          "[acceptance][sync][lla][offset][LLA-zero-offset]")
 {
@@ -771,6 +816,9 @@ SCENARIO("ellipsoid zero offset keeps Host LLA eye unchanged",
     }
 }
 
+// =============================================================================
+// 只有偏航偏移时，眼点位置仍是 Host 的 LLA，朝向叠上该偏航（lla位姿传输设计.md §7，码 LLA-yaw-offset）。
+// =============================================================================
 SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
          "[acceptance][sync][lla][offset][LLA-yaw-offset]")
 {
@@ -810,6 +858,10 @@ SCENARIO("ellipsoid IG applies Host LLA eye plus yaw-only ENU offset",
     }
 }
 
+// =============================================================================
+// 只有偏航偏移时，通道 up 与 Host up 平行（lla位姿传输设计.md §7，码 LLA-up-parallel）。
+// Host 眼点带非零滚转。朝向满足 R_ig = R_host 乘以绕天向的偏航。
+// =============================================================================
 SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R_host*Rz(delta))",
          "[acceptance][sync][lla][offset][LLA-up-parallel]")
 {
@@ -850,6 +902,10 @@ SCENARIO("ellipsoid yaw-only offset keeps channel up parallel to Host up (R_ig=R
     }
 }
 
+// =============================================================================
+// 实链路下，远端 IG 按自己的偏航偏移跟上 Host 的 LLA（lla位姿传输设计.md §7，码 LLA-remote-yaw）。
+// B 用场景模式装配。两边椭球半径一致。
+// =============================================================================
 SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
          "[acceptance][sync][lla][offset][e2e][cigi][LLA-remote-yaw]")
 {
@@ -907,6 +963,11 @@ SCENARIO("remote IG follows Host LLA with channel yaw offset over CIGI",
 // 各通道 up 轴与 Host up 平行（刚性阵列一起 roll、frustum 贴边），且 forward 满足
 // R_ig=R_host·Rz(δ)。本地刚性用例的 ECEF 对应物；无自带椭球时用 injectEllipsoidIfMissing 注入 WGS-84
 // （lla位姿传输设计.md §2）。
+
+// =============================================================================
+// Host 带滚转时，三个椭球通道的 up 仍与 Host up 平行（lla位姿传输设计.md §7，码 LLA-three-up-parallel）。
+// 走实 CIGI。B、C 的朝向等于 Host 姿态再绕天向转各自的偏航偏移。
+// =============================================================================
 SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls over live CIGI",
          "[acceptance][sync][lla][offset][e2e][multi-ig][cigi][rigid][LLA-three-up-parallel]")
 {
@@ -939,6 +1000,10 @@ SCENARIO("three ellipsoid channels keep up axes parallel to Host when it rolls o
     }
 }
 
+// =============================================================================
+// Host 与 IG 都加载自带椭球的模型时，两边半径一致（lla位姿传输设计.md §7，码 LLA-radii-match）。
+// 只验场景是椭球且半径相同。跟拍误差在另一条。
+// =============================================================================
 SCENARIO("aligned Host and IG ellipsoid smoke: both have EllipsoidModel with matching radii",
          "[acceptance][sync][lla][smoke][LLA-radii-match]")
 {
@@ -1098,6 +1163,10 @@ SCENARIO("Host readymap vs IG inject-WGS84 radius mismatch makes ECEF follow dis
 // 6. LLA 验收补齐：范围校验 / 权威 offset / 缓存复位（lla设计 §7）
 // =============================================================================
 
+// =============================================================================
+// ownship 的纬度或俯仰越界时，IGCtrl 仍送到，眼点回调不触发（lla位姿传输设计.md §7，码 CIGI-lla-oor）。
+// 纬度 91° 和俯仰 95° 各发一次。越界计数两次都增加。
+// =============================================================================
 SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
          "[integration][sync][cigi][wire-contract][lla][range][CIGI-lla-oor]")
 {
@@ -1143,6 +1212,10 @@ SCENARIO("Host still sends IGCtrl when ownship LLA is out of range",
     }
 }
 
+// =============================================================================
+// Host 发出的经度被收到时落在 (-180, 180]（lla位姿传输设计.md §7，码 CIGI-lon-wrap）。
+// 190° 收到 -170°，-190° 收到 170°，180° 保持 180°。一次 Then 覆盖这三处。
+// =============================================================================
 SCENARIO("linked IG receives Host longitude wrapped into (-180,180]",
          "[integration][sync][cigi][wire-contract][lla][range][CIGI-lon-wrap]")
 {

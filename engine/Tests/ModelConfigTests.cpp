@@ -346,6 +346,10 @@ namespace
 // Entity runtime (acceptance)
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 局部实体的采样位姿等于配置里的位置和姿态角（位姿配置设计.md §7，码 POSE-local-entity-sampled）。
+// 该配置不注入椭球。
+// =============================================================================
 SCENARIO("local entity pose from config matches sampled engine pose",
          "[acceptance][config][pose][local][entity][POSE-local-entity-sampled]")
 {
@@ -372,6 +376,10 @@ SCENARIO("local entity pose from config matches sampled engine pose",
     }
 }
 
+// =============================================================================
+// 椭球实体采样到的是椭球那一半位姿（位姿配置设计.md §7，码 POSE-ellipsoid-not-local）。
+// 两半故意写成不同的数，采样结果对不上局部那一半。
+// =============================================================================
 SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
          "[acceptance][config][pose][ellipsoid][entity][POSE-ellipsoid-not-local]")
 {
@@ -404,6 +412,9 @@ SCENARIO("ellipsoid entity pose matches EllipsoidPose and not LocalPose",
     }
 }
 
+// =============================================================================
+// 加载后的实体挂在 MatrixTransform 下（位姿配置设计.md §7，码 POSE-parented-matrix）。
+// =============================================================================
 SCENARIO("loaded entity is parented under a MatrixTransform",
          "[acceptance][config][pose][entity][POSE-parented-matrix]")
 {
@@ -427,6 +438,10 @@ SCENARIO("loaded entity is parented under a MatrixTransform",
 // Multi-entity runtime (acceptance)
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 多条实体都登记在 id 表里，并挂进场景（实体管理设计.md §10，码 ENT-02-preload）。
+// 未知 id 查不到。挂上的实例数等于目录条数。
+// =============================================================================
 SCENARIO("multiple entities: catalog entries are registered and hung on the scene",
          "[acceptance][config][pose][entities][id][ENT-02-preload]")
 {
@@ -461,6 +476,10 @@ SCENARIO("multiple entities: catalog entries are registered and hung on the scen
     }
 }
 
+// =============================================================================
+// 多条局部实体的矩阵与各自配置的位姿一致（位姿配置设计.md §7，码 POSE-multi-local-matrix）。
+// 矩阵是平移乘 Rz·Rx·Ry。
+// =============================================================================
 SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
          "[acceptance][config][pose][entities][local][transform][POSE-multi-local-matrix]")
 {
@@ -488,6 +507,10 @@ SCENARIO("multiple entities: local pose writes MatrixTransform matching config",
     }
 }
 
+// =============================================================================
+// 多条椭球实体的矩阵来自 LLA 的地心变换，不是局部那一半（位姿配置设计.md §7，码 POSE-multi-ellipsoid-ecef）。
+// 平移列对不上局部坐标 100。
+// =============================================================================
 SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF config",
          "[acceptance][config][pose][entities][ellipsoid][transform][POSE-multi-ellipsoid-ecef]")
 {
@@ -530,6 +553,9 @@ SCENARIO("multiple entities: ellipsoid pose writes MatrixTransform matching ECEF
 // Entity name / optional pose / single-entity map / sample-by-id
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 省略 name 时用模型文件名，写了 name 则保留（实体管理设计.md §10，码 CFG-entity-name-basename）。
+// =============================================================================
 SCENARIO("entity name defaults to model basename and explicit name is kept",
          "[acceptance][config][pose][entities][name][CFG-entity-name-basename]")
 {
@@ -552,6 +578,9 @@ SCENARIO("entity name defaults to model basename and explicit name is kept",
     }
 }
 
+// =============================================================================
+// 没有 pose 的实体仍有矩阵，采样位姿在原点（实体管理设计.md §10，码 ENT-02-pose-default）。
+// =============================================================================
 SCENARIO("entity without pose uses an origin MatrixTransform",
          "[acceptance][config][pose][entities][default-place][ENT-02-pose-default]")
 {
@@ -578,6 +607,10 @@ SCENARIO("entity without pose uses an origin MatrixTransform",
     }
 }
 
+// =============================================================================
+// 目录里只有一条实体时，仍按 id 登记，矩阵与局部 pose 一致（实体管理设计.md §10，码 ENT-02-preload）。
+// 与多实体那条共用预加载码。
+// =============================================================================
 SCENARIO("single entities entry still registers in the id map",
          "[acceptance][config][pose][entities][id][ENT-02-preload]")
 {
@@ -601,6 +634,9 @@ SCENARIO("single entities entry still registers in the id map",
     }
 }
 
+// =============================================================================
+// 按 id 采样的局部位姿与矩阵、配置三者一致（位姿配置设计.md §7，码 POSE-sampled-local-matrix）。
+// =============================================================================
 SCENARIO("sampled entity pose matches MatrixTransform for local pose",
          "[acceptance][config][pose][entities][local][sample][POSE-sampled-local-matrix]")
 {
@@ -627,6 +663,10 @@ SCENARIO("sampled entity pose matches MatrixTransform for local pose",
     }
 }
 
+// =============================================================================
+// 两条实体可以同名，查找只认 id（实体管理设计.md §10，码 CFG-dup-names-id-lookup）。
+// 两个名字都是 twin。未知 id 查不到。
+// =============================================================================
 SCENARIO("duplicate entity names are allowed; lookup is by id only",
          "[acceptance][config][pose][entities][name][id][CFG-dup-names-id-lookup]")
 {
@@ -657,6 +697,10 @@ SCENARIO("duplicate entity names are allowed; lookup is by id only",
 // 启动装配（实体管理设计.md §8 / §10 ②；验收码 ENT-02-*）
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 启动时 Standby 实体在表里，但是不可见（实体管理设计.md §10，码 ENT-02-visibility）。
+// 没有 Host。
+// =============================================================================
 SCENARIO("Standby entity is hidden at startup without a Host",
          "[acceptance][config][entities][visibility][ENT-02-visibility]")
 {
@@ -677,6 +721,10 @@ SCENARIO("Standby entity is hidden at startup without a Host",
     }
 }
 
+// =============================================================================
+// 省略初始状态时，启动后实体可见（实体管理设计.md §10，码 ENT-02-visibility）。
+// 缺省是 Active。没有 Host。
+// =============================================================================
 SCENARIO("Active entity is visible at startup without a Host",
          "[acceptance][config][entities][visibility][ENT-02-visibility]")
 {
@@ -697,6 +745,9 @@ SCENARIO("Active entity is visible at startup without a Host",
     }
 }
 
+// =============================================================================
+// 同一模型的两条实体共用几何节点，变换节点各自一份（实体管理设计.md §10，码 ENT-02-shared-geom）。
+// =============================================================================
 SCENARIO("two entities with the same model share one geometry node",
          "[acceptance][config][entities][shared-geometry][ENT-02-shared-geom]")
 {
@@ -726,6 +777,10 @@ SCENARIO("two entities with the same model share one geometry node",
     }
 }
 
+// =============================================================================
+// 隐藏的 Standby 兄弟不进入场景包围盒（实体管理设计.md §10，码 ENT-02-aabb-hidden）。
+// 可见实体在原点，隐藏实体在 +X 远处。包围盒中心的 x 小于 20。
+// =============================================================================
 SCENARIO("hidden Standby sibling is excluded from the scene AABB",
          "[acceptance][config][entities][aabb][ENT-02-aabb-hidden]")
 {
@@ -751,6 +806,10 @@ SCENARIO("hidden Standby sibling is excluded from the scene AABB",
     }
 }
 
+// =============================================================================
+// 一条模型加载失败时，init 仍成功，该 id 不进目录（实体管理设计.md §10，码 ENT-02-load-skip）。
+// 有效的那条仍在，目录大小为 1。
+// =============================================================================
 SCENARIO("init continues when one entity model fails to load",
          "[acceptance][config][entities][negative][ENT-02-load-skip]")
 {
@@ -777,6 +836,10 @@ SCENARIO("init continues when one entity model fails to load",
     }
 }
 
+// =============================================================================
+// 实体全是 Standby 时，局部相机用空包围盒回退（实体管理设计.md §10，码 ENT-02-aabb-hidden）。
+// 眼点在 (0,0,10)，注视原点。与隐藏兄弟那条共用码。
+// =============================================================================
 SCENARIO("all Standby entities use the local camera fallback",
          "[acceptance][config][entities][aabb][camera][ENT-02-aabb-hidden]")
 {
@@ -806,6 +869,10 @@ SCENARIO("all Standby entities use the local camera fallback",
 // 测试直接调公开 onEntityCtrl / onEntityPose（与既有位姿注入同层），不改 ENT-02。
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// EntityCtrl Active 让隐藏的 Standby 实体显示（实体管理设计.md §10，码 ENT-03-active）。
+// 直接投递，不走网络。没有位置包也能显示。
+// =============================================================================
 SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
          "[acceptance][entities][entity-ctrl][ENT-03-active]")
 {
@@ -829,6 +896,10 @@ SCENARIO("Host EntityCtrl Active shows a hidden Standby entity",
     }
 }
 
+// =============================================================================
+// EntityCtrl Standby 隐藏实体，实例仍留在目录里（实体管理设计.md §10，码 ENT-03-standby）。
+// 几何节点还是原来的那个。目录大小不变。
+// =============================================================================
 SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance",
          "[acceptance][entities][entity-ctrl][ENT-03-standby]")
 {
@@ -855,6 +926,10 @@ SCENARIO("Host EntityCtrl Standby hides a visible entity and keeps the instance"
     }
 }
 
+// =============================================================================
+// EntityCtrl Destroyed 先隐藏，随后 Active 可以再显示（实体管理设计.md §10，码 ENT-03-destroyed）。
+// 隐藏期间实例还在。
+// =============================================================================
 SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again",
          "[acceptance][entities][entity-ctrl][ENT-03-destroyed]")
 {
@@ -890,6 +965,9 @@ SCENARIO("Host EntityCtrl Destroyed hides like Standby and Active can show again
     }
 }
 
+// =============================================================================
+// EntityCtrl Remove 与 Destroyed 一样只隐藏，不删实例（实体管理设计.md §10，码 ENT-03-destroyed）。
+// =============================================================================
 SCENARIO("Host EntityCtrl Remove hides like Destroyed",
          "[acceptance][entities][entity-ctrl][ENT-03-destroyed]")
 {
@@ -914,6 +992,10 @@ SCENARIO("Host EntityCtrl Remove hides like Destroyed",
     }
 }
 
+// =============================================================================
+// 对已经可见的实体再发 Active，不增加实例（实体管理设计.md §10，码 ENT-03-active-idempotent）。
+// 几何节点不变，目录大小仍是 1。
+// =============================================================================
 SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
          "[acceptance][entities][entity-ctrl][ENT-03-active-idempotent]")
 {
@@ -940,6 +1022,9 @@ SCENARIO("repeating EntityCtrl Active keeps a single visible instance",
     }
 }
 
+// =============================================================================
+// 目录里没有的 id，EntityCtrl 不创建实例，已有实体不变（实体管理设计.md §10，码 ENT-03-unmapped）。
+// =============================================================================
 SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
          "[acceptance][entities][entity-ctrl][negative][ENT-03-unmapped]")
 {
@@ -965,6 +1050,10 @@ SCENARIO("EntityCtrl for an id outside the catalog changes nothing",
     }
 }
 
+// =============================================================================
+// 加载时被跳过的 id，再发 EntityCtrl 仍然不出现（实体管理设计.md §10，码 ENT-03-failed-id）。
+// 有效实体保持可见，目录大小仍是 1。
+// =============================================================================
 SCENARIO("EntityCtrl for a skipped load id has no effect",
          "[acceptance][entities][entity-ctrl][negative][ENT-03-failed-id]")
 {
@@ -994,6 +1083,10 @@ SCENARIO("EntityCtrl for a skipped load id has no effect",
     }
 }
 
+// =============================================================================
+// Standby 实体被 Active 点亮后，仍停在配置位姿（实体管理设计.md §10，码 ENT-03-standby-pose）。
+// 这次没有位置包。
+// =============================================================================
 SCENARIO("activating a Standby entity keeps the configured pose",
          "[acceptance][entities][entity-ctrl][ENT-03-standby-pose]")
 {
@@ -1023,6 +1116,10 @@ SCENARIO("activating a Standby entity keeps the configured pose",
     }
 }
 
+// =============================================================================
+// 藏起再显示不会把位姿恢复成配置值（实体管理设计.md §10，码 ENT-03-pose-keep）。
+// 先摆到新的 LLA，再隐藏、再显示，采样仍是摆放后的值。
+// =============================================================================
 SCENARIO("hiding and showing does not restore the configured pose",
          "[acceptance][entities][entity-ctrl][ENT-03-pose-keep]")
 {
@@ -1057,6 +1154,10 @@ SCENARIO("hiding and showing does not restore the configured pose",
     }
 }
 
+// =============================================================================
+// 藏起再显示复用原来的几何节点（实体管理设计.md §10，码 ENT-03-no-reload）。
+// 目录大小不变。
+// =============================================================================
 SCENARIO("hiding and showing reuses the prebuilt geometry",
          "[acceptance][entities][entity-ctrl][ENT-03-no-reload]")
 {
@@ -1083,6 +1184,10 @@ SCENARIO("hiding and showing reuses the prebuilt geometry",
     }
 }
 
+// =============================================================================
+// EntityPositionCtrl 把已激活实体摆到下发的 LLA（实体管理设计.md §10，码 ENT-03-place）。
+// 先 Active 再摆放。场景是椭球。
+// =============================================================================
 SCENARIO("Host EntityPositionCtrl places an Active entity",
          "[acceptance][entities][entity-ctrl][ENT-03-place]")
 {
@@ -1115,6 +1220,10 @@ SCENARIO("Host EntityPositionCtrl places an Active entity",
     }
 }
 
+// =============================================================================
+// 实体已经 Active 时，EntityCtrl 的 Alpha 生效且保持可见（实体管理设计.md §10，码 ENT-03-attrs）。
+// 透明度从 255 变成 128。
+// =============================================================================
 SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
          "[acceptance][entities][entity-ctrl][ENT-03-attrs]")
 {
@@ -1143,6 +1252,9 @@ SCENARIO("EntityCtrl Alpha applies while the entity is already Active",
 // Camera runtime (acceptance)
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 局部相机 pose 写进 LookAt（位姿配置设计.md §7，码 CAM-local-config-lookat）。
+// =============================================================================
 SCENARIO("local camera pose from config matches LookAt",
          "[acceptance][config][pose][local][camera][CAM-local-config-lookat]")
 {
@@ -1169,6 +1281,10 @@ SCENARIO("local camera pose from config matches LookAt",
     }
 }
 
+// =============================================================================
+// 椭球相机用椭球那一半 pose，不用局部那一半（位姿配置设计.md §7，码 CAM-ellipsoid-config-lookat）。
+// 两半故意不同。投影是 EllipsoidPerspective。
+// =============================================================================
 SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
          "[acceptance][config][pose][ellipsoid][camera][CAM-ellipsoid-config-lookat]")
 {
@@ -1202,6 +1318,10 @@ SCENARIO("ellipsoid camera pose matches EllipsoidPose not LocalPose",
 // Default camera from scene AABB when camera.pose is omitted (位姿配置设计.md §4)
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 没有 camera 配置时，局部默认 LookAt 框住实体包围盒（位姿配置设计.md §7，码 CAM-local-default-aabb）。
+// 配置里没有 camera 键。
+// =============================================================================
 SCENARIO("no camera config: Local default LookAt frames entities AABB",
          "[acceptance][config][pose][local][camera][aabb-default][CAM-local-default-aabb]")
 {
@@ -1225,6 +1345,10 @@ SCENARIO("no camera config: Local default LookAt frames entities AABB",
     }
 }
 
+// =============================================================================
+// 没有 camera 配置时，椭球默认 LookAt 按包围盒取景（位姿配置设计.md §7，码 CAM-ellipsoid-default-aabb）。
+// 模型摆在远离北京的位置，避免回退点偶然通过。
+// =============================================================================
 SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
          "[acceptance][config][pose][ellipsoid][camera][aabb-default][CAM-ellipsoid-default-aabb]")
 {
@@ -1255,6 +1379,10 @@ SCENARIO("no camera config: Ellipsoid default LookAt frames entities AABB",
 // System: scene configs via inline snapshot (kSceneLocalJson / kSceneEcefJson)
 // -----------------------------------------------------------------------------
 
+// =============================================================================
+// 一份局部场景配置能加载出一条实体和一台相机（位姿配置设计.md §7，码 CFG-load-scene-local）。
+// 内嵌快照。没有椭球。实体矩阵和 LookAt 都对上配置。
+// =============================================================================
 SCENARIO("system loads scene_local config with one local entity and camera",
          "[system][config][pose][local][resource][CFG-load-scene-local]")
 {
@@ -1296,6 +1424,10 @@ SCENARIO("system loads scene_local config with one local entity and camera",
     }
 }
 
+// =============================================================================
+// 一份地心场景配置能加载出天安门处的实体和南侧相机（位姿配置设计.md §7，码 CFG-load-scene-ecef）。
+// 有椭球。相机投影是 EllipsoidPerspective。
+// =============================================================================
 SCENARIO("system loads scene_ecef config with one ECEF entity and camera",
          "[system][config][pose][ellipsoid][resource][CFG-load-scene-ecef]")
 {

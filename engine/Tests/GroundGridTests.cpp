@@ -54,6 +54,10 @@ namespace
     }
 } // namespace
 
+// =============================================================================
+// 网格线数等于跨度除以格距再加一（多通道同步验收测量设计.md §7，码 MEAS-seam-grid）。
+// 纯函数，不创建场景。
+// =============================================================================
 TEST_CASE("groundGrid line count is cells-across plus one",
           "[unit][sync][meas][MEAS-seam-grid]")
 {
@@ -61,6 +65,10 @@ TEST_CASE("groundGrid line count is cells-across plus one",
     REQUIRE(groundGridLineCount(1000.0, 100.0) == 21);
 }
 
+// =============================================================================
+// 配置了地面网格但场景没有椭球时，init 失败（多通道同步验收测量设计.md §7，码 MEAS-seam-grid）。
+// 不验网格几何。
+// =============================================================================
 TEST_CASE("groundGrid without EllipsoidModel fails init",
           "[unit][sync][meas][MEAS-seam-grid]")
 {
@@ -106,6 +114,10 @@ SCENARIO("configured groundGrid is pinned to ECEF at the origin LLA",
     }
 }
 
+// =============================================================================
+// 随仓接缝网格场景 init 之后，场景里有椭球和钉住的地面网格（多通道同步验收测量设计.md §7，码 MEAS-seam-grid）。
+// 钉点公式在同码的另一条。这里只确认这份场景能起来，并且网格节点在场景图里。
+// =============================================================================
 SCENARIO("scene_seam_grid.json loads a pinned ground grid",
          "[system][config][meas][resource][MEAS-seam-grid]")
 {

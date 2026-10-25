@@ -1289,6 +1289,11 @@ SCENARIO("HostSync addCallback delivers an IG→Host packet to the sink",
 // LatOrXoff/LonOrYoff/AltOrZoff 是同一组 union 成员，要发 LLA 就必须置 Detach（否则被
 // 解释为相对父实体的 XYZ 偏移），并非用 AttachState 做业务层坐标系选择。本用例仅钉住
 // 「Detach+LLA 正确走到 ELLIPSOID 语义位姿」这条既有路径，防止回归。
+
+// =============================================================================
+// 椭球场景里，Host 经 TCP 摆放实体后，IG 读到的是 LLA（状态同步设计.md §10，码 CMD-place-lla-tcp）。
+// 实体 7，Detach。核对纬度、经度、高度和偏航。
+// =============================================================================
 SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LLA",
          "[acceptance][sync][cmd][e2e][entity-pose][ellipsoid][CMD-place-lla-tcp]")
 {
@@ -1355,6 +1360,10 @@ SCENARIO("Host places an entity pose over TCP in Ellipsoid scene and IG reads LL
 // 验收码 ENT-03-* 见 实体管理设计.md §10。
 // =============================================================================
 
+// =============================================================================
+// 真链路下，Standby 实体收到 EntityCtrl Active 后变为可见（实体管理设计.md §10，码 ENT-03-active）。
+// 与只验回调送达的用例分开。这里核对预建实体的可见性。
+// =============================================================================
 SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",
          "[acceptance][sync][cmd][e2e][ENT-03-active]")
 {
@@ -1388,6 +1397,10 @@ SCENARIO("linked IG shows a Standby entity after Host EntityCtrl Active",
     }
 }
 
+// =============================================================================
+// 真链路下，Active 实体收到 Standby 后隐藏，登记还在（实体管理设计.md §10，码 ENT-03-standby）。
+// 目录大小仍是 1。
+// =============================================================================
 SCENARIO("linked IG hides an Active entity after Host EntityCtrl Standby",
          "[acceptance][sync][cmd][e2e][ENT-03-standby]")
 {
@@ -1422,6 +1435,10 @@ SCENARIO("linked IG hides an Active entity after Host EntityCtrl Standby",
     }
 }
 
+// =============================================================================
+// 真链路下，实体保持 Active 时 Alpha 变为 128（实体管理设计.md §10，码 ENT-03-attrs）。
+// 可见性不变。
+// =============================================================================
 SCENARIO("linked IG applies EntityCtrl Alpha while the entity stays Active",
          "[acceptance][sync][cmd][e2e][ENT-03-attrs]")
 {

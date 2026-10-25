@@ -7,6 +7,10 @@
 // 验收：Engine 加载 / 渲染对外行为
 // =============================================================================
 
+// =============================================================================
+// 有效茶壶模型 init 成功，并且能渲染一帧（引擎加载与渲染.md §2，码 RND-load-frame）。
+// 离屏。不比对像素。
+// =============================================================================
 SCENARIO("Engine loads a valid model and renders one frame", "[acceptance][render][load][RND-load-frame]")
 {
     GIVEN("an offscreen Engine and a valid teapot model")
@@ -31,6 +35,9 @@ SCENARIO("Engine loads a valid model and renders one frame", "[acceptance][rende
     }
 }
 
+// =============================================================================
+// 模型路径不存在时，离屏引擎 init 失败（引擎加载与渲染.md §2，码 RND-load-missing）。
+// =============================================================================
 SCENARIO("Engine fails to initialize when the model path does not exist",
          "[acceptance][render][load][failure][RND-load-missing]")
 {
@@ -54,6 +61,10 @@ SCENARIO("Engine fails to initialize when the model path does not exist",
     }
 }
 
+// =============================================================================
+// 默认识图渲染一帧后，截图与黄金图的差异在容差内（引擎加载与渲染.md §2，码 RND-golden-teapot）。
+// 尺寸必须一致。差异比例、最大绝对差和 PSNR 用 CHECK：小于 0.1、小于 32、大于 40。
+// =============================================================================
 SCENARIO("default teapot view matches the golden reference image",
          "[acceptance][render][golden][RND-golden-teapot]")
 {
