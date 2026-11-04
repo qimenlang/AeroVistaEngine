@@ -1,0 +1,18 @@
+{
+    "translations":{
+        "bufferType":"vec3",
+        "data":[]
+    },
+    "rotations":{
+        "bufferType":"quat",
+        "data":[]
+    },
+    "scales":{
+        "bufferType":"vec3",
+        "data":[]
+    },
+    "colors":{
+        "bufferType":"vec3",
+        "data":[]
+    }
+}

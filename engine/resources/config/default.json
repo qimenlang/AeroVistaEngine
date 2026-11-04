@@ -1,5 +1,5 @@
-{
-  "model": "models/lz.vsgt",
+﻿{
+  "model": "models\\trees\\SM_BlackAlder_Field_01\\SM_BlackAlder_Field_01.gltf",
   "viewDefinition": {
     "vfov": 30.0,
     "near": 1.0,

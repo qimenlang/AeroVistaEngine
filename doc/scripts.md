@@ -9,3 +9,4 @@
 | `lizard_engine.py` | lizard 圈复杂度（CCN）检查，阈值 15 | pre-commit / CI |
 | `ci_changed_complexity.py` | CI 辅助：对 vs git base 变更的文件跑 clang-tidy + lizard | CI |
 | `doc_sync_check.py` | 文档同步核查（列设计文档 / 检索残留 / 校验索引） | `/doc-sync` skill 调用 |
+| `run_tests.sh` | 依次运行 config / sync / engine 三个测试 exe，输出同时写入 `test_out.txt` | 本地手工跑测试（git-bash） |

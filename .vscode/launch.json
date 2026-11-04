@@ -5,13 +5,37 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "vsgEngine",
+            "name": "vsgEngine local",
             "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/vsgEngine.exe",
             "args": [
                 "-c",
                 "${workspaceFolder}/engine/resources/config/scene_local.json"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "vsgEngine ecef",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/vsgEngine.exe",
+            "args": [
+                "-c",
+                "${workspaceFolder}/engine/resources/config/scene_ecef.json"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "vsgEngine scene_seam_grid",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/out/build/clang-Ninja-Debug/engine/vsgEngine.exe",
+            "args": [
+                "-c",
+                "${workspaceFolder}/engine/resources/config/scene_seam_grid.json"
             ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
