@@ -1,10 +1,11 @@
-﻿#include "engine.h"
+#include "engine.h"
 
 #include "InitialCameraConfig.h"
 #include "function/driver/CameraDriver.h"
 #include "function/handler/FrameStatsHandler.h"
 #include "function/handler/PacketProbeHandler.h"
 #include "function/scene/GroundGrid.h"
+#include "function/scene/InstanceAttach.h"
 
 #include <aerovista/sync/IgSync.h>
 #include <vsgXchange/all.h>
@@ -725,7 +726,7 @@ bool Engine::setCameraPoseLla(const vsg::dvec3& lla, const vsg::dvec3& eulerYprD
 
 bool Engine::init()
 {
-    // 顺序（实体管理设计.md §8）：applyConfig → reset → 场景构建 → 接缝网格 → initSync → Graphics。
+    // 顺序（实体管理设计.md §8）：applyConfig → reset → 场景构建 → 植被实例 → 接缝网格 → initSync → Graphics。
     // 场景先于 sync，保证收 EntityCtrl 时 _entityMap 已建；Graphics 依赖 _scene，放最后。
     resetGraphicsResources();
 
@@ -743,6 +744,8 @@ bool Engine::init()
 
     if (!initSceneFromConfig(entities))
         return false;
+
+    attachInstanceModel(*_mainScene, ellipsoidModel(), _options);
 
     if (!attachConfiguredGroundGrid())
         return false;
@@ -1023,7 +1026,7 @@ vsg::ref_ptr<vsg::CommandGraph> Engine::buildCommandGraph(
         windowView->addChild(_mainScene);
 
         auto windowRenderGraph = vsg::RenderGraph::create(_window, windowView);
-        windowRenderGraph->setClearValues({{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
+        windowRenderGraph->setClearValues({{0.5f, 0.5f, 0.5f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
 
         auto hud = createFrameStatsHud(_currentExtent, _options);
         if (hud.text && hud.visibility && hud.camera)

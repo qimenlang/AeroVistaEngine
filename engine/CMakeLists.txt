@@ -1,4 +1,4 @@
-﻿set(TARGET_NAME vsgEngine)
+set(TARGET_NAME vsgEngine)
 
 set(RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
@@ -26,6 +26,7 @@ add_library(vsgEngineLib STATIC
     source/function/handler/PacketProbeHandler.cpp
     source/function/scene/ShaderCube.cpp
     source/function/scene/GroundGrid.cpp
+    source/function/scene/InstanceAttach.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)

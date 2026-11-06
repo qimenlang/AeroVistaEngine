@@ -1,4 +1,4 @@
-{
+﻿{
   "injectEllipsoidIfMissing": true,
   "entitiesFilePath": "config/entities_scene_ecef.json",
   "camera": {
