@@ -1,0 +1,225 @@
+{
+	"asset":
+	{
+		"version": "2.0",
+		"generator": "Unreal Engine 5.8.4"
+	},
+	"scene": 0,
+	"accessors": [
+		{
+			"bufferView": 0,
+			"count": 24,
+			"type": "SCALAR",
+			"componentType": 5121
+		},
+		{
+			"bufferView": 1,
+			"count": 9,
+			"type": "VEC3",
+			"componentType": 5126,
+			"min": [
+				-0.702124894,
+				9.95982265,
+				-0.886847913
+			],
+			"max": [
+				0.173654824,
+				9.95982265,
+				1.11493444
+			]
+		},
+		{
+			"bufferView": 2,
+			"count": 9,
+			"type": "VEC3",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 3,
+			"count": 9,
+			"type": "VEC4",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 4,
+			"count": 9,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 5,
+			"count": 9,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 6,
+			"count": 9,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 7,
+			"count": 9,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 8,
+			"count": 9,
+			"type": "VEC2",
+			"componentType": 5126
+		}
+	],
+	"buffers": [
+		{
+			"uri": "SM_BlackAlder_Forest_02_PP_LOD6.bin",
+			"byteLength": 744
+		}
+	],
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 24,
+			"target": 34963
+		},
+		{
+			"buffer": 0,
+			"byteLength": 108,
+			"byteOffset": 24,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 108,
+			"byteOffset": 132,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 144,
+			"byteOffset": 240,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 72,
+			"byteOffset": 384,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 72,
+			"byteOffset": 456,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 72,
+			"byteOffset": 528,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 72,
+			"byteOffset": 600,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 72,
+			"byteOffset": 672,
+			"target": 34962
+		}
+	],
+	"images": [
+		{
+			"uri": "MI_Impostor_Forest_02_BaseColor.png"
+		},
+		{
+			"uri": "MI_Impostor_Forest_02_Normal.png"
+		}
+	],
+	"materials": [
+		{
+			"name": "MI_Impostor_Forest_02",
+			"pbrMetallicRoughness":
+			{
+				"baseColorTexture":
+				{
+					"index": 0
+				},
+				"metallicFactor": 0,
+				"roughnessFactor": 0.600000024
+			},
+			"normalTexture":
+			{
+				"index": 1
+			},
+			"alphaMode": "MASK",
+			"doubleSided": true,
+			"extensions":
+			{
+				"KHR_materials_specular":
+				{
+					"specularFactor": 0.0980392247
+				}
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "SM_BlackAlder_Forest_02_PP",
+			"primitives": [
+				{
+					"attributes":
+					{
+						"POSITION": 1,
+						"NORMAL": 2,
+						"TANGENT": 3,
+						"TEXCOORD_0": 4,
+						"TEXCOORD_1": 5,
+						"TEXCOORD_2": 6,
+						"TEXCOORD_3": 7,
+						"TEXCOORD_4": 8
+					},
+					"indices": 0,
+					"material": 0
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"mesh": 0
+		}
+	],
+	"samplers": [
+		{
+			"minFilter": 9987,
+			"magFilter": 9729
+		}
+	],
+	"scenes": [
+		{
+			"nodes": [
+				0
+			]
+		}
+	],
+	"textures": [
+		{
+			"name": "MI_Impostor_Forest_02_BaseColor",
+			"sampler": 0,
+			"source": 0
+		},
+		{
+			"name": "MI_Impostor_Forest_02_Normal",
+			"sampler": 0,
+			"source": 1
+		}
+	],
+	"extensionsUsed": [
+		"KHR_materials_specular"
+	]
+}

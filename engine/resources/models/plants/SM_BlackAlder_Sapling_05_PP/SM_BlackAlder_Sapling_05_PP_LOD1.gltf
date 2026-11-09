@@ -1,0 +1,309 @@
+{
+	"asset":
+	{
+		"version": "2.0",
+		"generator": "Unreal Engine 5.8.4"
+	},
+	"scene": 0,
+	"accessors": [
+		{
+			"bufferView": 0,
+			"count": 53334,
+			"type": "SCALAR",
+			"componentType": 5123
+		},
+		{
+			"bufferView": 1,
+			"count": 15502,
+			"type": "VEC3",
+			"componentType": 5126,
+			"min": [
+				-0.742192268,
+				-0.00145895267,
+				-0.787454963
+			],
+			"max": [
+				0.613192797,
+				1.02523601,
+				0.810594261
+			]
+		},
+		{
+			"bufferView": 2,
+			"count": 15502,
+			"type": "VEC3",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 3,
+			"count": 15502,
+			"type": "VEC4",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 4,
+			"count": 15502,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 5,
+			"count": 15502,
+			"type": "VEC2",
+			"componentType": 5126
+		},
+		{
+			"bufferView": 6,
+			"count": 15502,
+			"type": "VEC2",
+			"componentType": 5126
+		}
+	],
+	"buffers": [
+		{
+			"uri": "SM_BlackAlder_Sapling_05_PP_LOD1.bin",
+			"byteLength": 1098796
+		}
+	],
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 106668,
+			"target": 34963
+		},
+		{
+			"buffer": 0,
+			"byteLength": 186024,
+			"byteOffset": 106668,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 186024,
+			"byteOffset": 292692,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 248032,
+			"byteOffset": 478716,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 124016,
+			"byteOffset": 726748,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 124016,
+			"byteOffset": 850764,
+			"target": 34962
+		},
+		{
+			"buffer": 0,
+			"byteLength": 124016,
+			"byteOffset": 974780,
+			"target": 34962
+		}
+	],
+	"images": [
+		{
+			"uri": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_BaseColor.png"
+		},
+		{
+			"uri": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_MetallicRoughness.png"
+		},
+		{
+			"uri": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_Normal.png"
+		},
+		{
+			"uri": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_Occlusion.png"
+		},
+		{
+			"uri": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_Specular.png"
+		}
+	],
+	"materials": [
+		{
+			"name": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP",
+			"pbrMetallicRoughness":
+			{
+				"baseColorTexture":
+				{
+					"index": 0,
+					"texCoord": 2,
+					"extensions":
+					{
+						"KHR_texture_transform":
+						{
+							"offset": [
+								-0.00817409251,
+								-0.00819843821
+							],
+							"scale": [
+								1.01361835,
+								1.01663733
+							]
+						}
+					}
+				},
+				"metallicRoughnessTexture":
+				{
+					"index": 1,
+					"texCoord": 2,
+					"extensions":
+					{
+						"KHR_texture_transform":
+						{
+							"offset": [
+								-0.00817409251,
+								-0.00819843821
+							],
+							"scale": [
+								1.01361835,
+								1.01663733
+							]
+						}
+					}
+				}
+			},
+			"normalTexture":
+			{
+				"index": 2,
+				"texCoord": 2,
+				"extensions":
+				{
+					"KHR_texture_transform":
+					{
+						"offset": [
+							-0.00817409251,
+							-0.00819843821
+						],
+						"scale": [
+							1.01361835,
+							1.01663733
+						]
+					}
+				}
+			},
+			"occlusionTexture":
+			{
+				"index": 3,
+				"texCoord": 2,
+				"extensions":
+				{
+					"KHR_texture_transform":
+					{
+						"offset": [
+							-0.00817409251,
+							-0.00819843821
+						],
+						"scale": [
+							1.01361835,
+							1.01663733
+						]
+					}
+				}
+			},
+			"alphaMode": "MASK",
+			"alphaCutoff": 0.333299994,
+			"doubleSided": true,
+			"extensions":
+			{
+				"KHR_materials_specular":
+				{
+					"specularTexture":
+					{
+						"index": 4,
+						"texCoord": 2,
+						"extensions":
+						{
+							"KHR_texture_transform":
+							{
+								"offset": [
+									-0.00817409251,
+									-0.00819843821
+								],
+								"scale": [
+									1.01361835,
+									1.01663733
+								]
+							}
+						}
+					}
+				}
+			}
+		}
+	],
+	"meshes": [
+		{
+			"name": "SM_BlackAlder_Sapling_05_PP",
+			"primitives": [
+				{
+					"attributes":
+					{
+						"POSITION": 1,
+						"NORMAL": 2,
+						"TANGENT": 3,
+						"TEXCOORD_0": 4,
+						"TEXCOORD_1": 5,
+						"TEXCOORD_2": 6
+					},
+					"indices": 0,
+					"material": 0
+				}
+			]
+		}
+	],
+	"nodes": [
+		{
+			"mesh": 0
+		}
+	],
+	"samplers": [
+		{
+			"minFilter": 9987,
+			"magFilter": 9729
+		}
+	],
+	"scenes": [
+		{
+			"nodes": [
+				0
+			]
+		}
+	],
+	"textures": [
+		{
+			"name": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_BaseColor",
+			"sampler": 0,
+			"source": 0
+		},
+		{
+			"name": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_MetallicRoughness",
+			"sampler": 0,
+			"source": 1
+		},
+		{
+			"name": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_Normal",
+			"sampler": 0,
+			"source": 2
+		},
+		{
+			"name": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_Occlusion",
+			"sampler": 0,
+			"source": 3
+		},
+		{
+			"name": "MI_BlackAlder_Sapling_05_SM_BlackAlder_Sapling_05_PP_Specular",
+			"sampler": 0,
+			"source": 4
+		}
+	],
+	"extensionsUsed": [
+		"KHR_texture_transform",
+		"KHR_materials_specular"
+	]
+}

@@ -4,10 +4,10 @@
 
 namespace
 {
-    constexpr const char* modelPath = "models/trees/SM_BlackAlder_Field_01/SM_BlackAlder_Field_01.gltf";
+    constexpr const char* modelPath = "models/plants/SM_BlackAlder_Field_01_PP/SM_BlackAlder_Field_01_PP_LOD5.gltf";
     //constexpr const char* modelPath = "models/trees/SM_BlackAlder_Seedling_01/SM_BlackAlder_Seedling_01.gltf";
 
-    constexpr int instancesPerSide = 8;
+    constexpr int instancesPerSide = 100;
     constexpr float instanceSpacing = 10.0f;
     const vsg::dvec3 instanceLla{39.9087, 116.3975, 0.0};
 
