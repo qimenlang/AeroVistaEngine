@@ -8,8 +8,28 @@ namespace
     //constexpr const char* modelPath = "models/trees/SM_BlackAlder_Seedling_01/SM_BlackAlder_Seedling_01.gltf";
 
     constexpr int instancesPerSide = 100;
+    constexpr int tileSide = 10;
+    constexpr int tilesPerSide = instancesPerSide / tileSide;
     constexpr float instanceSpacing = 10.0f;
     const vsg::dvec3 instanceLla{39.9087, 116.3975, 0.0};
+
+    static_assert(tilesPerSide * tilesPerSide == 100);
+    static_assert(tileSide * tileSide * tilesPerSide * tilesPerSide == instancesPerSide * instancesPerSide);
+
+    enum class InstanceAttachMode
+    {
+        SINGLE,
+        SPLIT,
+        SPLIT_WITH_CULL
+    };
+
+    // 改这一行切换三种挂法，用来对比帧率。
+    constexpr InstanceAttachMode attachMode = InstanceAttachMode::SINGLE;
+
+    constexpr int instancesPerTile()
+    {
+        return tileSide * tileSide;
+    }
 
     constexpr int instanceCount()
     {
@@ -23,28 +43,84 @@ namespace
         return ellipsoid->computeLocalToWorldTransform(instanceLla);
     }
 
-    vsg::ref_ptr<vsg::vec3Array> instanceTranslations()
+    vsg::vec3 instanceTranslation(int column, int row)
     {
-        const int count = instanceCount();
         const float center = (instancesPerSide - 1) * 0.5f;
-        auto translations = vsg::vec3Array::create(count, vsg::vec3{});
-        for (int k = 0; k < count; ++k)
+        const float east = (static_cast<float>(column) - center) * instanceSpacing;
+        const float north = (static_cast<float>(row) - center) * instanceSpacing;
+        return {east, north, 0.0f};
+    }
+
+    vsg::ref_ptr<vsg::vec3Array> allTranslations()
+    {
+        auto translations = vsg::vec3Array::create(instanceCount(), vsg::vec3{});
+        for (int row = 0; row < instancesPerSide; ++row)
         {
-            const float east = static_cast<float>(k % instancesPerSide) - center;
-            const float north = static_cast<float>(k / instancesPerSide) - center;
-            translations->at(static_cast<std::size_t>(k)) = vsg::vec3{east * instanceSpacing, north * instanceSpacing, 0.0f};
+            for (int column = 0; column < instancesPerSide; ++column)
+            {
+                const auto index = static_cast<std::size_t>(row * instancesPerSide + column);
+                translations->at(index) = instanceTranslation(column, row);
+            }
         }
         return translations;
     }
 
-    vsg::ref_ptr<vsg::quatArray> instanceRotations()
+    vsg::ref_ptr<vsg::vec3Array> tileTranslations(int tileX, int tileY)
     {
-        return vsg::quatArray::create(instanceCount(), vsg::quat{0.0f, 0.0f, 0.0f, 1.0f});
+        auto translations = vsg::vec3Array::create(instancesPerTile(), vsg::vec3{});
+        std::size_t index = 0;
+        for (int localY = 0; localY < tileSide; ++localY)
+        {
+            for (int localX = 0; localX < tileSide; ++localX)
+            {
+                translations->at(index) = instanceTranslation(tileX * tileSide + localX, tileY * tileSide + localY);
+                ++index;
+            }
+        }
+        return translations;
     }
 
-    vsg::ref_ptr<vsg::vec3Array> instanceScales()
+    vsg::ref_ptr<vsg::InstanceNode> createInstanceNode(vsg::ref_ptr<vsg::vec3Array> translations,
+                                                       vsg::ref_ptr<vsg::Node> subgraph)
     {
-        return vsg::vec3Array::create(instanceCount(), vsg::vec3{1.0f, 1.0f, 1.0f});
+        const auto count = static_cast<std::uint32_t>(translations->valueCount());
+        auto instance = vsg::InstanceNode::create();
+        instance->setTranslations(translations);
+        instance->setRotations(vsg::quatArray::create(count, vsg::quat{0.0f, 0.0f, 0.0f, 1.0f}));
+        instance->setScales(vsg::vec3Array::create(count, vsg::vec3{1.0f, 1.0f, 1.0f}));
+        instance->firstInstance = 0;
+        instance->instanceCount = count;
+        instance->child = subgraph;
+        return instance;
+    }
+
+    vsg::ref_ptr<vsg::InstanceNode> createTile(int tileX, int tileY, vsg::ref_ptr<vsg::Node> subgraph)
+    {
+        return createInstanceNode(tileTranslations(tileX, tileY), subgraph);
+    }
+
+    vsg::dbox modelBounds(const vsg::ref_ptr<vsg::Node>& subgraph)
+    {
+        auto probe = createInstanceNode(vsg::vec3Array::create(1, vsg::vec3{}), subgraph);
+
+        vsg::ComputeBounds computeBounds;
+        probe->accept(computeBounds);
+        return computeBounds.bounds;
+    }
+
+    vsg::dsphere tileSphere(int tileX, int tileY, const vsg::dbox& model)
+    {
+        const vsg::vec3 originMin = instanceTranslation(tileX * tileSide, tileY * tileSide);
+        const vsg::vec3 originMax = instanceTranslation(tileX * tileSide + tileSide - 1, tileY * tileSide + tileSide - 1);
+        vsg::dvec3 minPoint{originMin.x, originMin.y, originMin.z};
+        vsg::dvec3 maxPoint{originMax.x, originMax.y, originMax.z};
+        if (model.valid())
+        {
+            minPoint += model.min;
+            maxPoint += model.max;
+        }
+        const vsg::dvec3 centre = (minPoint + maxPoint) * 0.5;
+        return {centre, vsg::length(maxPoint - minPoint) * 0.5};
     }
 
     class InstanceAnchor : public vsg::Inherit<vsg::MatrixTransform, InstanceAnchor>
@@ -60,7 +136,7 @@ namespace
             visitor.apply(static_cast<vsg::MatrixTransform&>(*this));
         }
 
-        // 在 ComputeBounds 里停住,包围盒不计算实例组
+        // 启动时的场景包围盒不纳入实例组，避免整片树林改掉初始相机。
         void accept(vsg::ConstVisitor& visitor) const override
         {
             if (dynamic_cast<const vsg::ComputeBounds*>(&visitor))
@@ -77,17 +153,56 @@ namespace
 
     void addInstanceGroup(vsg::Group& scene, const vsg::dmat4& matrix, vsg::ref_ptr<vsg::Node> subgraph)
     {
-        auto instance = vsg::InstanceNode::create();
-        instance->setTranslations(instanceTranslations());
-        instance->setRotations(instanceRotations());
-        instance->setScales(instanceScales());
-        instance->firstInstance = 0;
-        instance->instanceCount = static_cast<std::uint32_t>(instanceCount());
-        instance->child = subgraph;
+        auto anchor = InstanceAnchor::create(matrix);
+        anchor->addChild(createInstanceNode(allTranslations(), subgraph));
+        scene.addChild(anchor);
+    }
+
+    void addSplitInstanceGroup(vsg::Group& scene, const vsg::dmat4& matrix, vsg::ref_ptr<vsg::Node> subgraph)
+    {
+        auto anchor = InstanceAnchor::create(matrix);
+        for (int tileY = 0; tileY < tilesPerSide; ++tileY)
+        {
+            for (int tileX = 0; tileX < tilesPerSide; ++tileX)
+            {
+                anchor->addChild(createTile(tileX, tileY, subgraph));
+            }
+        }
+        scene.addChild(anchor);
+    }
+
+    void addSplitInstanceWithCullGroup(vsg::Group& scene, const vsg::dmat4& matrix, vsg::ref_ptr<vsg::Node> subgraph)
+    {
+        const vsg::dbox model = modelBounds(subgraph);
+        if (!model.valid())
+            std::cerr << "[WARN] instance model bounds unavailable, tile spheres use instance origins only" << std::endl;
 
         auto anchor = InstanceAnchor::create(matrix);
-        anchor->addChild(instance);
+        for (int tileY = 0; tileY < tilesPerSide; ++tileY)
+        {
+            for (int tileX = 0; tileX < tilesPerSide; ++tileX)
+            {
+                auto tile = createTile(tileX, tileY, subgraph);
+                anchor->addChild(vsg::CullNode::create(tileSphere(tileX, tileY, model), tile));
+            }
+        }
         scene.addChild(anchor);
+    }
+
+    void addInstances(vsg::Group& scene, const vsg::dmat4& matrix, vsg::ref_ptr<vsg::Node> subgraph)
+    {
+        switch (attachMode)
+        {
+        case InstanceAttachMode::SINGLE:
+            addInstanceGroup(scene, matrix, subgraph);
+            break;
+        case InstanceAttachMode::SPLIT:
+            addSplitInstanceGroup(scene, matrix, subgraph);
+            break;
+        case InstanceAttachMode::SPLIT_WITH_CULL:
+            addSplitInstanceWithCullGroup(scene, matrix, subgraph);
+            break;
+        }
     }
 } // namespace
 
@@ -106,5 +221,5 @@ void attachInstanceModel(vsg::Group& scene, vsg::ref_ptr<vsg::EllipsoidModel> el
         std::cerr << "[WARN] skip instance group, model load failed: " << modelPath << std::endl;
         return;
     }
-    addInstanceGroup(scene, anchorMatrix(ellipsoid.get()), loaded);
+    addInstances(scene, anchorMatrix(ellipsoid.get()), loaded);
 }
