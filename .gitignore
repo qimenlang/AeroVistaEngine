@@ -74,6 +74,7 @@ vcpkg_installed/
 # private
 private/
 doc/
+.vscode/
 
 # debug information files
 *.dwo
