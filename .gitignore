@@ -73,6 +73,7 @@ vcpkg_installed/
 
 # private
 private/
+doc/
 
 # debug information files
 *.dwo
