@@ -31,3 +31,6 @@
 [submodule "thirdparty/config"]
 	path = thirdparty/config
 	url = git@github.com:qimenlang/AeroVistaConfig.git
+[submodule "thirdparty/tracy"]
+	path = thirdparty/tracy
+	url = git@github.com:wolfpld/tracy.git
