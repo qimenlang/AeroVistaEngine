@@ -6,6 +6,7 @@
 #include "function/handler/PacketProbeHandler.h"
 #include "function/scene/GroundGrid.h"
 #include "function/scene/InstanceAttach.h"
+#include "function/scene/LodAttach.h"
 
 #include <aerovista/sync/IgSync.h>
 #include <vsgXchange/all.h>
@@ -746,6 +747,7 @@ bool Engine::init()
         return false;
 
     attachInstanceModel(*_mainScene, ellipsoidModel(), _options);
+    //attachLodModel(*_mainScene, ellipsoidModel(), _options);
 
     if (!attachConfiguredGroundGrid())
         return false;
