@@ -1,4 +1,4 @@
-﻿set(TARGET_NAME vsgEngineTests)
+set(TARGET_NAME vsgEngineTests)
 
 set(SOURCES
     ImageCompare.cpp
@@ -12,6 +12,7 @@ set(SOURCES
     GroundGridTests.cpp
     PlantSystemTests.cpp
     PlantLodScanTests.cpp
+    PlantLodChildrenTests.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})

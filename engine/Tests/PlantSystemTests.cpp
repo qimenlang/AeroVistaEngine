@@ -2,47 +2,11 @@
 
 #include "function/plants/PlantGroup.h"
 
-#include <vsg/nodes/InstanceNode.h>
-#include <vsg/nodes/LOD.h>
-
+#include <map>
 #include <vector>
 
 namespace
 {
-
-    vsg::ref_ptr<vsg::InstanceNode> soleInstance(vsg::ref_ptr<vsg::Node> child)
-    {
-        auto lod = child.cast<vsg::LOD>();
-        if (!lod || lod->children.size() != 1)
-            return {};
-        return lod->children.front().node.cast<vsg::InstanceNode>();
-    }
-
-    bool holdsPosition(const vsg::InstanceNode& instance, const vsg::vec3& position)
-    {
-        auto translations = instance.getTranslations();
-        if (!translations)
-            return false;
-        for (const auto& value : *translations)
-        {
-            if (value == position)
-                return true;
-        }
-        return false;
-    }
-
-    vsg::ref_ptr<vsg::InstanceNode> instanceHolding(vsg::ref_ptr<vsg::Group> group, const vsg::vec3& position)
-    {
-        if (!group)
-            return {};
-        for (auto& child : group->children)
-        {
-            auto instance = soleInstance(child);
-            if (instance && holdsPosition(*instance, position))
-                return instance;
-        }
-        return {};
-    }
 
     aerovista::PlantInstance standInPlant(int index)
     {
@@ -50,67 +14,118 @@ namespace
         const int row = index / 10;
         aerovista::PlantInstance plant;
         plant.type = 0;
-        plant.position = {static_cast<float>((column - 4.5) * 10.0), static_cast<float>((row - 4.5) * 10.0), 0.0f};
+        plant.transform.position = {static_cast<float>((column - 4.5) * 10.0), static_cast<float>((row - 4.5) * 10.0), 0.0f};
         return plant;
+    }
+
+    const std::vector<aerovista::PlantTransform>* posesAt(const std::map<aerovista::CellKey, std::vector<aerovista::PlantTransform>>& tiles,
+                                                          const aerovista::CellKey& key)
+    {
+        const auto found = tiles.find(key);
+        if (found == tiles.end())
+            return nullptr;
+        return &found->second;
     }
 
 } // namespace
 
 // =============================================================================
-// 同一物种在 256 米边界两侧分成不同的 LOD，边界内的两棵进同一个
+// 同一物种在 256 米边界两侧用不同的片号，边界内的两棵共用 {0, 0, 0}
 // （lod分层实例.md §2、§8，码 PLANT-cell-bin）。
-// origin 与 inside 划进同一片
+// 组内顺序与输入一致：先 origin，后 inside。后一棵的旋转和缩放原样留在该键上。
+// 不验收 map 的遍历顺序。
 // =============================================================================
-TEST_CASE("plants of one type share an LOD only inside the same 256 m square",
-          "[unit][plants][PLANT-cell-bin]")
+TEST_CASE("plants of one type share a tile only inside the same 256 m square", "[unit][plants][PLANT-cell-bin]")
 {
     const vsg::vec3 west{-0.1f, 0.0f, 0.0f};
     const vsg::vec3 origin{0.0f, 0.0f, 0.0f};
     const vsg::vec3 inside{255.9f, 0.0f, 0.0f};
     const vsg::vec3 next{256.0f, 0.0f, 0.0f};
-    auto mesh = vsg::Node::create();
+    const vsg::quat insideRotation{0.0f, 0.0f, 1.0f, 0.0f};
+    const vsg::vec3 insideScale{2.0f, 3.0f, 4.0f};
+    const aerovista::CellKey westKey{0, -1, 0};
+    const aerovista::CellKey originKey{0, 0, 0};
+    const aerovista::CellKey nextKey{0, 1, 0};
 
     std::vector<aerovista::PlantInstance> plants(4);
-    plants[0].position = west;
-    plants[1].position = origin;
-    plants[2].position = inside;
-    plants[3].position = next;
+    plants[0].transform.position = west;
+    plants[1].transform.position = origin;
+    plants[2].transform.position = inside;
+    plants[2].transform.rotation = insideRotation;
+    plants[2].transform.scale = insideScale;
+    plants[3].transform.position = next;
 
-    auto group = aerovista::createPlantsGroup(plants, mesh);
-    auto atOrigin = instanceHolding(group, origin);
-    auto atWest = instanceHolding(group, west);
-    auto atInside = instanceHolding(group, inside);
-    auto atNext = instanceHolding(group, next);
+    auto tiles = aerovista::splitPlantTiles(plants);
+    auto atWest = posesAt(tiles, westKey);
+    auto atOrigin = posesAt(tiles, originKey);
+    auto atNext = posesAt(tiles, nextKey);
 
-    REQUIRE(atOrigin);
+    REQUIRE(tiles.size() == 3);
     REQUIRE(atWest);
-    REQUIRE(atInside);
+    REQUIRE(atOrigin);
     REQUIRE(atNext);
-    REQUIRE(atOrigin == atInside);
-    REQUIRE(atOrigin != atWest);
-    REQUIRE(atOrigin != atNext);
-    REQUIRE(atOrigin->child == mesh);
+    REQUIRE(atWest->size() == 1);
+    REQUIRE(atWest->front().position == west);
+    REQUIRE(atNext->size() == 1);
+    REQUIRE(atNext->front().position == next);
+    REQUIRE(atOrigin->size() == 2);
+    REQUIRE(atOrigin->front().position == origin);
+    REQUIRE(atOrigin->back().position == inside);
+    REQUIRE(atOrigin->back().rotation == insideRotation);
+    REQUIRE(atOrigin->back().scale == insideScale);
 }
 
 // =============================================================================
-// 植被系统设计 §4 的 100 棵同一种替身分成 4 个 LOD，每个 25 棵
+// 植被系统设计 §4 的 100 棵同一种替身分成四个片号，每片 25 棵
 // （lod分层实例.md §2、§8，码 PLANT-cell-bin）。
 // 东、北都从 -45 米到 45 米，在 0 两侧各五棵，所以是四片而不是一片。
+// 不验收 map 的遍历顺序。
 // =============================================================================
-TEST_CASE("the 100-tree stand-in becomes four LODs of 25", "[unit][plants][PLANT-cell-bin]")
+TEST_CASE("the 100-tree stand-in becomes four tiles of 25", "[unit][plants][PLANT-cell-bin]")
 {
+    const aerovista::CellKey keys[] = {
+        {0, -1, -1},
+        {0, -1, 0},
+        {0, 0, -1},
+        {0, 0, 0},
+    };
+
     std::vector<aerovista::PlantInstance> plants;
     plants.reserve(100);
     for (int index = 0; index < 100; ++index)
         plants.push_back(standInPlant(index));
 
-    auto group = aerovista::createPlantsGroup(plants, vsg::Node::create());
-    REQUIRE(group);
-    REQUIRE(group->children.size() == 4);
-    for (auto& child : group->children)
+    auto tiles = aerovista::splitPlantTiles(plants);
+
+    REQUIRE(tiles.size() == 4);
+    for (const auto& key : keys)
     {
-        auto instance = soleInstance(child);
-        REQUIRE(instance);
-        REQUIRE(instance->instanceCount == 25);
+        auto poses = posesAt(tiles, key);
+        REQUIRE(poses);
+        REQUIRE(poses->size() == 25);
     }
+}
+
+// =============================================================================
+// 不同物种即使站在同一点也分成两个片号
+// （lod分层实例.md §2、§8，码 PLANT-cell-bin）。
+// 不验收 map 的遍历顺序。
+// =============================================================================
+TEST_CASE("two species at the same point become two tiles", "[unit][plants][PLANT-cell-bin]")
+{
+    const aerovista::CellKey alderKey{0, 0, 0};
+    const aerovista::CellKey birchKey{1, 0, 0};
+
+    std::vector<aerovista::PlantInstance> plants(2);
+    plants[1].type = 1;
+
+    auto tiles = aerovista::splitPlantTiles(plants);
+    auto alder = posesAt(tiles, alderKey);
+    auto birch = posesAt(tiles, birchKey);
+
+    REQUIRE(tiles.size() == 2);
+    REQUIRE(alder);
+    REQUIRE(birch);
+    REQUIRE(alder->size() == 1);
+    REQUIRE(birch->size() == 1);
 }

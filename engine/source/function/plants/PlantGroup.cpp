@@ -2,12 +2,9 @@
 
 #include <vsg/core/Array.h>
 #include <vsg/nodes/InstanceNode.h>
-#include <vsg/nodes/LOD.h>
 
 #include <cmath>
 #include <cstdint>
-#include <map>
-#include <vector>
 
 namespace
 {
@@ -20,39 +17,23 @@ namespace
         return static_cast<int>(std::floor(static_cast<double>(meters) / cellSizeMeters));
     }
 
-    struct CellKey
+    aerovista::CellKey keyOf(const aerovista::PlantInstance& plant)
     {
-        int type = 0;
-        int east = 0;
-        int north = 0;
-
-        bool operator<(const CellKey& rhs) const
-        {
-            if (type != rhs.type)
-                return type < rhs.type;
-            if (east != rhs.east)
-                return east < rhs.east;
-            return north < rhs.north;
-        }
-    };
-
-    CellKey keyOf(const aerovista::PlantInstance& plant)
-    {
-        return {plant.type, cellIndex(plant.position.x), cellIndex(plant.position.y)};
+        const auto& position = plant.transform.position;
+        return {plant.type, cellIndex(position.x), cellIndex(position.y)};
     }
 
-    vsg::ref_ptr<vsg::LOD> createTileLod(const std::vector<const aerovista::PlantInstance*>& members,
-                                         vsg::ref_ptr<vsg::Node> mesh)
+    vsg::ref_ptr<vsg::InstanceNode> createInstance(const std::vector<aerovista::PlantTransform>& poses, vsg::ref_ptr<vsg::Node> mesh)
     {
-        const auto count = static_cast<std::uint32_t>(members.size());
+        const auto count = static_cast<std::uint32_t>(poses.size());
         auto translations = vsg::vec3Array::create(count);
         auto rotations = vsg::quatArray::create(count);
         auto scales = vsg::vec3Array::create(count);
         for (std::uint32_t index = 0; index < count; ++index)
         {
-            translations->at(index) = members[index]->position;
-            rotations->at(index) = members[index]->rotation;
-            scales->at(index) = members[index]->scale;
+            translations->at(index) = poses[index].position;
+            rotations->at(index) = poses[index].rotation;
+            scales->at(index) = poses[index].scale;
         }
 
         auto instance = vsg::InstanceNode::create();
@@ -62,10 +43,13 @@ namespace
         instance->firstInstance = 0;
         instance->instanceCount = count;
         instance->child = mesh;
+        return instance;
+    }
 
-        auto lod = vsg::LOD::create();
-        lod->addChild({0.0, instance});
-        return lod;
+    // 验收不锁占比。JSON 配置之前，先按档序号写成递减分数，最后一档为 0。
+    double temporaryRatio(std::size_t index, std::size_t levelCount)
+    {
+        return static_cast<double>(levelCount - 1 - index) / static_cast<double>(levelCount);
     }
 
 } // namespace
@@ -73,16 +57,23 @@ namespace
 namespace aerovista
 {
 
-    vsg::ref_ptr<vsg::Group> createPlantsGroup(const std::vector<PlantInstance>& plants, vsg::ref_ptr<vsg::Node> mesh)
+    std::map<CellKey, std::vector<PlantTransform>> splitPlantTiles(const std::vector<PlantInstance>& plants)
     {
-        std::map<CellKey, std::vector<const PlantInstance*>> cells;
+        std::map<CellKey, std::vector<PlantTransform>> tiles;
         for (const auto& plant : plants)
-            cells[keyOf(plant)].push_back(&plant);
+            tiles[keyOf(plant)].push_back(plant.transform);
+        return tiles;
+    }
 
-        auto group = vsg::Group::create();
-        for (const auto& entry : cells)
-            group->addChild(createTileLod(entry.second, mesh));
-        return group;
+    vsg::ref_ptr<vsg::LOD> createPlantLods(const std::vector<PlantTransform>& poses, const std::vector<vsg::ref_ptr<vsg::Node>>& meshes)
+    {
+        if (meshes.empty())
+            return {};
+
+        auto lod = vsg::LOD::create();
+        for (std::size_t index = 0; index < meshes.size(); ++index)
+            lod->addChild({temporaryRatio(index, meshes.size()), createInstance(poses, meshes[index])});
+        return lod;
     }
 
 } // namespace aerovista
