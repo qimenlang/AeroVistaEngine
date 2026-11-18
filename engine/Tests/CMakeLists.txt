@@ -13,6 +13,7 @@ set(SOURCES
     PlantSystemTests.cpp
     PlantLodScanTests.cpp
     PlantLodChildrenTests.cpp
+    PlantLodBoundTests.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})

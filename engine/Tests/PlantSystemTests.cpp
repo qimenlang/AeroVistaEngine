@@ -18,13 +18,12 @@ namespace
         return plant;
     }
 
-    const std::vector<aerovista::PlantTransform>* posesAt(const std::map<aerovista::CellKey, std::vector<aerovista::PlantTransform>>& tiles,
-                                                          const aerovista::CellKey& key)
+    const std::vector<aerovista::PlantTransform>* posesAt(const std::map<aerovista::CellKey, aerovista::PlantTile>& tiles, const aerovista::CellKey& key)
     {
         const auto found = tiles.find(key);
         if (found == tiles.end())
             return nullptr;
-        return &found->second;
+        return &found->second.poses;
     }
 
 } // namespace

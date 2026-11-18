@@ -6,7 +6,6 @@
 #include <vsg/nodes/LOD.h>
 
 #include <cstdint>
-#include <vector>
 
 namespace
 {
@@ -40,6 +39,7 @@ namespace
 // 已经分好的一片按收集顺序挂上全部网格
 // （lod分层实例.md §3、§8，码 PLANT-lod-children）。
 // 这一片的两棵树都出现在每一档上。不验收占比，占比是临时值。
+// 网格没有包围盒时仍建 LOD。本用例不验收包围球。
 // 不验收各档是否共用一份 BufferInfo。另一片要由调用方再调一次。
 // =============================================================================
 TEST_CASE("one tile hangs the collected meshes from fine to coarse", "[unit][plants][PLANT-lod-children]")
@@ -50,11 +50,12 @@ TEST_CASE("one tile hangs the collected meshes from fine to coarse", "[unit][pla
     auto middle = vsg::Node::create();
     auto coarse = vsg::Node::create();
 
-    std::vector<aerovista::PlantTransform> poses(2);
-    poses[0].position = origin;
-    poses[1].position = beside;
+    aerovista::PlantTile tile;
+    tile.poses.resize(2);
+    tile.poses[0].position = origin;
+    tile.poses[1].position = beside;
 
-    auto lod = aerovista::createPlantLods(poses, {fine, middle, coarse});
+    auto lod = aerovista::createPlantLods(tile, {fine, middle, coarse});
 
     REQUIRE(lod);
     REQUIRE(holdsPosition(*lod->children.front().node.cast<vsg::InstanceNode>(), beside));
@@ -66,6 +67,7 @@ TEST_CASE("one tile hangs the collected meshes from fine to coarse", "[unit][pla
 // =============================================================================
 // 每种植物单独调用，各用自己传入的网格列表
 // （lod分层实例.md §3、§8，码 PLANT-lod-children）。
+// 网格没有包围盒时仍建 LOD。本用例不验收包围球。
 // 不验收占比。
 // =============================================================================
 TEST_CASE("each species is mounted with the mesh list it was given", "[unit][plants][PLANT-lod-children]")
@@ -75,11 +77,13 @@ TEST_CASE("each species is mounted with the mesh list it was given", "[unit][pla
     auto alderCoarse = vsg::Node::create();
     auto birch = vsg::Node::create();
 
-    const aerovista::PlantTransform alderPose;
-    const aerovista::PlantTransform birchPose;
+    aerovista::PlantTile alderTile;
+    aerovista::PlantTile birchTile;
+    alderTile.poses.resize(1);
+    birchTile.poses.resize(1);
 
-    auto alderLod = aerovista::createPlantLods({alderPose}, {alderFine, alderMiddle, alderCoarse});
-    auto birchLod = aerovista::createPlantLods({birchPose}, {birch});
+    auto alderLod = aerovista::createPlantLods(alderTile, {alderFine, alderMiddle, alderCoarse});
+    auto birchLod = aerovista::createPlantLods(birchTile, {birch});
 
     REQUIRE(alderLod);
     REQUIRE(birchLod);
@@ -96,9 +100,10 @@ TEST_CASE("each species is mounted with the mesh list it was given", "[unit][pla
 // =============================================================================
 TEST_CASE("no meshes produces no LOD", "[unit][plants][PLANT-lod-children]")
 {
-    const aerovista::PlantTransform pose;
+    aerovista::PlantTile tile;
+    tile.poses.resize(1);
 
-    auto lod = aerovista::createPlantLods({pose}, {});
+    auto lod = aerovista::createPlantLods(tile, {});
 
     REQUIRE_FALSE(lod);
 }
@@ -107,6 +112,7 @@ TEST_CASE("no meshes produces no LOD", "[unit][plants][PLANT-lod-children]")
 // 同一个 LOD 的各档共用一份位姿 BufferInfo，第二棵的位姿写在这一份里
 // （lod分层实例.md §3、§8，码 PLANT-lod-share）。
 // 比的是 BufferInfo 对象本身。setTranslations 每次都会新建一层，只共用底层数组不算通过。
+// 网格没有包围盒时仍建 LOD。本用例不验收包围球。
 // 不验收占比、firstInstance、instanceCount、colors。不经过分片。
 // =============================================================================
 TEST_CASE("one LOD's levels share a single pose buffer", "[unit][plants][PLANT-lod-share]")
@@ -115,12 +121,13 @@ TEST_CASE("one LOD's levels share a single pose buffer", "[unit][plants][PLANT-l
     const vsg::quat besideRotation{0.0f, 0.0f, 1.0f, 0.0f};
     const vsg::vec3 besideScale{2.0f, 3.0f, 4.0f};
 
-    std::vector<aerovista::PlantTransform> poses(2);
-    poses[1].position = beside;
-    poses[1].rotation = besideRotation;
-    poses[1].scale = besideScale;
+    aerovista::PlantTile tile;
+    tile.poses.resize(2);
+    tile.poses[1].position = beside;
+    tile.poses[1].rotation = besideRotation;
+    tile.poses[1].scale = besideScale;
 
-    auto lod = aerovista::createPlantLods(poses, {vsg::Node::create(), vsg::Node::create()});
+    auto lod = aerovista::createPlantLods(tile, {vsg::Node::create(), vsg::Node::create()});
 
     REQUIRE(lod);
     REQUIRE(lod->children.size() == 2);

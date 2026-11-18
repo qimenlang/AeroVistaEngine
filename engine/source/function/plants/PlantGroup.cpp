@@ -3,7 +3,9 @@
 #include <vsg/core/Array.h>
 #include <vsg/nodes/InstanceNode.h>
 #include <vsg/state/BufferInfo.h>
+#include <vsg/utils/ComputeBounds.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -21,7 +23,48 @@ namespace
     aerovista::CellKey keyOf(const aerovista::PlantInstance& plant)
     {
         const auto& position = plant.transform.position;
-        return {plant.type, cellIndex(position.x), cellIndex(position.y)};
+        aerovista::CellKey key;
+        key.type = plant.type;
+        key.east = cellIndex(position.x);
+        key.north = cellIndex(position.y);
+        key.sideLength = cellSizeMeters;
+        key.center = {(key.east + 0.5) * cellSizeMeters, (key.north + 0.5) * cellSizeMeters, 0.0};
+        return key;
+    }
+
+    double largestScale(const std::vector<aerovista::PlantTransform>& poses)
+    {
+        double largest = 0.0;
+        for (const auto& pose : poses)
+        {
+            const double component = std::max(std::abs(static_cast<double>(pose.scale.x)),
+                                              std::max(std::abs(static_cast<double>(pose.scale.y)), std::abs(static_cast<double>(pose.scale.z))));
+            largest = std::max(largest, component);
+        }
+        return largest;
+    }
+
+    // 没有顶点的档按 0。全部都没有包围盒时单株半径是 0，仍写片包围球。
+    double largestPlantRadius(const std::vector<vsg::ref_ptr<vsg::Node>>& meshes)
+    {
+        double largest = 0.0;
+        for (const auto& mesh : meshes)
+        {
+            vsg::ComputeBounds bounds;
+            mesh->accept(bounds);
+            if (!bounds.bounds.valid())
+                continue;
+
+            const double radius = 0.5 * vsg::length(bounds.bounds.max - bounds.bounds.min);
+            largest = std::max(largest, radius);
+        }
+        return largest;
+    }
+
+    vsg::dsphere tileSphere(const aerovista::PlantTile& tile, double plantRadius)
+    {
+        const double squareRadius = tile.key.sideLength * 0.5 * std::sqrt(2.0);
+        return {tile.key.center, squareRadius + plantRadius * largestScale(tile.poses)};
     }
 
     struct SharedPose
@@ -72,21 +115,27 @@ namespace
 namespace aerovista
 {
 
-    std::map<CellKey, std::vector<PlantTransform>> splitPlantTiles(const std::vector<PlantInstance>& plants)
+    std::map<CellKey, PlantTile> splitPlantTiles(const std::vector<PlantInstance>& plants)
     {
-        std::map<CellKey, std::vector<PlantTransform>> tiles;
+        std::map<CellKey, PlantTile> tiles;
         for (const auto& plant : plants)
-            tiles[keyOf(plant)].push_back(plant.transform);
+        {
+            const auto key = keyOf(plant);
+            auto& tile = tiles[key];
+            tile.key = key;
+            tile.poses.push_back(plant.transform);
+        }
         return tiles;
     }
 
-    vsg::ref_ptr<vsg::LOD> createPlantLods(const std::vector<PlantTransform>& poses, const std::vector<vsg::ref_ptr<vsg::Node>>& meshes)
+    vsg::ref_ptr<vsg::LOD> createPlantLods(const PlantTile& tile, const std::vector<vsg::ref_ptr<vsg::Node>>& meshes)
     {
-        if (meshes.empty())
+        if (tile.poses.empty() || meshes.empty())
             return {};
 
-        const auto pose = createSharedPose(poses);
+        const auto pose = createSharedPose(tile.poses);
         auto lod = vsg::LOD::create();
+        lod->bound = tileSphere(tile, largestPlantRadius(meshes));
         for (std::size_t index = 0; index < meshes.size(); ++index)
             lod->addChild({temporaryRatio(index, meshes.size()), createInstance(pose, meshes[index])});
         return lod;

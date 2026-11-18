@@ -30,6 +30,8 @@ namespace aerovista
         int type = 0;
         int east = 0;
         int north = 0;
+        vsg::dvec3 center;
+        double sideLength = 256.0;
 
         bool operator<(const CellKey& rhs) const
         {
@@ -46,13 +48,19 @@ namespace aerovista
         }
     };
 
-    // 键是物种和片号。值是该片该物种的位姿副本，组内顺序与输入一致。
-    // map 的遍历顺序不验收。
-    std::map<CellKey, std::vector<PlantTransform>> splitPlantTiles(const std::vector<PlantInstance>& plants);
+    struct PlantTile
+    {
+        CellKey key;
+        std::vector<PlantTransform> poses;
+    };
 
-    // 调用方传入一个键上的位姿，以及从细到粗的网格。这里不读 glTF，也不再分片。
-    // 各档占比暂时是 (档数 - 1 - 序号) / 档数，序号从 0 起。网格为空时返回空。
-    vsg::ref_ptr<vsg::LOD> createPlantLods(const std::vector<PlantTransform>& poses,
-                                           const std::vector<vsg::ref_ptr<vsg::Node>>& meshes);
+    // 键是物种和片号。值里的 key 与 map 的键相同，位姿副本的组内顺序与输入一致。
+    // map 的遍历顺序不验收。center、sideLength 不参与键的比较。
+    std::map<CellKey, PlantTile> splitPlantTiles(const std::vector<PlantInstance>& plants);
+
+    // 调用方传入一片 PlantTile，以及从细到粗的网格。这里不读 glTF，也不再分片，也不从位姿重算方格中心。
+    // 各档占比暂时是 (档数 - 1 - 序号) / 档数，序号从 0 起。
+    // 没有位姿或网格为空时返回空。网格没有包围盒时单株半径按 0，仍写片包围球。
+    vsg::ref_ptr<vsg::LOD> createPlantLods(const PlantTile& tile, const std::vector<vsg::ref_ptr<vsg::Node>>& meshes);
 
 } // namespace aerovista
