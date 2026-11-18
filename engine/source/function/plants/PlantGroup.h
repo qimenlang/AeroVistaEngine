@@ -10,7 +10,8 @@
 
 namespace aerovista
 {
-
+    // 划片边长的唯一字面量。JSON 配置之前，分片和测试都用这个值。
+    constexpr double cellSizeMeters = 256.0;
     struct PlantTransform
     {
         vsg::vec3 position;
@@ -24,14 +25,14 @@ namespace aerovista
         PlantTransform transform;
     };
 
-    // east、north 是 floor(米 / 256) 的片号，不是米。天向不参与。
+    // east、north 是 floor(米 / cellSizeMeters) 的片号，不是米。天向不参与。
     struct CellKey
     {
         int type = 0;
         int east = 0;
         int north = 0;
         vsg::dvec3 center;
-        double sideLength = 256.0;
+        double sideLength = cellSizeMeters;
 
         bool operator<(const CellKey& rhs) const
         {

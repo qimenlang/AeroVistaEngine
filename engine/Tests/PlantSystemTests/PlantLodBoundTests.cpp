@@ -40,15 +40,29 @@ namespace
         return sideLength * 0.5 * std::sqrt(2.0);
     }
 
+    double cellHalf()
+    {
+        return aerovista::cellSizeMeters * 0.5;
+    }
+
+    aerovista::PlantTile centeredTile()
+    {
+        aerovista::PlantTile tile;
+        const double half = cellHalf();
+        tile.key.center = {half, half, 0.0};
+        tile.key.sideLength = aerovista::cellSizeMeters;
+        return tile;
+    }
+
 } // namespace
 
 // =============================================================================
 // 分片写入方格中心和边长。中心是 (片号 + 0.5) × 边长，高度为 0
 // （lod分层实例.md §4、§8，码 PLANT-lod-bound）。
-// x = -0.1 的东向片号是 -1，所以球心 x 是 -128，不是 0。
+// x = -0.1 的东向片号是 -1，所以球心 x 是负的半个边长。
 // 不验收 map 的遍历顺序。
 // =============================================================================
-TEST_CASE("a split tile records the center of its 256 m square", "[unit][plants][PLANT-lod-bound]")
+TEST_CASE("a split tile records the center of its cell square", "[unit][plants][PLANT-lod-bound]")
 {
     std::vector<aerovista::PlantInstance> plants(2);
     plants[0].transform.position = {0.0f, 0.0f, 0.0f};
@@ -60,12 +74,12 @@ TEST_CASE("a split tile records the center of its 256 m square", "[unit][plants]
 
     REQUIRE(origin != tiles.end());
     REQUIRE(west != tiles.end());
-    REQUIRE(origin->second.key.sideLength == Catch::Approx(256.0));
-    REQUIRE(origin->second.key.center.x == Catch::Approx(128.0));
-    REQUIRE(origin->second.key.center.y == Catch::Approx(128.0));
+    REQUIRE(origin->second.key.sideLength == Catch::Approx(aerovista::cellSizeMeters));
+    REQUIRE(origin->second.key.center.x == Catch::Approx(cellHalf()));
+    REQUIRE(origin->second.key.center.y == Catch::Approx(cellHalf()));
     REQUIRE(origin->second.key.center.z == Catch::Approx(0.0));
-    REQUIRE(west->second.key.center.x == Catch::Approx(-128.0));
-    REQUIRE(west->second.key.center.y == Catch::Approx(128.0));
+    REQUIRE(west->second.key.center.x == Catch::Approx(-cellHalf()));
+    REQUIRE(west->second.key.center.y == Catch::Approx(cellHalf()));
     REQUIRE(west->second.key.center.z == Catch::Approx(0.0));
 }
 
@@ -77,19 +91,17 @@ TEST_CASE("a split tile records the center of its 256 m square", "[unit][plants]
 // =============================================================================
 TEST_CASE("a tile LOD bound uses the cell center and the finest mesh radius", "[unit][plants][PLANT-lod-bound]")
 {
-    aerovista::PlantTile tile;
-    tile.key.center = {128.0, 128.0, 0.0};
-    tile.key.sideLength = 256.0;
+    auto tile = centeredTile();
     tile.poses.resize(1);
     tile.poses[0].scale = {2.0f, 3.0f, 4.0f};
 
     auto lod = aerovista::createPlantLods(tile, {meshBox()});
 
     REQUIRE(lod);
-    REQUIRE(lod->bound.center.x == Catch::Approx(128.0));
-    REQUIRE(lod->bound.center.y == Catch::Approx(128.0));
+    REQUIRE(lod->bound.center.x == Catch::Approx(cellHalf()));
+    REQUIRE(lod->bound.center.y == Catch::Approx(cellHalf()));
     REQUIRE(lod->bound.center.z == Catch::Approx(0.0));
-    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(256.0) + 3.5 * 4.0));
+    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(aerovista::cellSizeMeters) + 3.5 * 4.0));
 }
 
 // =============================================================================
@@ -99,16 +111,14 @@ TEST_CASE("a tile LOD bound uses the cell center and the finest mesh radius", "[
 // =============================================================================
 TEST_CASE("a point mesh adds nothing to the tile radius", "[unit][plants][PLANT-lod-bound]")
 {
-    aerovista::PlantTile tile;
-    tile.key.center = {128.0, 128.0, 0.0};
-    tile.key.sideLength = 256.0;
+    auto tile = centeredTile();
     tile.poses.resize(1);
     tile.poses[0].scale = {2.0f, 2.0f, 2.0f};
 
     auto lod = aerovista::createPlantLods(tile, {meshPoint()});
 
     REQUIRE(lod);
-    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(256.0)));
+    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(aerovista::cellSizeMeters)));
 }
 
 // =============================================================================
@@ -118,9 +128,7 @@ TEST_CASE("a point mesh adds nothing to the tile radius", "[unit][plants][PLANT-
 // =============================================================================
 TEST_CASE("a tile with no poses produces no LOD", "[unit][plants][PLANT-lod-bound]")
 {
-    aerovista::PlantTile tile;
-    tile.key.center = {128.0, 128.0, 0.0};
-    tile.key.sideLength = 256.0;
+    auto tile = centeredTile();
 
     auto lod = aerovista::createPlantLods(tile, {meshBox()});
 
@@ -139,15 +147,13 @@ TEST_CASE("the tile radius uses the largest mesh bounding box", "[unit][plants][
     small->set(0, {0.0f, 0.0f, 0.0f});
     small->set(1, {2.0f, 0.0f, 0.0f});
 
-    aerovista::PlantTile tile;
-    tile.key.center = {128.0, 128.0, 0.0};
-    tile.key.sideLength = 256.0;
+    auto tile = centeredTile();
     tile.poses.resize(1);
 
     auto lod = aerovista::createPlantLods(tile, {meshFromVertices(small), meshBox()});
 
     REQUIRE(lod);
-    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(256.0) + 3.5));
+    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(aerovista::cellSizeMeters) + 3.5));
 }
 
 // =============================================================================
@@ -157,13 +163,11 @@ TEST_CASE("the tile radius uses the largest mesh bounding box", "[unit][plants][
 // =============================================================================
 TEST_CASE("a mesh without bounds adds nothing to the tile radius", "[unit][plants][PLANT-lod-bound]")
 {
-    aerovista::PlantTile tile;
-    tile.key.center = {128.0, 128.0, 0.0};
-    tile.key.sideLength = 256.0;
+    auto tile = centeredTile();
     tile.poses.resize(1);
 
     auto lod = aerovista::createPlantLods(tile, {vsg::Node::create()});
 
     REQUIRE(lod);
-    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(256.0)));
+    REQUIRE(lod->bound.radius == Catch::Approx(squareRadius(aerovista::cellSizeMeters)));
 }

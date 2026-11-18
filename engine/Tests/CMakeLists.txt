@@ -10,10 +10,10 @@ set(SOURCES
     ModelConfigTests.cpp
     ShaderCubeTests.cpp
     GroundGridTests.cpp
-    PlantSystemTests.cpp
-    PlantLodScanTests.cpp
-    PlantLodChildrenTests.cpp
-    PlantLodBoundTests.cpp
+    PlantSystemTests/PlantSystemTests.cpp
+    PlantSystemTests/PlantLodScanTests.cpp
+    PlantSystemTests/PlantLodChildrenTests.cpp
+    PlantSystemTests/PlantLodBoundTests.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})

@@ -29,17 +29,18 @@ namespace
 } // namespace
 
 // =============================================================================
-// 同一物种在 256 米边界两侧用不同的片号，边界内的两棵共用 {0, 0, 0}
+// 同一物种在划片边长两侧用不同的片号，边界内的两棵共用 {0, 0, 0}
 // （lod分层实例.md §2、§8，码 PLANT-cell-bin）。
+// 边长减 0.1 米仍在本片，边长整米进下一片。
 // 组内顺序与输入一致：先 origin，后 inside。后一棵的旋转和缩放原样留在该键上。
 // 不验收 map 的遍历顺序。
 // =============================================================================
-TEST_CASE("plants of one type share a tile only inside the same 256 m square", "[unit][plants][PLANT-cell-bin]")
+TEST_CASE("plants of one type share a tile only inside the same cell square", "[unit][plants][PLANT-cell-bin]")
 {
     const vsg::vec3 west{-0.1f, 0.0f, 0.0f};
     const vsg::vec3 origin{0.0f, 0.0f, 0.0f};
-    const vsg::vec3 inside{255.9f, 0.0f, 0.0f};
-    const vsg::vec3 next{256.0f, 0.0f, 0.0f};
+    const vsg::vec3 inside{static_cast<float>(aerovista::cellSizeMeters - 0.1), 0.0f, 0.0f};
+    const vsg::vec3 next{static_cast<float>(aerovista::cellSizeMeters), 0.0f, 0.0f};
     const vsg::quat insideRotation{0.0f, 0.0f, 1.0f, 0.0f};
     const vsg::vec3 insideScale{2.0f, 3.0f, 4.0f};
     const aerovista::CellKey westKey{0, -1, 0};

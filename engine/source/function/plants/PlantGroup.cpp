@@ -12,12 +12,10 @@
 namespace
 {
 
-    constexpr double cellSizeMeters = 256.0;
-
     // 负向要用 floor。整数除法会向 0 截断，-0.1 米会进错片。
     int cellIndex(float meters)
     {
-        return static_cast<int>(std::floor(static_cast<double>(meters) / cellSizeMeters));
+        return static_cast<int>(std::floor(static_cast<double>(meters) / aerovista::cellSizeMeters));
     }
 
     aerovista::CellKey keyOf(const aerovista::PlantInstance& plant)
@@ -27,8 +25,8 @@ namespace
         key.type = plant.type;
         key.east = cellIndex(position.x);
         key.north = cellIndex(position.y);
-        key.sideLength = cellSizeMeters;
-        key.center = {(key.east + 0.5) * cellSizeMeters, (key.north + 0.5) * cellSizeMeters, 0.0};
+        key.sideLength = aerovista::cellSizeMeters;
+        key.center = {(key.east + 0.5) * aerovista::cellSizeMeters, (key.north + 0.5) * aerovista::cellSizeMeters, 0.0};
         return key;
     }
 
