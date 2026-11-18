@@ -58,7 +58,7 @@ namespace
 
 // =============================================================================
 // 同一物种在 256 米边界两侧分成不同的 LOD，边界内的两棵进同一个
-// （lod分层实例.md §2、§9，码 PLANT-cell-bin）。
+// （lod分层实例.md §2、§8，码 PLANT-cell-bin）。
 // origin 与 inside 划进同一片
 // =============================================================================
 TEST_CASE("plants of one type share an LOD only inside the same 256 m square",
@@ -94,7 +94,7 @@ TEST_CASE("plants of one type share an LOD only inside the same 256 m square",
 
 // =============================================================================
 // 植被系统设计 §4 的 100 棵同一种替身分成 4 个 LOD，每个 25 棵
-// （lod分层实例.md §2、§9，码 PLANT-cell-bin）。
+// （lod分层实例.md §2、§8，码 PLANT-cell-bin）。
 // 东、北都从 -45 米到 45 米，在 0 两侧各五棵，所以是四片而不是一片。
 // =============================================================================
 TEST_CASE("the 100-tree stand-in becomes four LODs of 25", "[unit][plants][PLANT-cell-bin]")

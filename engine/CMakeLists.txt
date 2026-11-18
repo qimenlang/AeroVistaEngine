@@ -29,6 +29,7 @@ add_library(vsgEngineLib STATIC
     source/function/scene/InstanceAttach.cpp
     source/function/scene/LodAttach.cpp
     source/function/plants/PlantGroup.cpp
+    source/function/plants/PlantLodScan.cpp
 )
 
 target_include_directories(vsgEngineLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/source)

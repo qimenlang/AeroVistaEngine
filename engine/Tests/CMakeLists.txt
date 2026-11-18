@@ -11,6 +11,7 @@ set(SOURCES
     ShaderCubeTests.cpp
     GroundGridTests.cpp
     PlantSystemTests.cpp
+    PlantLodScanTests.cpp
 )
 
 add_executable(${TARGET_NAME} ${SOURCES})
