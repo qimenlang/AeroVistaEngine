@@ -2,6 +2,7 @@
 
 #include <vsg/core/Array.h>
 #include <vsg/nodes/InstanceNode.h>
+#include <vsg/state/BufferInfo.h>
 
 #include <cmath>
 #include <cstdint>
@@ -23,7 +24,16 @@ namespace
         return {plant.type, cellIndex(position.x), cellIndex(position.y)};
     }
 
-    vsg::ref_ptr<vsg::InstanceNode> createInstance(const std::vector<aerovista::PlantTransform>& poses, vsg::ref_ptr<vsg::Node> mesh)
+    struct SharedPose
+    {
+        vsg::ref_ptr<vsg::BufferInfo> translations;
+        vsg::ref_ptr<vsg::BufferInfo> rotations;
+        vsg::ref_ptr<vsg::BufferInfo> scales;
+        std::uint32_t count = 0;
+    };
+
+    // setTranslations 每次都会新建 BufferInfo。各档要共用同一份，只能直接挂这三份对象。
+    SharedPose createSharedPose(const std::vector<aerovista::PlantTransform>& poses)
     {
         const auto count = static_cast<std::uint32_t>(poses.size());
         auto translations = vsg::vec3Array::create(count);
@@ -36,12 +46,17 @@ namespace
             scales->at(index) = poses[index].scale;
         }
 
+        return {vsg::BufferInfo::create(translations), vsg::BufferInfo::create(rotations), vsg::BufferInfo::create(scales), count};
+    }
+
+    vsg::ref_ptr<vsg::InstanceNode> createInstance(const SharedPose& pose, vsg::ref_ptr<vsg::Node> mesh)
+    {
         auto instance = vsg::InstanceNode::create();
-        instance->setTranslations(translations);
-        instance->setRotations(rotations);
-        instance->setScales(scales);
+        instance->translations = pose.translations;
+        instance->rotations = pose.rotations;
+        instance->scales = pose.scales;
         instance->firstInstance = 0;
-        instance->instanceCount = count;
+        instance->instanceCount = pose.count;
         instance->child = mesh;
         return instance;
     }
@@ -70,9 +85,10 @@ namespace aerovista
         if (meshes.empty())
             return {};
 
+        const auto pose = createSharedPose(poses);
         auto lod = vsg::LOD::create();
         for (std::size_t index = 0; index < meshes.size(); ++index)
-            lod->addChild({temporaryRatio(index, meshes.size()), createInstance(poses, meshes[index])});
+            lod->addChild({temporaryRatio(index, meshes.size()), createInstance(pose, meshes[index])});
         return lod;
     }
 

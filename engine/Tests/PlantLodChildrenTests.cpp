@@ -102,3 +102,43 @@ TEST_CASE("no meshes produces no LOD", "[unit][plants][PLANT-lod-children]")
 
     REQUIRE_FALSE(lod);
 }
+
+// =============================================================================
+// 同一个 LOD 的各档共用一份位姿 BufferInfo，第二棵的位姿写在这一份里
+// （lod分层实例.md §3、§8，码 PLANT-lod-share）。
+// 比的是 BufferInfo 对象本身。setTranslations 每次都会新建一层，只共用底层数组不算通过。
+// 不验收占比、firstInstance、instanceCount、colors。不经过分片。
+// =============================================================================
+TEST_CASE("one LOD's levels share a single pose buffer", "[unit][plants][PLANT-lod-share]")
+{
+    const vsg::vec3 beside{10.0f, 0.0f, 0.0f};
+    const vsg::quat besideRotation{0.0f, 0.0f, 1.0f, 0.0f};
+    const vsg::vec3 besideScale{2.0f, 3.0f, 4.0f};
+
+    std::vector<aerovista::PlantTransform> poses(2);
+    poses[1].position = beside;
+    poses[1].rotation = besideRotation;
+    poses[1].scale = besideScale;
+
+    auto lod = aerovista::createPlantLods(poses, {vsg::Node::create(), vsg::Node::create()});
+
+    REQUIRE(lod);
+    REQUIRE(lod->children.size() == 2);
+    auto fineInstance = lod->children[0].node.cast<vsg::InstanceNode>();
+    auto coarseInstance = lod->children[1].node.cast<vsg::InstanceNode>();
+    REQUIRE(fineInstance);
+    REQUIRE(coarseInstance);
+    REQUIRE(fineInstance->translations == coarseInstance->translations);
+    REQUIRE(fineInstance->rotations == coarseInstance->rotations);
+    REQUIRE(fineInstance->scales == coarseInstance->scales);
+
+    auto translations = fineInstance->getTranslations();
+    auto rotations = fineInstance->getRotations();
+    auto scales = fineInstance->getScales();
+    REQUIRE(translations);
+    REQUIRE(rotations);
+    REQUIRE(scales);
+    REQUIRE(translations->at(1) == beside);
+    REQUIRE(rotations->at(1) == besideRotation);
+    REQUIRE(scales->at(1) == besideScale);
+}
